@@ -1,8 +1,7 @@
-﻿/**
+/**
  * =========================================================================================
- * 项目名称: YR/MO Ultimate Auto-Reloader (热重载系统)
- * 核心机制: 利用内存 Hook 多米诺效应，纯 YRpp 即可触发 Ares/Phobos 的全属性解析。
- * 支持对象: 八大核心图纸 (包含超级武器、弹头、弹道等)，支持多文件阵列与 CMD 监控。
+ * Project Name: YR/MO Hot Reloader (独立热重载组件)
+ * Description:  A standalone dynamic reloader for C&C Red Alert 2: Yuri's Revenge.
  * =========================================================================================
  */
 
@@ -16,7 +15,7 @@
 #include <sstream>
 #include <map>
 
- // ⚡ 只需纯正的 YRpp 库，决不引入任何繁杂的第三方库！
+ // YRpp Headers
 #include <YRpp.h>
 #include <CCINIClass.h>
 #include <CCFileClass.h>
@@ -27,36 +26,49 @@
 #include <UnitTypeClass.h>
 #include <AircraftTypeClass.h>
 #include <BuildingTypeClass.h>
-#include <SuperWeaponTypeClass.h> // 新增：超级武器支持！
+#include <SuperWeaponTypeClass.h>
+#include <AnimTypeClass.h>
+#include <ParticleTypeClass.h>
+#include <ParticleSystemTypeClass.h>
+#include <VoxelAnimTypeClass.h>
 
 // ========================================================
-// 全局控制变量
+// Global Configuration Variables
 // ========================================================
 int g_HotKey = VK_F5;
 bool g_AutoMonitor = true;
+bool g_ShowConsole = true;
+bool g_ConsoleAllocated = false;
 std::vector<std::string> g_TargetINIs;
 
 // ========================================================
-// 模块 1：CMD 终端
+// Module 1: Console Management
 // ========================================================
-void InitDebugConsole()
+void ToggleConsole(bool show)
 {
-    AllocConsole();
-    FILE* fDummy;
-    freopen_s(&fDummy, "CONOUT$", "w", stdout);
-    freopen_s(&fDummy, "CONIN$", "r", stdin);
+    if (show && !g_ConsoleAllocated) {
+        AllocConsole();
+        FILE* fDummy;
+        freopen_s(&fDummy, "CONOUT$", "w", stdout);
+        freopen_s(&fDummy, "CONIN$", "r", stdin);
 
-    SetConsoleTitleA("Mental Omega 热重载终端");
-    SetConsoleOutputCP(936);
+        SetConsoleTitleA("YR/MO Hot Reloader - Debug Console");
+        SetConsoleOutputCP(936);
 
-    std::cout << "========================================================" << std::endl;
-    std::cout << " [系统] DLL 加载成功！终端已激活。" << std::endl;
-    std::cout << " [火力] 已覆盖: 载具/步兵/建筑/战机/武器/弹头/弹道/超武" << std::endl;
-    std::cout << "========================================================\n" << std::endl;
+        std::cout << "========================================================" << std::endl;
+        std::cout << " [INFO] Hot Reloader Thread Injected Successfully!" << std::endl;
+        std::cout << "========================================================\n" << std::endl;
+
+        g_ConsoleAllocated = true;
+    }
+    else if (!show && g_ConsoleAllocated) {
+        FreeConsole();
+        g_ConsoleAllocated = false;
+    }
 }
 
 // ========================================================
-// 模块 2：动态列阵配置读取
+// Module 2: Configuration Loader
 // ========================================================
 void LoadReloaderConfig(const std::string& gameDir)
 {
@@ -67,6 +79,10 @@ void LoadReloaderConfig(const std::string& gameDir)
     char autoMonStr[16] = { 0 };
     GetPrivateProfileStringA("Settings", "AutoMonitor", "true", autoMonStr, sizeof(autoMonStr), configPath.c_str());
     g_AutoMonitor = (_stricmp(autoMonStr, "true") == 0 || _stricmp(autoMonStr, "1") == 0);
+
+    char consoleStr[16] = { 0 };
+    GetPrivateProfileStringA("Settings", "ShowConsole", "true", consoleStr, sizeof(consoleStr), configPath.c_str());
+    g_ShowConsole = (_stricmp(consoleStr, "true") == 0 || _stricmp(consoleStr, "1") == 0);
 
     char targetIniStr[1024] = { 0 };
     GetPrivateProfileStringA("Settings", "TargetINI", "hotfix.ini", targetIniStr, sizeof(targetIniStr), configPath.c_str());
@@ -88,7 +104,7 @@ void LoadReloaderConfig(const std::string& gameDir)
 }
 
 // ========================================================
-// 模块 3：获取文件时间戳
+// Module 3: File Utilities
 // ========================================================
 FILETIME GetFileLastWriteTime(const std::string& path)
 {
@@ -101,8 +117,23 @@ FILETIME GetFileLastWriteTime(const std::string& path)
 }
 
 // ========================================================
-// 模块 4：终极八核解析引擎！
+// Module 4: Core Injection Engine
 // ========================================================
+template <typename T>
+bool TryReloadType(const std::string& targetID, CCINIClass* pINI, const char* typeName) {
+    for (int i = 0; i < T::Array.Count; ++i) {
+        auto pItem = T::Array.Items[i];
+        if (pItem && _stricmp(pItem->ID, targetID.c_str()) == 0) {
+            pItem->LoadFromINI(pINI);
+            if (g_ConsoleAllocated) {
+                std::cout << "  -> Reloaded [" << typeName << "]: " << targetID << std::endl;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fileName)
 {
     char sectionBuffer[4096] = { 0 };
@@ -113,180 +144,145 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
 
     if (ini.ReadCCFile(&file))
     {
-        std::cout << "[解析] 捕获数据流 -> [" << fileName << "]" << std::endl;
+        if (g_ConsoleAllocated) {
+            std::cout << "[PARSE] Capturing data stream from: " << fileName << std::endl;
+        }
+
         char* currentSection = sectionBuffer;
 
         while (*currentSection != '\0')
         {
             std::string targetID = currentSection;
-            bool matched = false;
 
-            // 1. 武器大池
-            for (int i = 0; i < WeaponTypeClass::Array.Count; ++i) {
-                if (WeaponTypeClass::Array.Items[i] && _stricmp(WeaponTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                    WeaponTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                    std::cout << "  -> 覆写 [武器]: " << targetID << std::endl;
-                    matched = true; break;
-                }
-            }
-            // 2. 弹头大池
-            if (!matched) {
-                for (int i = 0; i < WarheadTypeClass::Array.Count; ++i) {
-                    if (WarheadTypeClass::Array.Items[i] && _stricmp(WarheadTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        WarheadTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [弹头]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 3. 抛射体大池
-            if (!matched) {
-                for (int i = 0; i < BulletTypeClass::Array.Count; ++i) {
-                    if (BulletTypeClass::Array.Items[i] && _stricmp(BulletTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        BulletTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [抛射体]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 4. 载具大池
-            if (!matched) {
-                for (int i = 0; i < UnitTypeClass::Array.Count; ++i) {
-                    if (UnitTypeClass::Array.Items[i] && _stricmp(UnitTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        UnitTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [载具]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 5. 步兵大池
-            if (!matched) {
-                for (int i = 0; i < InfantryTypeClass::Array.Count; ++i) {
-                    if (InfantryTypeClass::Array.Items[i] && _stricmp(InfantryTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        InfantryTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [步兵]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 6. 建筑大池
-            if (!matched) {
-                for (int i = 0; i < BuildingTypeClass::Array.Count; ++i) {
-                    if (BuildingTypeClass::Array.Items[i] && _stricmp(BuildingTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        BuildingTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [建筑]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 7. 战机大池
-            if (!matched) {
-                for (int i = 0; i < AircraftTypeClass::Array.Count; ++i) {
-                    if (AircraftTypeClass::Array.Items[i] && _stricmp(AircraftTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        AircraftTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [战机]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
-            // 8. 超级武器大池 (SuperWeapon)
-            if (!matched) {
-                for (int i = 0; i < SuperWeaponTypeClass::Array.Count; ++i) {
-                    if (SuperWeaponTypeClass::Array.Items[i] && _stricmp(SuperWeaponTypeClass::Array.Items[i]->ID, targetID.c_str()) == 0) {
-                        SuperWeaponTypeClass::Array.Items[i]->LoadFromINI(&ini);
-                        std::cout << "  -> 覆写 [超级武器]: " << targetID << std::endl;
-                        matched = true; break;
-                    }
-                }
-            }
+            bool matched =
+                TryReloadType<UnitTypeClass>(targetID, &ini, "Vehicle") ||
+                TryReloadType<InfantryTypeClass>(targetID, &ini, "Infantry") ||
+                TryReloadType<BuildingTypeClass>(targetID, &ini, "Building") ||
+                TryReloadType<AircraftTypeClass>(targetID, &ini, "Aircraft") ||
+                TryReloadType<WeaponTypeClass>(targetID, &ini, "Weapon") ||
+                TryReloadType<WarheadTypeClass>(targetID, &ini, "Warhead") ||
+                TryReloadType<BulletTypeClass>(targetID, &ini, "Projectile") ||
+                TryReloadType<SuperWeaponTypeClass>(targetID, &ini, "SuperWeapon") ||
+                TryReloadType<AnimTypeClass>(targetID, &ini, "Animation") ||
+                TryReloadType<ParticleTypeClass>(targetID, &ini, "Particle") ||
+                TryReloadType<ParticleSystemTypeClass>(targetID, &ini, "ParticleSys") ||
+                TryReloadType<VoxelAnimTypeClass>(targetID, &ini, "VoxelAnim");
 
-            if (!matched) {
-                std::cout << "  [警告] 内存中未找到实体图纸: " << targetID << std::endl;
+            if (!matched && g_ConsoleAllocated) {
+                std::cout << "  [WARN] Entity ID not found in memory: " << targetID << std::endl;
             }
 
             currentSection += targetID.length() + 1;
         }
-        std::cout << "[OK] " << fileName << " 注入完毕，规则已改写！\n" << std::endl;
+
+        if (g_ConsoleAllocated) {
+            std::cout << "[OK] " << fileName << " injection completed.\n" << std::endl;
+        }
     }
 }
 
 // ========================================================
-// 模块 5：多维监控线程
+// Module 5: Thread Monitor (Logic Fixed!)
 // ========================================================
 DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
 {
-    InitDebugConsole();
-
     char exePath[MAX_PATH];
     GetModuleFileNameA(NULL, exePath, MAX_PATH);
     std::string pathStr = exePath;
     std::string gameDir = pathStr.substr(0, pathStr.find_last_of("\\/"));
 
-    bool lastMonitorState = true;
+    // 🚨 修复点：立刻读取配置并拉起控制台，绝对不等待引擎加载！
+    LoadReloaderConfig(gameDir);
+    ToggleConsole(g_ShowConsole);
+
+    if (g_ConsoleAllocated) {
+        std::cout << "[SYSTEM] Waiting for Yuri's Revenge Engine to initialize..." << std::endl;
+    }
+
+    bool engineReady = false;
+    bool lastMonitorState = g_AutoMonitor;
     std::map<std::string, FILETIME> fileTimes;
 
     while (true)
     {
-        if (UnitTypeClass::Array.Count > 0)
-        {
-            LoadReloaderConfig(gameDir);
-
-            if (lastMonitorState != g_AutoMonitor) {
-                lastMonitorState = g_AutoMonitor;
-                std::cout << "[系统] 切换协议 -> " << (g_AutoMonitor ? "监控 (保存即刻生效)" : "手动控制 (F5热键打击)") << std::endl;
-
+        // 阶段 1：死磕引擎是否就绪
+        if (!engineReady) {
+            if (UnitTypeClass::Array.Count > 0) {
+                engineReady = true;
+                if (g_ConsoleAllocated) {
+                    std::cout << "[SYSTEM] Engine Ready! Loaded Entities: " << UnitTypeClass::Array.Count << std::endl;
+                    std::cout << "[SYSTEM] Protocol Mode: " << (g_AutoMonitor ? "Auto-Monitor" : "Manual Hotkey") << std::endl;
+                }
+                // 引擎就绪后，初始化文件时间戳基准线
                 if (g_AutoMonitor) {
                     for (const auto& fileName : g_TargetINIs) {
                         fileTimes[fileName] = GetFileLastWriteTime(gameDir + "\\" + fileName);
                     }
                 }
             }
-
-            if (g_AutoMonitor)
-            {
-                bool anyFileReloaded = false;
-                for (const auto& fileName : g_TargetINIs)
-                {
-                    std::string fullPath = gameDir + "\\" + fileName;
-                    FILETIME currentWriteTime = GetFileLastWriteTime(fullPath);
-
-                    if (fileTimes[fileName].dwLowDateTime == 0 && fileTimes[fileName].dwHighDateTime == 0) {
-                        fileTimes[fileName] = currentWriteTime;
-                    }
-                    else if (CompareFileTime(&fileTimes[fileName], &currentWriteTime) != 0) {
-                        fileTimes[fileName] = currentWriteTime;
-                        Sleep(100);
-                        ExecuteUniversalHotReload(fullPath, fileName);
-                        anyFileReloaded = true;
-                    }
-                }
-                if (anyFileReloaded) MessageBeep(MB_ICONINFORMATION);
-                Sleep(500);
-            }
-            else
-            {
-                if (GetAsyncKeyState(g_HotKey) & 0x8000)
-                {
-                    std::cout << "\n[>>>] 执行全阵列饱和式重载..." << std::endl;
-                    for (const auto& fileName : g_TargetINIs) {
-                        std::string fullPath = gameDir + "\\" + fileName;
-                        ExecuteUniversalHotReload(fullPath, fileName);
-                    }
-                    MessageBeep(MB_ICONWARNING);
-                    Sleep(500);
-                }
-                Sleep(50);
+            else {
+                Sleep(500); // 引擎还没好，继续等
+                continue;
             }
         }
-        else {
+
+        // 阶段 2：引擎就绪后的热重载轮询
+        LoadReloaderConfig(gameDir); // 支持运行时动态改配置文件
+
+        if (lastMonitorState != g_AutoMonitor) {
+            lastMonitorState = g_AutoMonitor;
+            if (g_ConsoleAllocated) {
+                std::cout << "[SYSTEM] Protocol Mode Switched -> "
+                    << (g_AutoMonitor ? "Auto-Monitor" : "Manual Hotkey") << std::endl;
+            }
+            if (g_AutoMonitor) {
+                for (const auto& fileName : g_TargetINIs) {
+                    fileTimes[fileName] = GetFileLastWriteTime(gameDir + "\\" + fileName);
+                }
+            }
+        }
+
+        if (g_AutoMonitor)
+        {
+            bool anyFileReloaded = false;
+            for (const auto& fileName : g_TargetINIs)
+            {
+                std::string fullPath = gameDir + "\\" + fileName;
+                FILETIME currentWriteTime = GetFileLastWriteTime(fullPath);
+
+                if (fileTimes[fileName].dwLowDateTime == 0 && fileTimes[fileName].dwHighDateTime == 0) {
+                    fileTimes[fileName] = currentWriteTime;
+                }
+                else if (CompareFileTime(&fileTimes[fileName], &currentWriteTime) != 0) {
+                    fileTimes[fileName] = currentWriteTime;
+                    Sleep(100);
+                    ExecuteUniversalHotReload(fullPath, fileName);
+                    anyFileReloaded = true;
+                }
+            }
+            if (anyFileReloaded) MessageBeep(MB_ICONINFORMATION);
             Sleep(500);
+        }
+        else
+        {
+            if (GetAsyncKeyState(g_HotKey) & 0x8000)
+            {
+                if (g_ConsoleAllocated) std::cout << "\n[>>>] Manual reload triggered via Hotkey!" << std::endl;
+                for (const auto& fileName : g_TargetINIs) {
+                    std::string fullPath = gameDir + "\\" + fileName;
+                    ExecuteUniversalHotReload(fullPath, fileName);
+                }
+                MessageBeep(MB_ICONWARNING);
+                Sleep(500);
+            }
+            Sleep(50);
         }
     }
     return 0;
 }
 
 // ========================================================
-// 标准入口
+// Standard Entry Point
 // ========================================================
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
 {
