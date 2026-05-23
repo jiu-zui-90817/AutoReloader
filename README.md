@@ -12,7 +12,6 @@
 - **全要素图纸覆盖**：支持游戏内核心实体与特效图纸的饱和式扫描覆写：
   - **作战单位 (TechnoTypes)**：载具、步兵、建筑、战机
   - **武器与战斗系统**：武器 (Weapons)、弹头 (Warheads)、抛射体 (Bullets)
-  - **战略武备**：超级武器系统 (SuperWeapons)
   - **MO 特效调试 (AE系统)**：动画 (Anims)、粒子 (Particles)、粒子系统 (ParticleSystems)、Voxel动画 (VoxelAnims)
 - **多阵列轮询**：支持同时监控多个自定义 INI 文件，方便将武器、单位、特效分模块并行调试。
 - **动态控制台**：自带开发者控制台日志（支持热插拔显隐控制），格式严谨，方便追踪内存覆写流。
@@ -25,19 +24,11 @@
 如果你只想使用本工具来调试你的 Mod，无需配置复杂的编译环境，请直接按照以下步骤操作：
 
 ### 1. 获取组件
-前往本仓库的 [Releases](../../releases) 页面，下载最新打包的压缩包。将解压出的 `HotReload.dll` 和 `ReloaderConfig.ini` 放入你的游戏根目录。
+前往本仓库的 [Releases](../../releases) 页面，下载最新打包的压缩包。将解压出的 `AutoReloader.dll` 和 `ReloaderConfig.ini` 以及 `MOInjector.exe` 放入你的游戏根目录。
 
-### 2. 配置注射器
-由于红警2引擎的限制，原版程序不会主动加载第三方 DLL，必须配合专用启动器/注射器使用。
-* 打开游戏目录下的注射器配置文件（如 `Syringe.ini`、`ares.ini` 或 `phobos.ini`）。
-* 在注入列表中添加本组件：
-    ```ini
-    [Inject]
-    HotReload=HotReload.dll
-    ```
 
-### 3. 启动游戏
-**必须使用专用启动器**（如 `Syringe.exe` 或 `MentalOmegaClient.exe`）启动游戏。组件成功挂载后，会根据配置自动弹出调试终端。
+### 2. 启动游戏
+**必须使用专用启动器** 使用MOInjector.exe启动游戏。组件成功挂载后，会根据配置自动弹出调试终端。
 
 ---
 
