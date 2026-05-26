@@ -65,3 +65,28 @@ ShowConsole=true
 
 ; 目标监控文件列表。支持监控多个文件，使用英文逗号分隔。请确保包含前端部署的目标文件（如 hotfix.ini）
 TargetINI=hotfix.ini, ae_effects.ini
+
+```
+
+## 🛠️ 编译指引 (面向 C++ 开发者)
+
+如需基于后端注入器进行二次开发，请参考以下环境要求：
+
+- **开发环境**: Visual Studio 2019 / 2022 (工具集 v142 / v143)
+- **依赖库配置 (重要)**: 
+  本仓库为了保持纯净，**未直接包含** `YRpp` 依赖库。在编译前，请务必：
+  1. 前往 [YRpp 官方仓库](https://github.com/YRpp/YRpp) 下载最新源码。
+  2. 将下载的源码解压，并放置于本项目的 `Backend/YRpp/` 目录下。
+  3. 确保 Visual Studio 项目的“附加包含目录”能正确识别该路径。
+- **编译参数**: 建议在项目属性中关闭“符合模式 (Conformance Mode: No)”，并指定 **C++17 标准**。
+
+## 📄 开源协议 & 鸣谢 (License & Credits)
+
+本项目核心逻辑基于 **[GPL-3.0 License](LICENSE)** 开源。
+你可以自由地使用、修改并将其整合到你的《心灵终结》或其他红警 2 扩展版中，但**必须**同样以开源形式共享你的修改，并保留原作者署名。
+
+**特别鸣谢 (Special Thanks):**
+
+* 感谢 [YRpp](https://github.com/Phobos-developers/YRpp) 提供的底层内存反射库。
+* 感谢 Ares/Syringe 提供的完美 DLL 注入环境。
+* 感谢 Mental Omega (心灵终结) 制作组带来的极致游戏体验。
