@@ -14,6 +14,7 @@
 #include <vector>
 #include <sstream>
 #include <map>
+#include <fstream>
 
  // YRpp Headers
 #include <YRpp.h>
@@ -116,6 +117,29 @@ FILETIME GetFileLastWriteTime(const std::string& path)
     return emptyTime;
 }
 
+// EOF 吞噬陷阱拦截器
+void EnsureTrailingNewline(const std::string& path) {
+    // 以二进制读写模式打开文件，并将指针直接定位到末尾 (ate)
+    std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary | std::ios::ate);
+    if (!file.is_open()) return;
+
+    std::streampos size = file.tellg();
+    if (size > 0) {
+        // 读取最后一个字节
+        file.seekg(-1, std::ios::end);
+        char lastChar;
+        file.get(lastChar);
+
+        // 如果最后一个字符既不是换行(\n)也不是回车(\r)，说明忘记敲空行了
+        if (lastChar != '\n' && lastChar != '\r') {
+            file.clear(); // 清除 EOF 状态标志
+            file.seekp(0, std::ios::end);
+            file.write("\r\n", 2); // 强制打上换行补丁
+        }
+    }
+    file.close();
+}
+
 // ========================================================
 // Module 4: Core Injection Engine
 // ========================================================
@@ -136,6 +160,9 @@ bool TryReloadType(const std::string& targetID, CCINIClass* pINI, const char* ty
 
 void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fileName)
 {
+    // 在交给引擎解析之前，C++ 底层强制做最后一次格式净检
+    EnsureTrailingNewline(iniPath);
+
     char sectionBuffer[4096] = { 0 };
     if (GetPrivateProfileSectionNamesA(sectionBuffer, sizeof(sectionBuffer), iniPath.c_str()) == 0) return;
 
@@ -191,7 +218,7 @@ DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
     std::string pathStr = exePath;
     std::string gameDir = pathStr.substr(0, pathStr.find_last_of("\\/"));
 
-    // 🚨 修复点：立刻读取配置并拉起控制台，绝对不等待引擎加载！
+    // 立刻读取配置并拉起控制台，绝对不等待引擎加载！
     LoadReloaderConfig(gameDir);
     ToggleConsole(g_ShowConsole);
 
