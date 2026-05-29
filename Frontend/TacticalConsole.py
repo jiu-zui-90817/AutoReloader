@@ -3,7 +3,11 @@ from tkinter import ttk, messagebox, filedialog
 import json
 import os
 import sys
-import sv_ttk
+import time
+try:
+    import sv_ttk
+except ImportError:
+    sv_ttk = None
 
 # ========================================================
 # 🚀 0. 引擎安全启动与字典加载
@@ -14,6 +18,7 @@ root.withdraw()
 CODEX_FILE = "Codex_ZH.json"
 RULES_FILE = "rulesmo.ini"  
 base_rules_data = {}        
+last_file_mtime = 0  
 
 if not os.path.exists(CODEX_FILE):
     messagebox.showerror("致命错误", f"找不到核心武器库：{CODEX_FILE}")
@@ -50,10 +55,14 @@ if os.path.exists(RULES_FILE):
 root.deiconify()
 root.title("MO 战术工坊")
 root.geometry("1180x800") 
-sv_ttk.set_theme("dark")
+if sv_ttk: sv_ttk.set_theme("dark")
+
+try:
+    root.iconbitmap("app_icon.ico")
+except Exception: pass
 
 # ========================================================
-# 🚀 1. 兵器谱图纸全量字典
+# 🎨 1. 兵器谱图纸全量字典
 # ========================================================
 FORM_UNITS = [
     ("基础生存与外观 (Base & Visuals)", [
@@ -70,9 +79,7 @@ FORM_UNITS = [
         ("Secondary", "副武器 (Secondary)", "combo", "WeaponList"), 
         ("ElitePrimary", "精英主武 (ElitePrimary)", "combo", "WeaponList"), 
         ("EliteSecondary", "精英副武 (EliteSecondary)", "combo", "WeaponList"), 
-        # 🚨 修复拼写：将 OccupantWeapon 修正为官方正确的 OccupyWeapon
         ("OccupyWeapon", "进驻武器 (OccupyWeapon)", "combo", "WeaponList"), 
-        # 🚨 新增：恢复3星精英进驻武器支持
         ("EliteOccupyWeapon", "精英进驻 (EliteOccupy)", "combo", "WeaponList"), 
         ("OpportunityFire", "移动开火 (Opp.Fire)", "combo", "Booleans"),
         ("Sight", "视野范围 (Sight)", "entry", None) 
@@ -85,13 +92,26 @@ FORM_UNITS = [
         ("Crusher", "允许碾压步兵 (Crusher)", "combo", "Booleans"),
         ("OmniCrushResistant", "免疫巨型碾压 (OmniCrushResistant)", "combo", "Booleans"), 
         ("EMP.Threshold", "EMP瘫痪抗性 (EMP.Threshold)", "entry", None) 
+    ]),
+    ("单位专属光环 (Ares AttachEffect) （实验性功能，不完整支持）", [
+        ("AEPreset_Passive", "💡 直接套用游戏现成光环", "combo", "Presets_Passive"), 
+        ("AttachEffect.Animation", "状态绑定动画", "combo", "AnimList"),
+        ("AttachEffect.Duration", "持续时长 (填-1为永久)", "entry", None),
+        ("AttachEffect.InitialDelay", "生效延迟 (0为立刻生效)", "entry", None),
+        ("AttachEffect.Delay", "冷却时间 (负值为不重置)", "entry", None),
+        ("AttachEffect.DiscardOnEntry", "进入建筑/载具时失效", "combo", "Booleans"),
+        ("AttachEffect.Cloakable", "赋予隐形能力", "combo", "Booleans"),
+        ("AttachEffect.TemporalHidesAnim", "超时空冻结不隐藏动画", "combo", "Booleans"),
+        ("AttachEffect.SpeedMultiplier", "移速倍率 (1为不变, >1加速)", "entry", None),
+        ("AttachEffect.ArmorMultiplier", "护甲倍率 (1不变, <1减伤, >1变脆)", "entry", None),
+        ("AttachEffect.FirepowerMultiplier", "伤害倍率 (1不变, >1增伤)", "entry", None),
+        ("AttachEffect.ROFMultiplier", "攻击间隔 (1不变, <1射速变快)", "entry", None)
     ])
 ]
 
-# 🚨 同步更新显示规则，确保这两个武器只在步兵面板显示
 RULES_UNITS = {
-    "OccupyWeapon": ["Infantry"],         # 只有步兵能进驻
-    "EliteOccupyWeapon": ["Infantry"],    # 只有步兵有精英进驻
+    "OccupyWeapon": ["Infantry"],         
+    "EliteOccupyWeapon": ["Infantry"],    
     "OpportunityFire": ["Vehicle", "Aircraft"],
     "Passengers": ["Vehicle", "Aircraft", "Building"],
     "Crusher": ["Vehicle"],
@@ -110,7 +130,7 @@ FORM_WEAPONS = [
         ("Speed", "弹道飞行速度 (Speed)", "entry", None),
         ("Warhead", "弹头绑定 (Warhead)", "combo", "WarheadList"), 
         ("Report", "开火音效 (Report)", "entry", None),
-        ("Anim", "枪口动画 (Anim)", "entry", None)
+        ("Anim", "枪口动画 (Anim)", "combo", "AnimList")
     ])
 ]
 
@@ -118,7 +138,7 @@ FORM_WARHEADS = [
     ("破坏与装甲穿透 (Damage & Armor)", [
         ("CellSpread", "爆炸波及格数 (CellSpread)", "entry", None),
         ("PercentAtMax", "边缘伤害衰减 (PercentAtMax)", "entry", None),
-        ("Verses", "护甲穿透率 (Verses)", "entry", None), 
+        ("Verses", "⚠️对全装甲伤害比例(极长,慎改)", "entry", None), 
         ("WallAbsoluteDestroyer", "强制摧毁围墙 (WallDestroyer)", "combo", "Booleans")
     ]),
     ("特殊伤害效果 (Status Effects)", [
@@ -126,6 +146,18 @@ FORM_WARHEADS = [
         ("Rocker", "爆炸震荡屏幕 (Rocker)", "combo", "Booleans"), 
         ("MindControl", "心灵控制 (MindControl)", "combo", "Booleans"),
         ("Parasite", "寄生蜘蛛 (Parasite)", "combo", "Booleans")
+    ]),
+    ("武器打击效果 (Ares AttachEffect) （实验性功能，不完整支持）", [
+        ("AEPreset_Attack", "💡 直接套用游戏现成打击方案", "combo", "Presets_Attack"),
+        ("AttachEffect.Animation", "受击特效动画", "combo", "AnimList"),
+        ("AttachEffect.Duration", "状态附着时长 (1秒=15帧)", "entry", None),
+        ("AttachEffect.Cumulative", "允许多次叠加效果", "combo", "Booleans"),
+        ("AttachEffect.AnimResetOnReapply", "重复命中时重置动画", "combo", "Booleans"),
+        ("AttachEffect.ForceDecloak", "命中强制破除隐形", "combo", "Booleans"),
+        ("AttachEffect.SpeedMultiplier", "移速倍率 (0为定身, 0.5减半)", "entry", None),
+        ("AttachEffect.ArmorMultiplier", "护甲倍率 (1.5为破甲/受伤增加)", "entry", None),
+        ("AttachEffect.FirepowerMultiplier", "伤害倍率 (0为缴械哑火)", "entry", None),
+        ("AttachEffect.ROFMultiplier", "射速因数 (2.0为开火变慢)", "entry", None)
     ])
 ]
 
@@ -137,8 +169,20 @@ tabs_info = {}
 is_switching_unit = False 
 
 def extract_real_id(text):
-    if not text or " [" not in text: return text.strip()
-    return text.split('[')[-1].replace(']', '').strip()
+    if not text: return ""
+    if " - " in text: return text.split(" - ")[0].strip()
+    if " [" in text and text.endswith("]"): return text.split('[')[-1].replace(']', '').strip()
+    return text.strip()
+
+def apply_ae_preset(preset_name, t_vars):
+    all_presets = {**codex.get("Presets_Passive", {}), **codex.get("Presets_Attack", {})}
+    if preset_name not in all_presets: return
+    
+    preset_data = all_presets[preset_name]
+    for key, val in preset_data.items():
+        for form_key, var in t_vars.items():
+            if form_key.lower() == key.lower():
+                var.set(val)
 
 def replace_ini_section(filepath, section, block_text):
     lines = []
@@ -216,18 +260,20 @@ def on_tree_select(tab_id):
                 if ctrl: ctrl.config(state="disabled")
                 continue
             else:
-                if ctrl: ctrl.config(state="readonly" if w_type=="combo" else "normal")
+                if ctrl: ctrl.config(state="normal")
             
             if w_type == "entry":
                 var.set(val_ini)
             elif w_type == "combo":
                 if d_name == "DYNAMIC_IMAGE" and ctrl:
                     img_dict = codex.get(f"{u_type}Images", {})
-                    ctrl['values'] = [""] + [f"{v} [{k}]" for k, v in img_dict.items()]
+                    new_options = [""] + [f"{v} [{k}]" for k, v in img_dict.items()]
+                    ctrl['values'] = new_options
+                    ctrl.full_values = new_options 
                 
                 if val_ini == "": var.set("")
                 else:
-                    matched = next((v for v in ctrl['values'] if v.endswith(f"[{val_ini}]")), "")
+                    matched = next((v for v in ctrl['values'] if v.startswith(f"{val_ini} -") or v.endswith(f"[{val_ini}]") or v == val_ini), "")
                     var.set(matched if matched else val_ini)
                     
     is_switching_unit = False 
@@ -245,6 +291,7 @@ def update_preview(*args):
 
     ui_data = {}
     for ini_key, var in tab["vars"].items():
+        if ini_key.startswith("AEPreset"): continue 
         ctrl = tab["widgets"].get(ini_key)
         if ctrl and str(ctrl.cget("state")) != "disabled":
             ui_data[ini_key.lower()] = (ini_key, extract_real_id(var.get()))
@@ -333,7 +380,7 @@ def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config,
         for ini_key, label_text, w_type, d_name in fields:
             row = tk.Frame(lf)
             row.pack(fill=tk.X, pady=3)
-            tk.Label(row, text=label_text, width=22, anchor="w").pack(side=tk.LEFT)
+            tk.Label(row, text=label_text, width=28, anchor="w").pack(side=tk.LEFT)
             var = tk.StringVar()
             var.trace_add("write", update_preview)
             t_vars[ini_key] = var
@@ -341,11 +388,38 @@ def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config,
             if w_type == "entry":
                 ctrl = tk.Entry(row, textvariable=var)
             elif w_type == "combo":
-                ctrl = ttk.Combobox(row, textvariable=var, state="readonly")
-                if d_name and d_name != "DYNAMIC_IMAGE":
-                    ctrl['values'] = [""] + [f"{v} [{k}]" for k, v in codex.get(d_name, {}).items()]
+                ctrl = ttk.Combobox(row, textvariable=var)
+                if d_name == "DYNAMIC_IMAGE":
+                    pass 
+                elif d_name in ["Presets_Passive", "Presets_Attack"]:
+                    options = [""] + list(codex.get(d_name, {}).keys())
+                    ctrl['values'] = options
+                    ctrl.full_values = options
+                elif d_name:
+                    options = [""] + [f"{k} - {v}" if k != v else k for k, v in codex.get(d_name, {}).items()]
+                    ctrl['values'] = options
+                    ctrl.full_values = options
+                else:
+                    ctrl.full_values = []
+                
+                def make_on_type(w):
+                    def on_type(event):
+                        if event.keysym in ("Up", "Down", "Return", "Escape", "Left", "Right", "Tab"): return
+                        typed = w.get()
+                        full_vals = getattr(w, 'full_values', [])
+                        if not typed:
+                            w['values'] = full_vals
+                        else:
+                            w['values'] = [v for v in full_vals if typed.lower() in v.lower()]
+                    return on_type
+                
+                ctrl.bind("<KeyRelease>", make_on_type(ctrl))
+
             ctrl.pack(side=tk.RIGHT, fill=tk.X, expand=True)
             t_widgets[ini_key] = ctrl
+            
+            if ini_key in ["AEPreset_Passive", "AEPreset_Attack"]:
+                ctrl.bind("<<ComboboxSelected>>", lambda e, w=ctrl, v_dict=t_vars: apply_ae_preset(w.get(), v_dict))
             
     tabs_info[tab_id] = {
         "tree": tree, "vars": t_vars, "widgets": t_widgets, 
@@ -355,18 +429,20 @@ def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config,
     return frame_bg
 
 def choose_file():
-    global target_filepath
+    global target_filepath, last_file_mtime
     fp = filedialog.askopenfilename(defaultextension=".ini", filetypes=[("INI", "*.ini")])
     if not fp: fp = filedialog.asksaveasfilename(defaultextension=".ini", filetypes=[("INI", "*.ini")])
     if fp:
         target_filepath = fp
         lbl_file.config(text=f"当前目标: {fp}", fg="#00ff00")
         try:
+            if not os.path.exists(fp):
+                with open(fp, 'w', encoding='ansi') as f: f.write("; AutoReloader Target File\n\n")
+            last_file_mtime = os.path.getmtime(fp)
             current_tab_idx = notebook.index(notebook.select())
             on_tree_select(list(tabs_info.keys())[current_tab_idx])
         except Exception: pass
 
-# 🚨 后台静默自毁函数 (延时后自动触发)
 def clean_ini_silent():
     if not target_filepath or not os.path.exists(target_filepath) or not base_rules_data:
         return
@@ -392,8 +468,10 @@ def clean_ini_silent():
 
         if cleaned_count > 0:
             with open(target_filepath, "w", encoding="ansi") as f: f.writelines(out_lines)
+            global last_file_mtime
+            last_file_mtime = os.path.getmtime(target_filepath)
+            
             try:
-                # 静默刷新 UI，不打扰玩家
                 current_tab_idx = notebook.index(notebook.select())
                 on_tree_select(list(tabs_info.keys())[current_tab_idx])
             except Exception: pass
@@ -402,7 +480,9 @@ def clean_ini_silent():
     except Exception as e:
         print(f"后台瘦身失败: {str(e)}")
 
-# 一键恢复出厂设置
+# ========================================================
+# 🚨 核心逻辑升级：绝对清除机制 (模型与 AE)
+# ========================================================
 def restore_default():
     if not base_rules_data:
         return messagebox.showwarning("警告", "未挂载原版 rulesmo.ini，无法获取官方默认值！")
@@ -422,16 +502,38 @@ def restore_default():
         return messagebox.showinfo("提示", "原版引擎中不存在该图纸数据。")
         
     lines = [f"[{obj_id}]"]
+    base_keys_lower = {k.lower(): k for k in base_props.keys()}
+    
+    # 🔥 修复 1：如果没有原生 Image 标签，强制将模型指定为其 ID (防载具模型卡死)
+    if "image" not in base_keys_lower:
+        lines.append(f"Image={obj_id}")
+        
     for k, v in base_props.items(): lines.append(f"{k}={v}")
     
-    replace_ini_section(target_filepath, obj_id, '\n'.join(lines))
-    on_tree_select(list(tabs_info.keys())[tab_idx])
+    # 🔥 修复 2：如果没有原生 AE 标签，强制下发绝对清除指令 (防残留)
+    has_ae = any(k.startswith("attacheffect.") for k in base_keys_lower)
+    if not has_ae:
+        lines.extend([
+            "AttachEffect.Animation=none",
+            "AttachEffect.Duration=0",
+            "AttachEffect.SpeedMultiplier=1",
+            "AttachEffect.ArmorMultiplier=1",
+            "AttachEffect.FirepowerMultiplier=1",
+            "AttachEffect.ROFMultiplier=1",
+            "AttachEffect.Delay=0",
+            "AttachEffect.InitialDelay=0",
+            "AttachEffect.Cumulative=no"
+        ])
     
-    # 同样挂载 5 秒自动自毁
+    replace_ini_section(target_filepath, obj_id, '\n'.join(lines))
+    
+    global last_file_mtime
+    last_file_mtime = os.path.getmtime(target_filepath)
+    
+    on_tree_select(list(tabs_info.keys())[tab_idx])
     root.after(5000, clean_ini_silent)
-    messagebox.showinfo("准备就绪", f"{obj_id} 官方参数已注入！\n\n👉 5秒后将自动执行静默瘦身清理，请火速切进游戏触发热重载！")
+    messagebox.showinfo("准备就绪", f"{obj_id} 官方参数及绝对清除指令已注入！\n\n👉 5秒后将自动执行静默清理，请火速触发热重载！")
 
-# 终极保存引擎
 def deploy(event=None):
     if not target_filepath: return messagebox.showinfo("提示", "请先选择目标INI！")
     
@@ -457,6 +559,7 @@ def deploy(event=None):
     original_props_lower = {k.lower(): v for k, v in original_props.items()}
     
     for ini_key, var in tab["vars"].items():
+        if ini_key.startswith("AEPreset"): continue 
         ctrl = tab["widgets"].get(ini_key)
         if ctrl and str(ctrl.cget("state")) != "disabled":
             if extract_real_id(var.get()) == "":
@@ -470,16 +573,38 @@ def deploy(event=None):
             
     try:
         replace_ini_section(target_filepath, obj_id, final_block_text)
-        
-        # 🚨 挂载 5 秒延迟静默瘦身！
-        if base_rules_data:
-            root.after(5000, clean_ini_silent)
-            
-        messagebox.showinfo("保存成功", "参数已注入目标文件！(Ctrl+S)\n\n⚠️ 5秒后后台将自动蒸发冗余出厂代码，请尽快切入游戏触发重载！")
+        global last_file_mtime
+        last_file_mtime = os.path.getmtime(target_filepath)
+        if base_rules_data: root.after(5000, clean_ini_silent)
+        messagebox.showinfo("保存成功", "参数已注入目标文件！(Ctrl+S)\n\n⚠️ 5秒后后台将自动蒸发冗余出厂代码，请尽快触发重载！")
     except Exception as e: messagebox.showerror("错误", str(e))
 
 # ========================================================
-# 🚀 3. GUI 构建与挂载
+# 🛡️ 3. 守护神线程 (Watchdog: 防护与双向同步)
+# ========================================================
+def file_watchdog():
+    global last_file_mtime
+    if target_filepath and os.path.exists(target_filepath):
+        try:
+            current_mtime = os.path.getmtime(target_filepath)
+            if current_mtime > last_file_mtime:
+                with open(target_filepath, 'rb+') as f:
+                    f.seek(0, 2)
+                    if f.tell() > 0:
+                        f.seek(-1, 2)
+                        if f.read(1) not in (b'\n', b'\r'):
+                            f.write(b'\r\n')
+                            current_mtime = os.path.getmtime(target_filepath)
+                try:
+                    current_tab_idx = notebook.index(notebook.select())
+                    on_tree_select(list(tabs_info.keys())[current_tab_idx])
+                except Exception: pass
+                last_file_mtime = current_mtime
+        except Exception: pass
+    root.after(1000, file_watchdog)
+
+# ========================================================
+# 🚀 4. GUI 构建与挂载
 # ========================================================
 frame_top = tk.Frame(root, bg="#1e1e1e", padx=10, pady=10)
 frame_top.pack(fill=tk.X)
@@ -487,7 +612,6 @@ tk.Button(frame_top, text="📂 选择目标文件", command=choose_file).pack(s
 lbl_file = tk.Label(frame_top, text="当前目标: 未选择", bg="#1e1e1e", fg="red", font=("", 10, "bold"))
 lbl_file.pack(side=tk.LEFT, padx=15)
 
-# 移除了独立的清理按钮
 tk.Button(frame_top, text="💾 部署 (Ctrl+S)", bg="darkred", fg="white", font=("", 10, "bold"), command=deploy).pack(side=tk.RIGHT)
 tk.Button(frame_top, text="🔄 恢复原版", bg="#004488", fg="white", font=("", 10, "bold"), command=restore_default).pack(side=tk.RIGHT, padx=(10, 10))
 
@@ -511,5 +635,5 @@ create_editor_tab(notebook, "tab_weap", "⚔️ 武器图纸 (Weapons)", codex.g
 create_editor_tab(notebook, "tab_warh", "💥 弹头破坏 (Warheads)", codex.get("Warheads", {}), FORM_WARHEADS)
 
 notebook.bind("<<NotebookTabChanged>>", lambda e: update_preview())
-
+root.after(1000, file_watchdog)
 root.mainloop()
