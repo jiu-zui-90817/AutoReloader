@@ -70,7 +70,10 @@ FORM_UNITS = [
         ("Secondary", "副武器 (Secondary)", "combo", "WeaponList"), 
         ("ElitePrimary", "精英主武 (ElitePrimary)", "combo", "WeaponList"), 
         ("EliteSecondary", "精英副武 (EliteSecondary)", "combo", "WeaponList"), 
-        ("OccupantWeapon", "进驻武器 (OccupantWeapon)", "combo", "WeaponList"), 
+        # 🚨 修复拼写：将 OccupantWeapon 修正为官方正确的 OccupyWeapon
+        ("OccupyWeapon", "进驻武器 (OccupyWeapon)", "combo", "WeaponList"), 
+        # 🚨 新增：恢复3星精英进驻武器支持
+        ("EliteOccupyWeapon", "精英进驻 (EliteOccupy)", "combo", "WeaponList"), 
         ("OpportunityFire", "移动开火 (Opp.Fire)", "combo", "Booleans"),
         ("Sight", "视野范围 (Sight)", "entry", None) 
     ]),
@@ -85,8 +88,10 @@ FORM_UNITS = [
     ])
 ]
 
+# 🚨 同步更新显示规则，确保这两个武器只在步兵面板显示
 RULES_UNITS = {
-    "OccupantWeapon": ["Infantry"],
+    "OccupyWeapon": ["Infantry"],         # 只有步兵能进驻
+    "EliteOccupyWeapon": ["Infantry"],    # 只有步兵有精英进驻
     "OpportunityFire": ["Vehicle", "Aircraft"],
     "Passengers": ["Vehicle", "Aircraft", "Building"],
     "Crusher": ["Vehicle"],

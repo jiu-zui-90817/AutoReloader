@@ -8,7 +8,7 @@ OUTPUT_FILE = "Codex_ZH.json"
 BASE_CODEX = {
     "Armors": { "none": "无装甲", "flak": "防弹衣", "light": "轻型装甲", "medium": "中型装甲", "heavy": "重型装甲", "wood": "木制", "steel": "钢制", "concrete": "混凝土" },
     
-    # 🚨 终极修复：严格参照 WestWood/Ares 引擎底层 CLSID 字典，绝无错漏！
+    # 严格参照 WestWood/Ares 引擎底层 CLSID 字典
     "Locomotors": { 
         "{4A582741-9839-11D1-B709-00A024DDAFD1}": "载具驱动 (Drive)",
         "{4A582742-9839-11D1-B709-00A024DDAFD1}": "气垫两栖 (Hover)",
@@ -161,7 +161,7 @@ def generate_codex():
     
     with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
         json.dump(final_codex, f, ensure_ascii=False, indent=2)
-        print("[完成] 引擎字典已完美修正重构！")
+        print("[完成] 引擎字典提取完成！")
 
 if __name__ == "__main__":
     generate_codex()
