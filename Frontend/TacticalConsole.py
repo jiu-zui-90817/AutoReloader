@@ -35,26 +35,88 @@ except Exception as e:
     messagebox.showerror("致命错误", f"解析 {CODEX_FILE} 失败！\n\n报错信息: {str(e)}")
     sys.exit()
 
-def parse_cnc_ini(filepath):
+# ========================================================
+# 支持 ARES #include 的 ini 解析器（多文件合并）
+# ========================================================
+def parse_single_ini(filepath):
+    """解析单个 ini 文件，返回 {section: {key: value}}"""
     ini_data = {}
     current_section = None
     try:
         with open(filepath, 'r', encoding='ansi', errors='ignore') as f:
             for line in f:
                 line = line.split(';')[0].strip()
-                if not line: continue
+                if not line:
+                    continue
                 if line.startswith('[') and line.endswith(']'):
-                    current_section = line[1:-1]
-                    if current_section not in ini_data: ini_data[current_section] = {}
+                    current_section = line[1:-1].strip()
+                    if current_section not in ini_data:
+                        ini_data[current_section] = {}
                 elif '=' in line and current_section:
                     key, val = line.split('=', 1)
                     ini_data[current_section][key.strip()] = val.strip()
-    except Exception: pass
+    except Exception as e:
+        print(f"解析 {filepath} 出错: {e}")
     return ini_data
 
+def parse_cnc_ini_with_includes(main_filepath, log_func=None):
+    """
+    解析主 ini 文件，并递归合并所有 [#include] 指定的文件。
+    返回合并后的完整数据字典。
+    """
+    base_dir = os.path.dirname(main_filepath) or '.'
+    total_data = {}
+    processed_files = set()
+
+    def load_file(filepath, depth=0):
+        abs_path = os.path.join(base_dir, filepath) if not os.path.isabs(filepath) else filepath
+        abs_path = os.path.normpath(abs_path)
+        if abs_path in processed_files:
+            if log_func:
+                log_func(f"[加载] 跳过重复文件: {abs_path}")
+            return
+        processed_files.add(abs_path)
+
+        if log_func:
+            log_func(f"[加载] 正在解析: {abs_path}")
+        data = parse_single_ini(abs_path)
+
+        # 合并到总数据中（后加载的覆盖先加载的）
+        for section, kv in data.items():
+            if section not in total_data:
+                total_data[section] = {}
+            total_data[section].update(kv)
+
+        # 处理 [#include] 节
+        include_section = data.get('#include', {})
+        include_files = []
+        for k, v in include_section.items():
+            k_lower = k.lower()
+            if k_lower == 'include' or k_lower.startswith('include'):
+                include_files.append(v)
+            elif k.isdigit():
+                include_files.append(v)
+        # 去重保持顺序
+        seen = set()
+        unique_include = []
+        for f in include_files:
+            if f not in seen:
+                seen.add(f)
+                unique_include.append(f)
+        for inc_file in unique_include:
+            load_file(inc_file, depth+1)
+
+    load_file(main_filepath)
+    if log_func:
+        log_func(f"[加载] 共合并 {len(processed_files)} 个规则文件")
+    return total_data
+
+# 加载完整的游戏规则（包含所有拆分的 ini）
 if os.path.exists(RULES_FILE):
-    base_rules_data = parse_cnc_ini(RULES_FILE)
-    print(f"[引擎挂载] 成功读取本地 {RULES_FILE}，引擎待命中！")
+    base_rules_data = parse_cnc_ini_with_includes(RULES_FILE, print)
+    print(f"[引擎挂载] 成功读取 {RULES_FILE} 及其所有 #include 文件，引擎待命中！")
+else:
+    messagebox.showwarning("警告", f"找不到 {RULES_FILE}，恢复原版功能将不可用。")
 
 root.deiconify()
 root.title("MO 战术工坊")
@@ -66,7 +128,7 @@ try:
 except Exception: pass
 
 # ========================================================
-# 1. 兵器谱图纸全量字典
+#  1. 兵器谱图纸全量字典
 # ========================================================
 FORM_UNITS = [
     ("基础生存与外观 (Base & Visuals)", [
@@ -166,7 +228,7 @@ FORM_WARHEADS = [
 ]
 
 # ========================================================
-# 🚀 2. 核心交互引擎 
+#  2. 核心交互引擎 
 # ========================================================
 tabs_info = {} 
 is_switching_unit = False 
@@ -337,6 +399,72 @@ def update_preview(*args):
     txt_preview.mark_set(tk.INSERT, cursor_pos)
     txt_preview.yview_moveto(scroll_y[0])
 
+# ========================================================
+#  树形视图搜索过滤功能
+# ========================================================
+def filter_data(data, filter_text):
+    """递归过滤数据字典，支持匹配文件夹名和叶子节点"""
+    if not filter_text:
+        return data
+    lower_filter = filter_text.lower()
+    filtered = {}
+    for key, value in data.items():
+        # 检查当前目录名（key）是否匹配
+        key_matched = lower_filter in key.lower()
+        if isinstance(value, dict):
+            if key_matched:
+                # 目录名匹配，保留整个子树的原始数据（不过滤子节点）
+                filtered[key] = value
+            else:
+                # 目录名不匹配，递归过滤子节点
+                sub_filtered = filter_data(value, filter_text)
+                if sub_filtered:
+                    filtered[key] = sub_filtered
+        else:
+            # 叶子节点：检查显示文本或ID
+            display_text = f"{value} [{key}]"
+            if key_matched or lower_filter in key.lower() or lower_filter in value.lower() or lower_filter in display_text.lower():
+                filtered[key] = value
+    return filtered
+
+def rebuild_tree(tab_id):
+    tab = tabs_info[tab_id]
+    tab["search_after_id"] = None
+    tree = tab["tree"]
+    original_data = tab["original_data"]
+    search_entry = tab["search_entry"]
+    filter_text = search_entry.get()
+    
+    for item in tree.get_children():
+        tree.delete(item)
+    
+    if filter_text:
+        filtered = filter_data(original_data, filter_text)
+        if not filtered:
+            return
+        data_to_show = filtered
+    else:
+        data_to_show = original_data
+    
+    def populate_tree(parent_node, current_data):
+        for k, v in current_data.items():
+            if isinstance(v, dict):
+                folder = tree.insert(parent_node, tk.END, text=k, open=False)
+                populate_tree(folder, v)
+            else:
+                tree.insert(parent_node, tk.END, text=f"{v} [{k}]", values=(k,))
+    populate_tree("", data_to_show)
+
+def on_search(event, tab_id):
+    tab = tabs_info[tab_id]
+    prev_id = tab.get("search_after_id")
+    if prev_id is not None:
+        try:
+            root.after_cancel(prev_id)
+        except Exception:
+            pass
+    tab["search_after_id"] = root.after(300, lambda: rebuild_tree(tab_id))
+
 def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config, rules_dict=None):
     frame_bg = tk.Frame(notebook_parent)
     notebook_parent.add(frame_bg, text=tab_text)
@@ -344,21 +472,18 @@ def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config,
     frame_tree = tk.Frame(frame_bg, padx=5, pady=5)
     frame_tree.pack(side=tk.LEFT, fill=tk.Y)
     
+    search_frame = tk.Frame(frame_tree)
+    search_frame.pack(fill=tk.X, pady=(0,5))
+    tk.Label(search_frame, text="🔍 搜索:").pack(side=tk.LEFT)
+    search_entry = tk.Entry(search_frame)
+    search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
     tree = ttk.Treeview(frame_tree, show="tree", selectmode="browse")
     sb = ttk.Scrollbar(frame_tree, command=tree.yview)
     tree.config(yscrollcommand=sb.set)
     sb.pack(side=tk.RIGHT, fill=tk.Y)
     tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
-    def populate_tree(parent_node, current_data):
-        for k, v in current_data.items():
-            if isinstance(v, dict): 
-                folder = tree.insert(parent_node, tk.END, text=k, open=False)
-                populate_tree(folder, v)
-            else: 
-                tree.insert(parent_node, tk.END, text=f"{v} [{k}]", values=(k,))
-    populate_tree("", data_dict)
-            
     frame_form_container = tk.Frame(frame_bg, padx=5, pady=5)
     frame_form_container.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
@@ -425,14 +550,31 @@ def create_editor_tab(notebook_parent, tab_id, tab_text, data_dict, form_config,
             
             if ini_key in ["AEPreset_Passive", "AEPreset_Attack"]:
                 ctrl.bind("<<ComboboxSelected>>", lambda e, w=ctrl, v_dict=t_vars: apply_ae_preset(w.get(), v_dict))
-            
+    
     tabs_info[tab_id] = {
-        "tree": tree, "vars": t_vars, "widgets": t_widgets, 
-        "form_config": form_config, "rules": rules_dict
+        "tree": tree,
+        "vars": t_vars,
+        "widgets": t_widgets,
+        "form_config": form_config,
+        "rules": rules_dict,
+        "original_data": data_dict,
+        "search_entry": search_entry,
+        "search_after_id": None
     }
+    
+    search_entry.bind("<KeyRelease>", lambda e, tid=tab_id: on_search(e, tid))
+    
+    def populate_tree_initial(parent_node, current_data):
+        for k, v in current_data.items():
+            if isinstance(v, dict):
+                folder = tree.insert(parent_node, tk.END, text=k, open=False)
+                populate_tree_initial(folder, v)
+            else:
+                tree.insert(parent_node, tk.END, text=f"{v} [{k}]", values=(k,))
+    populate_tree_initial("", data_dict)
+    
     tree.bind("<<TreeviewSelect>>", lambda e: on_tree_select(tab_id))
     return frame_bg
-
 
 # ========================================================
 # 写死文件名的弹窗拦截
@@ -476,9 +618,8 @@ def choose_file():
             on_tree_select(list(tabs_info.keys())[current_tab_idx])
         except Exception: pass
 
-
 # ========================================================
-# 一键提取完美代码 (原版底包 + 修改项)
+# 2：一键提取完美代码 (原版底包 + 修改项)
 # ========================================================
 def copy_full_code():
     try:
@@ -518,6 +659,9 @@ def copy_full_code():
     root.clipboard_append(full_text)
     messagebox.showinfo("复制成功", "✅ 完整代码（原版底包 + 您的修改）已生成并复制到剪贴板！\n\n您可以直接去自己的 INI 源码中粘贴，彻底覆盖原有区块！")
 
+# ========================================================
+# 修复 5 秒后内容不清空的 Bug
+# ========================================================
 def clean_ini_silent():
     if not target_filepath or not os.path.exists(target_filepath): return
     if not base_rules_data: return
@@ -529,7 +673,6 @@ def clean_ini_silent():
     out_lines = []
     current_section = None
     section_lines = []
-    keep_section = False
     
     def process_section():
         if not current_section: return
@@ -538,20 +681,29 @@ def clean_ini_silent():
         cleaned_section_lines = [section_lines[0]]
         has_custom = False
         
+        kill_cmds = {
+            "attacheffect.animation": ["none", "0", ""],
+            "attacheffect.duration": ["0"],
+            "attacheffect.speedmultiplier": ["1", "1.0"],
+            "attacheffect.armormultiplier": ["1", "1.0"],
+            "attacheffect.firepowermultiplier": ["1", "1.0"],
+            "attacheffect.rofmultiplier": ["1", "1.0"],
+            "attacheffect.delay": ["0"],
+            "attacheffect.initialdelay": ["0"],
+            "attacheffect.cumulative": ["no", "false", "0"],
+            "image": [current_section.lower()] 
+        }
+        
         for line in section_lines[1:]:
             clean_line = line.split(';')[0].strip()
             if '=' in clean_line:
                 k, v = clean_line.split('=', 1)
                 k_lower, v_lower = k.strip().lower(), v.strip().lower()
                 
-                # 剔除与官方底包完全一致的冗余项
                 if k_lower in base_props_lower and base_props_lower[k_lower] == v_lower:
                     continue
                     
-                # 剔除用完即弃的强杀指令
-                if k_lower == "attacheffect.duration" and v_lower in ["0", "none", ""]:
-                    continue
-                if k_lower == "attacheffect.animation" and v_lower in ["0", "none", ""]:
+                if k_lower in kill_cmds and v_lower in kill_cmds[k_lower]:
                     continue
                     
                 has_custom = True
@@ -559,7 +711,8 @@ def clean_ini_silent():
             else:
                 if line.strip(): cleaned_section_lines.append(line)
                 
-        if has_custom: out_lines.extend(cleaned_section_lines)
+        if has_custom:
+            out_lines.extend(cleaned_section_lines)
 
     for line in lines:
         stripped = line.strip()
@@ -577,11 +730,15 @@ def clean_ini_silent():
     
     global last_file_mtime
     last_file_mtime = os.path.getmtime(target_filepath)
-
+    
+    try:
+        current_tab_idx = notebook.index(notebook.select())
+        on_tree_select(list(tabs_info.keys())[current_tab_idx])
+    except Exception: pass
 
 def restore_default():
     if not target_filepath: return messagebox.showwarning("警告", "请先选择目标文件！")
-    if not base_rules_data: return messagebox.showwarning("警告", "未挂载原版 rulesmo.ini！")
+    if not base_rules_data: return messagebox.showwarning("警告", "未挂载原版规则数据（可能 rulesmo.ini 不存在或解析失败）！")
         
     try:
         tab_idx = notebook.index(notebook.select())
@@ -615,10 +772,8 @@ def restore_default():
     last_file_mtime = os.path.getmtime(target_filepath)
     on_tree_select(list(tabs_info.keys())[tab_idx])
     
-    # 5 秒静默清理
     root.after(5000, clean_ini_silent)
     messagebox.showinfo("重置成功", f"[{obj_id}] 强行覆盖为官方默认值！\n\n5秒后将自动进行静默瘦身，清除临时强杀指令。")
-
 
 def deploy(event=None):
     if not target_filepath: return messagebox.showinfo("提示", "请先选择临时工程文件！")
@@ -657,7 +812,7 @@ def file_watchdog():
     root.after(1000, file_watchdog)
 
 # ========================================================
-# 4. GUI 构建与挂载
+#  4. GUI 构建与挂载
 # ========================================================
 frame_top = tk.Frame(root, bg="#1e1e1e", padx=10, pady=10)
 frame_top.pack(fill=tk.X)
@@ -682,7 +837,6 @@ tk.Label(frame_preview, text="工程沙盒代码预览").pack()
 txt_preview = tk.Text(frame_preview, width=38, bg="#0a0a0a", fg="#00ff00", font=("Consolas", 10))
 txt_preview.pack(fill=tk.BOTH, expand=True)
 
-# 新增：提取代码面板
 frame_copy = tk.Frame(frame_preview, pady=5)
 frame_copy.pack(fill=tk.X)
 tk.Button(frame_copy, text="📋 一键复制完整代码 (含原版属性)", bg="#2d7d46", fg="white", font=("", 10, "bold"), pady=8, command=copy_full_code).pack(fill=tk.X)
