@@ -57,7 +57,7 @@ if os.path.exists(RULES_FILE):
     print(f"[引擎挂载] 成功读取本地 {RULES_FILE}，引擎待命中！")
 
 root.deiconify()
-root.title("MO 战术工坊 (开发者沙盒版)")
+root.title("MO 战术工坊")
 root.geometry("1180x800") 
 if sv_ttk: sv_ttk.set_theme("dark")
 
