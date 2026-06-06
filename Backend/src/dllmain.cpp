@@ -163,8 +163,27 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
     // 在交给引擎解析之前，C++ 底层强制做最后一次格式净检
     EnsureTrailingNewline(iniPath);
 
-    char sectionBuffer[4096] = { 0 };
-    if (GetPrivateProfileSectionNamesA(sectionBuffer, sizeof(sectionBuffer), iniPath.c_str()) == 0) return;
+    // ==========================================================
+    // 修复 4KB 截断 Bug：抛弃 Windows API，改用 C++ 动态流读取
+    // ==========================================================
+    std::vector<std::string> targetSections;
+    std::ifstream fileStream(iniPath);
+    if (fileStream.is_open()) {
+        std::string line;
+        while (std::getline(fileStream, line)) {
+            // 去除行首尾的空白和回车符
+            line.erase(0, line.find_first_not_of(" \t\r\n"));
+            line.erase(line.find_last_not_of(" \t\r\n") + 1);
+
+            // 提取被 [ ] 包裹的有效区块名
+            if (!line.empty() && line.front() == '[' && line.back() == ']') {
+                targetSections.push_back(line.substr(1, line.length() - 2));
+            }
+        }
+        fileStream.close();
+    }
+
+    if (targetSections.empty()) return; // 空文件直接跳过
 
     CCFileClass file(iniPath.c_str());
     CCINIClass ini;
@@ -175,12 +194,48 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
             std::cout << "[PARSE] Capturing data stream from: " << fileName << std::endl;
         }
 
-        char* currentSection = sectionBuffer;
+        // ==========================================================
+        // 遍历无限制提取出来的所有标签void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fileName)
+{
+    // 在交给引擎解析之前，C++ 底层强制做最后一次格式净检
+    EnsureTrailingNewline(iniPath);
 
-        while (*currentSection != '\0')
+    // ==========================================================
+    // 🚨 修复 4KB 截断 Bug：抛弃 Windows API，改用 C++ 动态流读取
+    // ==========================================================
+    std::vector<std::string> targetSections;
+    std::ifstream fileStream(iniPath);
+    if (fileStream.is_open()) {
+        std::string line;
+        while (std::getline(fileStream, line)) {
+            // 去除行首尾的空白和回车符
+            line.erase(0, line.find_first_not_of(" \t\r\n"));
+            line.erase(line.find_last_not_of(" \t\r\n") + 1);
+            
+            // 提取被 [ ] 包裹的有效区块名
+            if (!line.empty() && line.front() == '[' && line.back() == ']') {
+                targetSections.push_back(line.substr(1, line.length() - 2));
+            }
+        }
+        fileStream.close();
+    }
+
+    if (targetSections.empty()) return; // 空文件直接跳过
+
+    CCFileClass file(iniPath.c_str());
+    CCINIClass ini;
+
+    if (ini.ReadCCFile(&file))
+    {
+        if (g_ConsoleAllocated) {
+            std::cout << "[PARSE] Capturing data stream from: " << fileName << std::endl;
+        }
+
+        // ==========================================================
+        // 🚨 遍历我们刚才无限制提取出来的所有标签
+        // ==========================================================
+        for (const std::string& targetID : targetSections)
         {
-            std::string targetID = currentSection;
-
             bool matched =
                 TryReloadType<UnitTypeClass>(targetID, &ini, "Vehicle") ||
                 TryReloadType<InfantryTypeClass>(targetID, &ini, "Infantry") ||
@@ -198,8 +253,33 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
             if (!matched && g_ConsoleAllocated) {
                 std::cout << "  [WARN] Entity ID not found in memory: " << targetID << std::endl;
             }
+        }
 
-            currentSection += targetID.length() + 1;
+        if (g_ConsoleAllocated) {
+            std::cout << "[OK] " << fileName << " injection completed.\n" << std::endl;
+        }
+    }
+}
+        // ==========================================================
+        for (const std::string& targetID : targetSections)
+        {
+            bool matched =
+                TryReloadType<UnitTypeClass>(targetID, &ini, "Vehicle") ||
+                TryReloadType<InfantryTypeClass>(targetID, &ini, "Infantry") ||
+                TryReloadType<BuildingTypeClass>(targetID, &ini, "Building") ||
+                TryReloadType<AircraftTypeClass>(targetID, &ini, "Aircraft") ||
+                TryReloadType<WeaponTypeClass>(targetID, &ini, "Weapon") ||
+                TryReloadType<WarheadTypeClass>(targetID, &ini, "Warhead") ||
+                TryReloadType<BulletTypeClass>(targetID, &ini, "Projectile") ||
+                TryReloadType<SuperWeaponTypeClass>(targetID, &ini, "SuperWeapon") ||
+                TryReloadType<AnimTypeClass>(targetID, &ini, "Animation") ||
+                TryReloadType<ParticleTypeClass>(targetID, &ini, "Particle") ||
+                TryReloadType<ParticleSystemTypeClass>(targetID, &ini, "ParticleSys") ||
+                TryReloadType<VoxelAnimTypeClass>(targetID, &ini, "VoxelAnim");
+
+            if (!matched && g_ConsoleAllocated) {
+                std::cout << "  [WARN] Entity ID not found in memory: " << targetID << std::endl;
+            }
         }
 
         if (g_ConsoleAllocated) {
