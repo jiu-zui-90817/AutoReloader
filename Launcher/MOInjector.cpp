@@ -1,70 +1,124 @@
 /**
  * =========================================================================================
  * 项目名称: MORandomizer Launcher (心灵终结扩展引导器)
- * 功能描述: 自动化游戏引导与 DLL 内存静默注入工具。
- * 核心流程:
- * 1. 隐蔽运行: 启动时自动隐藏控制台黑框，化身后台幽灵进程。
- * 2. 官方引导: 唤起 MentalOmegaClient.exe，保证游戏原配环境与启动参数完整。
- * 3. 智能雷达: 轮询侦测底层实际对战进程 (gamemd.exe / YURI.exe)。
- * 4. 无缝注入: 战斗引擎初始化完毕后，通过 CreateRemoteThread 挂载并注入核心 DLL。
- * 5. 自动销毁: 持续监控客户端大厅 (clientdx.exe)，随玩家退出游戏而自动结束生命周期。
+ * 核心功能:
+ * 1. Win7 底层提权 (SeDebugPrivilege) + 精细化句柄权限。
+ * 2. 全节点日志监控 (Injector_Log.txt)，精准定位注入断点。
+ * 3. 智能雷达监控大厅，杜绝超时自杀。
+ * 4. [新增] 多客户端兼容：同时兼容 Win10 的 clientdx.exe 与 Win7 的 clientxna.exe
  * =========================================================================================
  */
-
 #include <windows.h>
 #include <tlhelp32.h>
 #include <shellapi.h>
+#include <fstream>
+#include <string>
 
  // ==========================================
- // 辅助函数：雷达扫描进程是否存活
+ // 探针：日志记录功能
  // ==========================================
+void WriteLog(const char* msg) {
+    std::ofstream out("Injector_Log.txt", std::ios::app);
+    if (!out.is_open()) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char timeStr[64];
+    sprintf_s(timeStr, "[%02d:%02d:%02d] ", st.wHour, st.wMinute, st.wSecond);
+    out << timeStr << msg << std::endl;
+    out.close();
+}
+
+// ==========================================
+// 提权：破除 Win7 UAC 隔离
+// ==========================================
+bool EnableDebugPrivilege() {
+    HANDLE hToken;
+    LUID luid;
+    TOKEN_PRIVILEGES tkp;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) return false;
+    if (!LookupPrivilegeValue(NULL, SE_DEBUG_NAME, &luid)) { CloseHandle(hToken); return false; }
+    tkp.PrivilegeCount = 1;
+    tkp.Privileges[0].Luid = luid;
+    tkp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    bool result = AdjustTokenPrivileges(hToken, FALSE, &tkp, sizeof(tkp), NULL, NULL);
+    CloseHandle(hToken);
+    return result;
+}
+
+// ==========================================
+// 辅助：雷达扫描特定进程是否存活
+// ==========================================
 bool IsProcessRunning(const wchar_t* processName) {
-    bool exists = false;
     PROCESSENTRY32W pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32W);
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-
     if (Process32FirstW(hSnapshot, &pe32)) {
         do {
             if (wcscmp(pe32.szExeFile, processName) == 0) {
-                exists = true;
-                break;
+                CloseHandle(hSnapshot);
+                return true;
             }
         } while (Process32NextW(hSnapshot, &pe32));
     }
     CloseHandle(hSnapshot);
-    return exists;
+    return false;
+}
+
+// ==========================================
+// [新增] 辅助：判断任意 MO 大厅是否存活
+// ==========================================
+bool IsLobbyRunning() {
+    // 同时兼容 DX、XNA 和 OGL 三种可能的大厅版本
+    return IsProcessRunning(L"clientdx.exe") ||
+        IsProcessRunning(L"clientxna.exe") ||
+        IsProcessRunning(L"clientogl.exe");
 }
 
 int main()
 {
-    // ==========================================
-    // 1. 隐蔽运行：瞬间隐藏控制台黑框
-    // ==========================================
+    // 每次启动清空旧日志
+    std::ofstream clearLog("Injector_Log.txt", std::ios::trunc);
+    clearLog.close();
+
+    WriteLog("========== 战术工坊 MO 引导器启动 ==========");
+
     HWND hwnd = GetConsoleWindow();
-    if (hwnd) {
-        ShowWindow(hwnd, SW_HIDE);
+    if (hwnd) ShowWindow(hwnd, SW_HIDE);
+
+    if (EnableDebugPrivilege()) WriteLog("[系统] 提权成功 (获取 SeDebugPrivilege)");
+    else WriteLog("[警告] 提权失败，后续可能遭遇拒绝访问");
+
+    wchar_t currentDir[MAX_PATH];
+    GetModuleFileNameW(NULL, currentDir, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(currentDir, L'\\');
+    if (lastSlash) *lastSlash = L'\0';
+    WriteLog("[环境] 已锁定工作目录");
+
+    WriteLog("[流程] 正在呼叫 MentalOmegaClient.exe...");
+    ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, currentDir, SW_SHOW);
+
+    // ==========================================
+    // 智能雷达：等待任意版本大厅载入
+    // ==========================================
+    WriteLog("[流程] 启动智能雷达：等待大厅 (DX/XNA/OGL) 载入...");
+    int waitLobbyTime = 0;
+    while (!IsLobbyRunning()) {
+        Sleep(1000);
+        waitLobbyTime++;
+
+        if (waitLobbyTime > 120) {
+            WriteLog("[警告] 等待大厅超时 (超过两分钟)，引导器安全退出。");
+            return 0;
+        }
     }
+    WriteLog("[雷达] 大厅已就绪！开始轮询监控对战引擎...");
 
     // ==========================================
-    // 2. 环境引导：通过官方引导器启动游戏
-    // ==========================================
-    ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, NULL, SW_SHOW);
-
-    // ==========================================
-    // 3. 异步缓冲：等待套娃式启动链完成
-    // ==========================================
-    // 充分等待套娃过程：引导器启动 -> 检查更新 -> 唤醒真正的 clientdx.exe 战役大厅
-    Sleep(10000);
-
-    // ==========================================
-    // 4. 核心挂载循环：持续监控对战状态
+    // 核心挂载循环
     // ==========================================
     while (true)
     {
         DWORD processId = 0;
-
-        // 扫描当前是否进入了实际对战阶段
         PROCESSENTRY32W pe32;
         pe32.dwSize = sizeof(PROCESSENTRY32W);
         HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
@@ -79,52 +133,67 @@ int main()
         CloseHandle(hSnapshot);
 
         if (processId) {
-            // ------------------------------------------
-            // 状态：游戏对战引擎已启动
-            // ------------------------------------------
-            Sleep(3000); // 给予游戏引擎初始化内存的缓冲时间
+            char pidMsg[128];
+            sprintf_s(pidMsg, "[雷达] 捕获引擎进程 PID: %lu", processId);
+            WriteLog(pidMsg);
 
-            // 定位当前目录下的核心 DLL
+            WriteLog("[流程] 等待引擎完全解冻 (10秒缓冲)...");
+            Sleep(10000);
+
             wchar_t dllPath[MAX_PATH];
-            GetCurrentDirectoryW(MAX_PATH, dllPath);
-		wcscat_s(dllPath, MAX_PATH, L"\\AutoReloader.dll"); // 加载的DLL
+            wcscpy_s(dllPath, MAX_PATH, currentDir);
+            wcscat_s(dllPath, MAX_PATH, L"\\AutoReloader.dll");
 
-            // 执行硬核内存注入
-            HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, processId);
+            WriteLog("[注入] 尝试获取底层操作句柄...");
+            HANDLE hProcess = OpenProcess(
+                PROCESS_CREATE_THREAD | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION | PROCESS_VM_WRITE | PROCESS_VM_READ,
+                FALSE,
+                processId
+            );
+
             if (hProcess) {
-                // 在游戏进程中开辟内存空间
-                void* pAlloc = VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT, PAGE_READWRITE);
-                // 写入 DLL 路径
-                WriteProcessMemory(hProcess, pAlloc, dllPath, sizeof(dllPath), NULL);
+                WriteLog("[注入] 句柄获取成功，开始分配内存...");
+                void* pAlloc = VirtualAllocEx(hProcess, NULL, sizeof(dllPath), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
 
-                // 获取系统核心 API 地址
-                HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
-                FARPROC loadLibraryAddr = GetProcAddress(hKernel32, "LoadLibraryW");
+                if (pAlloc) {
+                    WriteLog("[注入] 内存分配成功，正在写入 DLL 路径...");
+                    WriteProcessMemory(hProcess, pAlloc, dllPath, sizeof(dllPath), NULL);
 
-                // 创建远线程，强制游戏进程加载我们的 DLL
-                HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)loadLibraryAddr, pAlloc, 0, NULL);
+                    HMODULE hKernel32 = GetModuleHandleW(L"kernel32.dll");
+                    FARPROC loadLibraryAddr = GetProcAddress(hKernel32, "LoadLibraryW");
 
-                if (hThread) CloseHandle(hThread);
+                    WriteLog("[注入] 正在调用 CreateRemoteThread 发射...");
+                    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)loadLibraryAddr, pAlloc, 0, NULL);
 
-                // 死死盯住当前这局游戏，阻断循环，直到该局游戏结束（玩家退回大厅）
+                    if (hThread) {
+                        WriteLog(">>> [大捷] 远线程执行完毕，DLL 已发送至引擎内！ <<<");
+                        CloseHandle(hThread);
+                    }
+                    else {
+                        WriteLog("[错误] CreateRemoteThread 被拦截或失败！");
+                    }
+                }
+                else {
+                    WriteLog("[错误] VirtualAllocEx 内存分配失败！");
+                }
+
+                WriteLog("[状态] 挂载流程完毕，进入阻塞监听...");
                 WaitForSingleObject(hProcess, INFINITE);
+                WriteLog("[状态] 本局游戏结束，重新开启雷达...");
                 CloseHandle(hProcess);
+            }
+            else {
+                WriteLog("[错误] OpenProcess 被拒绝访问！");
             }
         }
         else {
-            // ------------------------------------------
-            // 状态：玩家在大厅选图，或已彻底退出游戏
-            // ------------------------------------------
-            // 侦测常驻大厅 clientdx.exe 是否存活
-            if (!IsProcessRunning(L"clientdx.exe")) {
-                // 大厅进程已消亡，说明玩家点击了右上角彻底退出
-                // 引导器完美完成历史使命，安全下班！
+            // 对战进程不在，检查所有可能的大厅还在不在
+            if (!IsLobbyRunning()) {
+                WriteLog("========== MO 大厅已关闭，引导器安全退出 ==========");
                 break;
             }
-            // 还在选图阶段，休眠 1 秒后继续雷达扫描
             Sleep(1000);
         }
     }
-
     return 0;
 }
