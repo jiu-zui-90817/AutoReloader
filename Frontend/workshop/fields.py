@@ -1,35 +1,116 @@
 """
-战术工坊默认快调字段（优先显示）+ 引用下拉来源。
-其余键从 section 动态补全。
+战术工坊快调字段定义（对齐经典版 FORM_* 分组与中文标签）。
+无 Codex：下拉选项从工程 rules 动态收集；分组仍用经典图纸结构。
 """
 
 from __future__ import annotations
 
-PRIORITY_UNIT = [
-    "UIName", "Name", "Image", "Strength", "Armor", "Category", "TechLevel",
-    "Cost", "Points", "Owner", "Prerequisite", "Primary", "Secondary",
-    "ElitePrimary", "EliteSecondary", "Sight", "Speed", "ROT", "Locomotor",
-    "SelfHealing", "RadarInvisible", "OpportunityFire", "Passengers", "Crusher",
-    "OmniCrushResistant",
-    "AttachEffect.Animation", "AttachEffect.Duration", "AttachEffect.InitialDelay",
-    "AttachEffect.Delay", "AttachEffect.SpeedMultiplier", "AttachEffect.ArmorMultiplier",
-    "AttachEffect.FirepowerMultiplier", "AttachEffect.ROFMultiplier",
-    "AttachEffect.Cloakable", "AttachEffect.DiscardOnEntry",
+# (ini_key, 中文标签, 控件类型 entry|combo, 选项源名或 None)
+# 选项源: WeaponTypes / Warheads / ProjectileTypes / _armors / _locomotors / bool / _images
+
+FORM_UNITS = [
+    ("基础生存与外观 (Base & Visuals)", [
+        ("Strength", "生命值 (Strength)", "entry", None),
+        ("Cost", "造价 (Cost)", "entry", None),
+        ("TechLevel", "科技等级 (TechLevel)", "entry", None),
+        ("Armor", "装甲类型 (Armor)", "combo", "_armors"),
+        ("Image", "模型换皮 (Image)", "combo", "_images"),
+        ("SelfHealing", "自动回血 (SelfHealing)", "combo", "bool"),
+        ("RadarInvisible", "雷达隐形 (RadarInvisible)", "combo", "bool"),
+    ]),
+    ("武器火控 (Combat)", [
+        ("Primary", "主武器 (Primary)", "combo", "WeaponTypes"),
+        ("Secondary", "副武器 (Secondary)", "combo", "WeaponTypes"),
+        ("ElitePrimary", "精英主武 (ElitePrimary)", "combo", "WeaponTypes"),
+        ("EliteSecondary", "精英副武 (EliteSecondary)", "combo", "WeaponTypes"),
+        ("OccupyWeapon", "进驻武器 (OccupyWeapon)", "combo", "WeaponTypes"),
+        ("EliteOccupyWeapon", "精英进驻 (EliteOccupy)", "combo", "WeaponTypes"),
+        ("OpportunityFire", "移动开火 (Opp.Fire)", "combo", "bool"),
+        ("Sight", "视野范围 (Sight)", "entry", None),
+    ]),
+    ("机动与战术 (Mobility & Tactics)", [
+        ("Speed", "移动速度 (Speed)", "entry", None),
+        ("ROT", "转身速度 (ROT)", "entry", None),
+        ("Locomotor", "移动引擎 (Locomotor)", "combo", "_locomotors"),
+        ("Passengers", "载客数量 (Passengers)", "entry", None),
+        ("Crusher", "允许碾压步兵 (Crusher)", "combo", "bool"),
+        ("OmniCrushResistant", "免疫巨型碾压 (OmniCrushResistant)", "combo", "bool"),
+        ("EMP.Threshold", "EMP瘫痪抗性 (EMP.Threshold)", "entry", None),
+    ]),
+    ("单位专属光环 (Ares AttachEffect)", [
+        ("AttachEffect.Animation", "状态绑定动画", "combo", "Animations"),
+        ("AttachEffect.Duration", "持续时长 (填-1为永久)", "entry", None),
+        ("AttachEffect.InitialDelay", "生效延迟 (0为立刻生效)", "entry", None),
+        ("AttachEffect.Delay", "冷却时间 (负值为不重置)", "entry", None),
+        ("AttachEffect.DiscardOnEntry", "进入建筑/载具时失效", "combo", "bool"),
+        ("AttachEffect.Cloakable", "赋予隐形能力", "combo", "bool"),
+        ("AttachEffect.TemporalHidesAnim", "超时空冻结不隐藏动画", "combo", "bool"),
+        ("AttachEffect.SpeedMultiplier", "移速倍率 (1为不变, >1加速)", "entry", None),
+        ("AttachEffect.ArmorMultiplier", "护甲倍率 (1不变, <1减伤, >1变脆)", "entry", None),
+        ("AttachEffect.FirepowerMultiplier", "伤害倍率 (1不变, >1增伤)", "entry", None),
+        ("AttachEffect.ROFMultiplier", "攻击间隔 (1不变, <1射速变快)", "entry", None),
+    ]),
 ]
 
-PRIORITY_WEAPON = [
-    "Damage", "ROF", "Range", "MinimumRange", "Projectile", "Speed",
-    "Warhead", "Report", "Anim",
+FORM_WEAPONS = [
+    ("火力与毁伤 (Firepower)", [
+        ("Damage", "伤害值 (Damage)", "entry", None),
+        ("ROF", "开火间隔/射速 (ROF)", "entry", None),
+        ("Range", "射程 (Range)", "entry", None),
+        ("MinimumRange", "最小射程 (MinRange)", "entry", None),
+    ]),
+    ("弹道与特效 (Ballistics)", [
+        ("Projectile", "抛射体引擎 (Projectile)", "combo", "ProjectileTypes"),
+        ("Speed", "弹道飞行速度 (Speed)", "entry", None),
+        ("Warhead", "弹头绑定 (Warhead)", "combo", "Warheads"),
+        ("Report", "开火音效 (Report)", "entry", None),
+        ("Anim", "枪口动画 (Anim)", "combo", "Animations"),
+    ]),
 ]
 
-PRIORITY_WARHEAD = [
-    "CellSpread", "PercentAtMax", "Verses", "WallAbsoluteDestroyer",
-    "InfDeath", "Rocker", "MindControl", "Parasite",
-    "AttachEffect.Animation", "AttachEffect.Duration", "AttachEffect.Cumulative",
-    "AttachEffect.SpeedMultiplier", "AttachEffect.ArmorMultiplier",
-    "AttachEffect.FirepowerMultiplier", "AttachEffect.ROFMultiplier",
-    "AttachEffect.ForceDecloak",
+FORM_WARHEADS = [
+    ("破坏与装甲穿透 (Damage & Armor)", [
+        ("CellSpread", "爆炸波及格数 (CellSpread)", "entry", None),
+        ("PercentAtMax", "边缘伤害衰减 (PercentAtMax)", "entry", None),
+        ("Verses", "对全装甲伤害比例(极长,慎改)", "entry", None),
+        ("WallAbsoluteDestroyer", "强制摧毁围墙 (WallDestroyer)", "combo", "bool"),
+    ]),
+    ("特殊伤害效果 (Status Effects)", [
+        ("InfDeath", "步兵死亡特效类型 (InfDeath)", "entry", None),
+        ("Rocker", "爆炸震荡屏幕 (Rocker)", "combo", "bool"),
+        ("MindControl", "心灵控制 (MindControl)", "combo", "bool"),
+        ("Parasite", "寄生蜘蛛 (Parasite)", "combo", "bool"),
+    ]),
+    ("武器打击效果 (Ares AttachEffect)", [
+        ("AttachEffect.Animation", "受击特效动画", "combo", "Animations"),
+        ("AttachEffect.Duration", "状态附着时长 (1秒=15帧)", "entry", None),
+        ("AttachEffect.Cumulative", "允许多次叠加效果", "combo", "bool"),
+        ("AttachEffect.AnimResetOnReapply", "重复命中时重置动画", "combo", "bool"),
+        ("AttachEffect.ForceDecloak", "命中强制破除隐形", "combo", "bool"),
+        ("AttachEffect.SpeedMultiplier", "移速倍率 (0为定身, 0.5减半)", "entry", None),
+        ("AttachEffect.ArmorMultiplier", "护甲倍率 (1.5为破甲/受伤增加)", "entry", None),
+        ("AttachEffect.FirepowerMultiplier", "伤害倍率 (0为缴械哑火)", "entry", None),
+        ("AttachEffect.ROFMultiplier", "射速因数 (2.0为开火变慢)", "entry", None),
+    ]),
 ]
+
+TAB_GROUPS = {
+    "units": {
+        "title": "🪖 战术单位 (Units)",
+        "groups": ["InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes"],
+        "form": FORM_UNITS,
+    },
+    "weapons": {
+        "title": "⚔️ 武器图纸 (Weapons)",
+        "groups": ["WeaponTypes"],
+        "form": FORM_WEAPONS,
+    },
+    "warheads": {
+        "title": "💥 弹头破坏 (Warheads)",
+        "groups": ["Warheads"],
+        "form": FORM_WARHEADS,
+    },
+}
 
 GROUP_LABELS = {
     "InfantryTypes": "步兵",
@@ -40,22 +121,13 @@ GROUP_LABELS = {
     "Warheads": "弹头",
     "ProjectileTypes": "抛射体",
     "SuperWeaponTypes": "超武",
+    "Animations": "动画",
 }
 
-REF_KEYS = {
-    "primary": "WeaponTypes",
-    "secondary": "WeaponTypes",
-    "eliteprimary": "WeaponTypes",
-    "elitesecondary": "WeaponTypes",
-    "occupyweapon": "WeaponTypes",
-    "eliteoccupyweapon": "WeaponTypes",
-    "warhead": "Warheads",
-    "projectile": "ProjectileTypes",
-    "armor": "_armors",
-    "locomotor": "_locomotors",
-}
-
-DEFAULT_ARMORS = ["none", "flak", "plate", "light", "medium", "heavy", "wood", "steel", "concrete"]
+DEFAULT_ARMORS = [
+    "none", "flak", "plate", "light", "medium", "heavy",
+    "wood", "steel", "concrete", "special_1", "special_2",
+]
 DEFAULT_LOCOMOTORS = [
     "{4A582744-9839-11d1-B709-00A024D04B5C}",
     "{4A582746-9839-11d1-B709-00A024D04B5C}",
@@ -64,28 +136,13 @@ DEFAULT_LOCOMOTORS = [
     "{4A582743-9839-11d1-B709-00A024D04B5C}",
     "{4A582745-9839-11d1-B709-00A024D04B5C}",
 ]
+
 BOOLISH = {"yes", "no", "true", "false", "1", "0"}
 
 
-def priority_for(group: str) -> list:
-    g = group.lower()
-    if "weapon" in g:
-        return list(PRIORITY_WEAPON)
-    if "warhead" in g:
-        return list(PRIORITY_WARHEAD)
-    return list(PRIORITY_UNIT)
-
-
-def ordered_keys(keys: dict, group: str) -> list:
-    pri = priority_for(group)
-    lower_map = {k.lower(): k for k in keys}
-    ordered, seen = [], set()
-    for pk in pri:
-        if pk.lower() in lower_map:
-            real = lower_map[pk.lower()]
-            ordered.append(real)
-            seen.add(real.lower())
-    for k in keys:
-        if k.lower() not in seen:
-            ordered.append(k)
-    return ordered
+def form_keys(form_config) -> list:
+    keys = []
+    for _g, fields in form_config:
+        for ini_key, _label, _wtype, _src in fields:
+            keys.append(ini_key)
+    return keys
