@@ -1,0 +1,132 @@
+# 双版本前端打包：INI 编辑器 + 战术工坊 2.x（均为 PyInstaller 单文件）
+name: Build Windows Frontends
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build-editor:
+    name: Editor (onefile)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: Frontend/editor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: PyInstaller onefile
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm --clean --onefile --windowed `
+            --name "MO_INI_Editor" `
+            --add-data "config.json;." `
+            --add-data "schemas;schemas" `
+            --add-data "使用说明.txt;." `
+            main.py
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $out = "MO_INI_Editor-windows"
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Path $out | Out-Null
+          Copy-Item -Force "dist/MO_INI_Editor.exe" $out/
+          Copy-Item -Force "config.json" $out/
+          Copy-Item -Recurse -Force "schemas" $out/
+          if (Test-Path "使用说明.txt") { Copy-Item -Force "使用说明.txt" $out/ }
+          Compress-Archive -Path "$out/*" -DestinationPath "MO_INI_Editor-windows.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MO_INI_Editor-windows
+          path: Frontend/editor/MO_INI_Editor-windows.zip
+          if-no-files-found: error
+
+  build-workshop:
+    name: Workshop 2.x (onefile)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/workshop/requirements.txt pyinstaller
+
+      - name: PyInstaller onefile
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm --clean --onefile --windowed `
+            --name "TacticalWorkshop" `
+            --paths . `
+            --hidden-import shared.ini_loader `
+            --hidden-import shared.csf_loader `
+            --hidden-import shared.hotfix_io `
+            --hidden-import shared.project_scan `
+            --add-data "shared/profiles.json;shared" `
+            Frontend/workshop/main.py
+
+      - name: Stage package
+        shell: pwsh
+        run: |
+          $out = "TacticalWorkshop-windows"
+          if (Test-Path $out) { Remove-Item -Recurse -Force $out }
+          New-Item -ItemType Directory -Path $out | Out-Null
+          Copy-Item -Force "dist/TacticalWorkshop.exe" $out/
+          Copy-Item -Force "shared/profiles.json" $out/
+          Copy-Item -Force "Frontend/workshop/README.md" "$out/使用说明.md"
+          Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-windows.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TacticalWorkshop-windows
+          path: TacticalWorkshop-windows.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs: [build-editor, build-workshop]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect zips
+        run: |
+          mkdir -p release
+          find artifacts -name '*.zip' -exec cp {} release/ \;
+          ls -la release/
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
