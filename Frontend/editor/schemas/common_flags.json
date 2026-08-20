@@ -1,0 +1,51 @@
+{
+  "_type_lists": {
+    "InfantryTypes": {
+      "desc_zh": "步兵单位注册表。这里列出的 ID 才会作为步兵被游戏识别。",
+      "keys": []
+    },
+    "VehicleTypes": {
+      "desc_zh": "载具单位注册表。",
+      "keys": []
+    },
+    "AircraftTypes": {
+      "desc_zh": "飞行器单位注册表。",
+      "keys": []
+    },
+    "BuildingTypes": {
+      "desc_zh": "建筑单位注册表。",
+      "keys": []
+    },
+    "WeaponTypes": {
+      "desc_zh": "武器类型。",
+      "keys": []
+    },
+    "Warheads": {
+      "desc_zh": "弹头。",
+      "keys": []
+    },
+    "Projectiles": {
+      "desc_zh": "抛射体。",
+      "keys": []
+    }
+  },
+  "_common_flags": {
+    "Strength": {"desc_zh": "生命值", "type": "int"},
+    "Armor": {"desc_zh": "护甲类型", "type": "string"},
+    "Primary": {"desc_zh": "主武器", "type": "string"},
+    "Secondary": {"desc_zh": "副武器", "type": "string"},
+    "Owner": {"desc_zh": "所属方", "type": "string"},
+    "Cost": {"desc_zh": "造价", "type": "int"},
+    "Points": {"desc_zh": "击杀得分", "type": "int"},
+    "Sight": {"desc_zh": "视野", "type": "int"},
+    "Speed": {"desc_zh": "移动速度", "type": "int"},
+    "ROT": {"desc_zh": "转向速率", "type": "int"},
+    "Crewed": {"desc_zh": "是否有乘员", "type": "bool"},
+    "TechLevel": {"desc_zh": "科技等级", "type": "int"},
+    "Prerequisite": {"desc_zh": "前置建筑", "type": "string"},
+    "BuildLimit": {"desc_zh": "建造上限", "type": "int"},
+    "Image": {"desc_zh": "图像", "type": "string"},
+    "UIName": {"desc_zh": "CSF 名称键", "type": "string"},
+    "Name": {"desc_zh": "内部名称", "type": "string"}
+  }
+}
