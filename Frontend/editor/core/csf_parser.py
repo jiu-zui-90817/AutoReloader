@@ -12,6 +12,7 @@ from typing import Dict, List
 
 class CSFParser:
     def __init__(self):
+        # 同时保存原始大小写和下小写 key，方便查找
         self.strings: Dict[str, str] = {}
 
     def load(self, filepath: str | Path) -> bool:
@@ -27,11 +28,13 @@ class CSFParser:
         if len(data) < 24:
             return False
 
+        # 文件头标识 " FSC"
         magic = data[0:4]
         if magic not in (b" FSC", b"CSF "):
             return False
 
         try:
+            # version, num_labels, num_strings, unused, language
             version, num_labels, num_strings, _unused, language = struct.unpack_from(
                 "<IIIII", data, 4
             )
@@ -42,7 +45,9 @@ class CSFParser:
         labels_parsed = 0
 
         while offset + 12 <= len(data) and labels_parsed < num_labels:
+            # 寻找 " LBL"
             if data[offset:offset + 4] not in (b" LBL", b"LBL "):
+                # 容错：向后扫一点
                 found = False
                 for i in range(offset, min(offset + 64, len(data) - 4)):
                     if data[i:i + 4] in (b" LBL", b"LBL "):
@@ -67,20 +72,23 @@ class CSFParser:
                 label = ""
             offset += label_len
 
+            # 读取该 label 下的 value pairs（游戏只用第一个）
             for pair_idx in range(num_pairs):
                 if offset + 8 > len(data):
                     break
 
                 value_magic = data[offset:offset + 4]
+                # " RTS" = 普通字符串, "WRTS" = 带 extra 的字符串
                 is_wide_extra = value_magic in (b"WRTS", b"STRW")
 
                 try:
+                    # ValueLength = 字符数（不是字节数）
                     char_count = struct.unpack_from("<I", data, offset + 4)[0]
                 except struct.error:
                     break
 
                 offset += 8
-                byte_len = char_count * 2
+                byte_len = char_count * 2  # UTF-16LE
 
                 if byte_len < 0 or offset + byte_len > len(data):
                     break
@@ -88,6 +96,7 @@ class CSFParser:
                 raw = bytearray(data[offset:offset + byte_len])
                 offset += byte_len
 
+                # 关键：每个字节按位取反
                 for i in range(len(raw)):
                     raw[i] = (~raw[i]) & 0xFF
 
@@ -96,6 +105,7 @@ class CSFParser:
                 except Exception:
                     value = ""
 
+                # WRTS 后面还有 extra 字符串（ASCII），游戏几乎不用，跳过
                 if is_wide_extra:
                     if offset + 4 <= len(data):
                         try:
@@ -107,6 +117,7 @@ class CSFParser:
                             pass
 
                 if label and pair_idx == 0:
+                    # 只保留第一个 value
                     self.strings[label] = value
                     self.strings[label.lower()] = value
 
@@ -121,6 +132,7 @@ class CSFParser:
         val = self.strings.get(key) or self.strings.get(key.lower())
         if val:
             return val
+        # 处理 UIName=Name:XXX 形式
         if ":" in key:
             parts = key.split(":", 1)
             if len(parts) == 2:
@@ -132,6 +144,7 @@ class CSFParser:
                 val = self.strings.get(full) or self.strings.get(full.lower())
                 if val:
                     return val
+                # 再试 NAME: 大写
                 full2 = f"NAME:{alt}"
                 val = self.strings.get(full2) or self.strings.get(full2.lower())
                 if val:
@@ -139,13 +152,16 @@ class CSFParser:
         return default
 
     def get_uiname(self, uiname_value: str) -> str:
+        """专门处理 UIName=Name:XXX"""
         if not uiname_value:
             return ""
         return self.get(uiname_value, default="")
 
 
 def load_csf_files(file_list: List[str | Path], base_dir: Path) -> CSFParser:
-    """按顺序加载多个 CSF，后面的覆盖前面的。支持通配符。"""
+    """按顺序加载多个 CSF，后面的覆盖前面的。
+    支持通配符，例如 stringtable*.csf
+    """
     parser = CSFParser()
     for pattern in file_list:
         pattern_str = str(pattern)
