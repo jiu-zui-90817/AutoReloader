@@ -1,13 +1,11 @@
 """
-战术工坊快调字段定义（对齐经典版 FORM_* 分组与中文标签）。
-无 Codex：下拉选项从工程 rules 动态收集；分组仍用经典图纸结构。
+战术工坊快调字段（经典分组 + 中文标签）。
+对象树统一展示全部类型；选中后按 group 选对应 FORM。
 """
 
 from __future__ import annotations
 
-# (ini_key, 中文标签, 控件类型 entry|combo, 选项源名或 None)
-# 选项源: WeaponTypes / Warheads / ProjectileTypes / _armors / _locomotors / bool / _images
-
+# (ini_key, 中文标签, entry|combo, 选项源)
 FORM_UNITS = [
     ("基础生存与外观 (Base & Visuals)", [
         ("Strength", "生命值 (Strength)", "entry", None),
@@ -94,23 +92,17 @@ FORM_WARHEADS = [
     ]),
 ]
 
-TAB_GROUPS = {
-    "units": {
-        "title": "🪖 战术单位 (Units)",
-        "groups": ["InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes"],
-        "form": FORM_UNITS,
-    },
-    "weapons": {
-        "title": "⚔️ 武器图纸 (Weapons)",
-        "groups": ["WeaponTypes"],
-        "form": FORM_WEAPONS,
-    },
-    "warheads": {
-        "title": "💥 弹头破坏 (Warheads)",
-        "groups": ["Warheads"],
-        "form": FORM_WARHEADS,
-    },
-}
+# 对象树展示顺序（全部挂在同一棵树上）
+TREE_ORDER = [
+    "InfantryTypes",
+    "VehicleTypes",
+    "AircraftTypes",
+    "BuildingTypes",
+    "WeaponTypes",
+    "Warheads",
+    "ProjectileTypes",
+    "SuperWeaponTypes",
+]
 
 GROUP_LABELS = {
     "InfantryTypes": "步兵",
@@ -140,9 +132,13 @@ DEFAULT_LOCOMOTORS = [
 BOOLISH = {"yes", "no", "true", "false", "1", "0"}
 
 
-def form_keys(form_config) -> list:
-    keys = []
-    for _g, fields in form_config:
-        for ini_key, _label, _wtype, _src in fields:
-            keys.append(ini_key)
-    return keys
+def form_for_group(group: str):
+    """根据对象树分组选预设表单。"""
+    g = (group or "").lower()
+    if "weapon" in g:
+        return FORM_WEAPONS
+    if "warhead" in g:
+        return FORM_WARHEADS
+    if "projectile" in g:
+        return FORM_WEAPONS
+    return FORM_UNITS
