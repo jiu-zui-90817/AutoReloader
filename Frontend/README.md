@@ -4,7 +4,6 @@
 |------|------|
 | `workshop/` | **战术工坊 2.x**（经典快调，升级中，目标：不依赖 Codex） |
 | `editor/` | **INI 工程编辑器**（附带工具，从 mo_ini_editor 迁入） |
-| `legacy/` | 旧版说明；当前可用的 `TacticalConsole.py` / `CodexGenerator.py` 仍在本目录上一级 |
 
 ## 当前仍可直接运行（旧版）
 
