@@ -1,5 +1,8 @@
 import zlib, base64
 from pathlib import Path
-_CODE = zlib.decompress(base64.b64decode("""
-eNo9V21v20YS/i8zCly9BLKs1/WLZMdJ6iZBmqA1ihRFU7QohpK5k5Uod8ntki6K/O+d4e4d5
-""")).decode("utf-8")
+_d = Path(__file__).resolve().parent
+_b64 = (_d / "_blob1.txt").read_text(encoding="utf-8") + (_d / "_blob2.txt").read_text(encoding="utf-8")
+_CODE = zlib.decompress(base64.b64decode(_b64)).decode("utf-8")
+_g = globals()
+_g["__file__"] = str(Path(__file__).resolve())
+exec(compile(_CODE, _g["__file__"], "exec"), _g)
