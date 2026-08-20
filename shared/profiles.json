@@ -1,0 +1,31 @@
+{
+  "active_profile": "MentalOmega",
+  "profiles": {
+    "MentalOmega": {
+      "display_name": "Mental Omega",
+      "rules_files": ["rulesmo.ini", "rulesmd.ini"],
+      "art_files": ["artmo.ini", "artmd.ini"],
+      "ai_files": ["aimo.ini", "aimd.ini"],
+      "csf_files": ["ra2md.csf", "stringtable*.csf"],
+      "type_lists": [
+        "InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes",
+        "WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes",
+        "Animations", "Particles", "ParticleSystems", "Projectiles"
+      ]
+    },
+    "YurisRevenge": {
+      "display_name": "Yuri's Revenge",
+      "rules_files": ["rulesmd.ini", "rules.ini"],
+      "art_files": ["artmd.ini", "art.ini"],
+      "ai_files": ["aimd.ini", "ai.ini"],
+      "csf_files": ["ra2md.csf", "ra2.csf"],
+      "type_lists": [
+        "InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes",
+        "WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes"
+      ]
+    }
+  },
+  "hotreload": {
+    "target_ini": "hotfix.ini"
+  }
+}
