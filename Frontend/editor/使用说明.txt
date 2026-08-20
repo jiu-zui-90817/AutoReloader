@@ -1,0 +1,23 @@
+MO / YR INI Editor（PySide6 版）
+
+一、安装依赖（只需一次）
+  1. 打开命令提示符 / PowerShell
+  2. cd 到本程序目录（有 main.py 的那一层）
+  3. 执行：
+       pip install -r requirements.txt
+
+   若提示没有 pip，先安装 Python 3.10+ 并勾选 Add to PATH。
+
+二、运行
+       python main.py
+
+三、工作模式
+  · 合并视图：把 #include 都合在一起，方便查单位（适合大多数人）
+  · 单文件：只编辑当前选中的一个 ini，保存只写该文件（适合拆分维护）
+
+四、保存
+  · 会先备份到 工程目录/backups/ 再写回磁盘
+  · 单文件模式下写入目标固定为当前文件
+
+五、词典说明
+  · schemas/common_flags.json 可自行补充中文说明
