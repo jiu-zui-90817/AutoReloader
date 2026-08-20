@@ -161,7 +161,6 @@ class INIFile:
         except Exception:
             return False
 
-        before = set(self.sections.keys())
         src_key = str(filepath)
         src_name = filepath.name
         self._parse_text(text, source_name=src_name)
