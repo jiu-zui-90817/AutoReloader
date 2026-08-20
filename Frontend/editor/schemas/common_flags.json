@@ -2,50 +2,245 @@
   "_type_lists": {
     "InfantryTypes": {
       "desc_zh": "步兵单位注册表。这里列出的 ID 才会作为步兵被游戏识别。",
-      "keys": []
+      "desc_en": "Infantry unit registry"
     },
     "VehicleTypes": {
-      "desc_zh": "载具单位注册表。",
-      "keys": []
+      "desc_zh": "载具单位注册表（坦克、矿车、舰船等）。",
+      "desc_en": "Vehicle unit registry"
     },
     "AircraftTypes": {
-      "desc_zh": "飞行器单位注册表。",
-      "keys": []
+      "desc_zh": "飞行单位注册表（战机、直升机等）。",
+      "desc_en": "Aircraft unit registry"
     },
     "BuildingTypes": {
-      "desc_zh": "建筑单位注册表。",
-      "keys": []
+      "desc_zh": "建筑注册表（基地、防御塔、生产建筑等）。",
+      "desc_en": "Building registry"
     },
     "WeaponTypes": {
-      "desc_zh": "武器类型。",
-      "keys": []
+      "desc_zh": "武器定义。单位的 Primary/Secondary 会指向这里的 ID。",
+      "desc_en": "Weapon definitions"
     },
     "Warheads": {
-      "desc_zh": "弹头。",
-      "keys": []
+      "desc_zh": "弹头定义。决定伤害类型、百分比伤害、特殊效果等。",
+      "desc_en": "Warhead definitions"
     },
-    "Projectiles": {
-      "desc_zh": "抛射体。",
-      "keys": []
+    "ProjectileTypes": {
+      "desc_zh": "抛射体定义（子弹飞行方式、轨迹等）。",
+      "desc_en": "Projectile definitions"
+    },
+    "SuperWeaponTypes": {
+      "desc_zh": "超级武器注册表。",
+      "desc_en": "Super weapon registry"
+    },
+    "TaskForces": {
+      "desc_zh": "AI 特遣部队：规定一支小队由哪些单位、各多少个组成。",
+      "desc_en": "AI TaskForces"
+    },
+    "ScriptTypes": {
+      "desc_zh": "AI 脚本：规定小队的行动序列（移动、攻击、部署等）。",
+      "desc_en": "AI Scripts"
+    },
+    "TeamTypes": {
+      "desc_zh": "AI 作战小队：把 TaskForce + Script 等组合在一起。",
+      "desc_en": "AI TeamTypes"
+    },
+    "AITriggerTypes": {
+      "desc_zh": "AI 触发器：在什么条件下派出哪支 Team。",
+      "desc_en": "AI Triggers"
+    },
+    "AITriggerTypesEnable": {
+      "desc_zh": "启用哪些 AI 触发器（通常按难度或模式开关）。",
+      "desc_en": "Enabled AI Triggers"
     }
   },
-  "_common_flags": {
-    "Strength": {"desc_zh": "生命值", "type": "int"},
-    "Armor": {"desc_zh": "护甲类型", "type": "string"},
-    "Primary": {"desc_zh": "主武器", "type": "string"},
-    "Secondary": {"desc_zh": "副武器", "type": "string"},
-    "Owner": {"desc_zh": "所属方", "type": "string"},
-    "Cost": {"desc_zh": "造价", "type": "int"},
-    "Points": {"desc_zh": "击杀得分", "type": "int"},
-    "Sight": {"desc_zh": "视野", "type": "int"},
-    "Speed": {"desc_zh": "移动速度", "type": "int"},
-    "ROT": {"desc_zh": "转向速率", "type": "int"},
-    "Crewed": {"desc_zh": "是否有乘员", "type": "bool"},
-    "TechLevel": {"desc_zh": "科技等级", "type": "int"},
-    "Prerequisite": {"desc_zh": "前置建筑", "type": "string"},
-    "BuildLimit": {"desc_zh": "建造上限", "type": "int"},
-    "Image": {"desc_zh": "图像", "type": "string"},
-    "UIName": {"desc_zh": "CSF 名称键", "type": "string"},
-    "Name": {"desc_zh": "内部名称", "type": "string"}
+  "UIName": {
+    "type": "string",
+    "desc_zh": "界面显示名称（指向CSF字符串，格式通常为 Name:XXX）",
+    "desc_en": "UI display name (points to CSF string)"
+  },
+  "Name": {
+    "type": "string",
+    "desc_zh": "内部名称（仅编辑器用，游戏内不显示）",
+    "desc_en": "Internal name for editors"
+  },
+  "Image": {
+    "type": "string",
+    "desc_zh": "使用的图像/模型ID（通常对应art里的section）",
+    "desc_en": "Image / shape ID used"
+  },
+  "Category": {
+    "type": "string",
+    "desc_zh": "单位分类（Soldier / Armor 等，影响AI和部分逻辑）",
+    "desc_en": "Unit category"
+  },
+  "Primary": {
+    "type": "weapon",
+    "desc_zh": "主武器（指向WeaponTypes里的ID）",
+    "desc_en": "Primary weapon"
+  },
+  "Secondary": {
+    "type": "weapon",
+    "desc_zh": "副武器",
+    "desc_en": "Secondary weapon"
+  },
+  "ElitePrimary": {
+    "type": "weapon",
+    "desc_zh": "精英级主武器",
+    "desc_en": "Elite primary weapon"
+  },
+  "Prerequisite": {
+    "type": "list",
+    "desc_zh": "建造前提（需要已拥有的建筑/科技）",
+    "desc_en": "Build prerequisites"
+  },
+  "Owner": {
+    "type": "list",
+    "desc_zh": "可建造的所属方（国家列表）",
+    "desc_en": "Houses that can build this"
+  },
+  "Strength": {
+    "type": "int",
+    "desc_zh": "生命值（HP）",
+    "desc_en": "Hit points"
+  },
+  "Armor": {
+    "type": "string",
+    "desc_zh": "护甲类型（none / light / medium / heavy / concrete / wood / plate 等）",
+    "desc_en": "Armor type"
+  },
+  "TechLevel": {
+    "type": "int",
+    "desc_zh": "科技等级（影响出现时机和AI建造）",
+    "desc_en": "Tech level"
+  },
+  "Cost": {
+    "type": "int",
+    "desc_zh": "造价",
+    "desc_en": "Cost"
+  },
+  "Soylent": {
+    "type": "int",
+    "desc_zh": "回收价值（出售所得）",
+    "desc_en": "Refund value when sold"
+  },
+  "Points": {
+    "type": "int",
+    "desc_zh": "击毁得分",
+    "desc_en": "Points awarded when destroyed"
+  },
+  "Speed": {
+    "type": "int",
+    "desc_zh": "移动速度",
+    "desc_en": "Movement speed"
+  },
+  "Sight": {
+    "type": "int",
+    "desc_zh": "视野范围（格）",
+    "desc_en": "Sight range in cells"
+  },
+  "ROT": {
+    "type": "int",
+    "desc_zh": "旋转速度（Rate of Turn）",
+    "desc_en": "Rate of turn"
+  },
+  "Crushable": {
+    "type": "bool",
+    "desc_zh": "是否可被碾压",
+    "desc_en": "Can be crushed"
+  },
+  "CrushSound": {
+    "type": "string",
+    "desc_zh": "被碾压时的音效",
+    "desc_en": "Sound when crushed"
+  },
+  "Locomotor": {
+    "type": "string",
+    "desc_zh": "运动方式（GUID，决定步行/履带/飞行等）",
+    "desc_en": "Locomotor CLSID"
+  },
+  "MovementZone": {
+    "type": "string",
+    "desc_zh": "移动区域类型",
+    "desc_en": "Movement zone"
+  },
+  "ThreatPosed": {
+    "type": "int",
+    "desc_zh": "对AI的威胁值",
+    "desc_en": "Threat value for AI"
+  },
+  "VeteranAbilities": {
+    "type": "list",
+    "desc_zh": "老兵级获得的能力",
+    "desc_en": "Abilities gained at veteran"
+  },
+  "EliteAbilities": {
+    "type": "list",
+    "desc_zh": "精英级获得的能力",
+    "desc_en": "Abilities gained at elite"
+  },
+  "Size": {
+    "type": "int",
+    "desc_zh": "占用空间大小（影响运输等）",
+    "desc_en": "Size"
+  },
+  "Pip": {
+    "type": "string",
+    "desc_zh": "运输时显示的点颜色",
+    "desc_en": "Pip color when transported"
+  },
+  "IsSelectableCombatant": {
+    "type": "bool",
+    "desc_zh": "是否可作为战斗单位被选择",
+    "desc_en": "Selectable combatant"
+  },
+  "VoiceSelect": {
+    "type": "string",
+    "desc_zh": "选中语音",
+    "desc_en": "Select voice"
+  },
+  "VoiceMove": {
+    "type": "string",
+    "desc_zh": "移动语音",
+    "desc_en": "Move voice"
+  },
+  "VoiceAttack": {
+    "type": "string",
+    "desc_zh": "攻击语音",
+    "desc_en": "Attack voice"
+  },
+  "DieSound": {
+    "type": "string",
+    "desc_zh": "死亡音效",
+    "desc_en": "Death sound"
+  },
+  "BuildLimit": {
+    "type": "int",
+    "desc_zh": "建造数量上限（-1为无限）",
+    "desc_en": "Build limit"
+  },
+  "Power": {
+    "type": "int",
+    "desc_zh": "电力消耗/产出（负数为消耗）",
+    "desc_en": "Power drain/production"
+  },
+  "Crewed": {
+    "type": "bool",
+    "desc_zh": "被摧毁时是否产生步兵",
+    "desc_en": "Produces survivors when destroyed"
+  },
+  "Capturable": {
+    "type": "bool",
+    "desc_zh": "是否可被工程师占领",
+    "desc_en": "Can be captured"
+  },
+  "UndeploysInto": {
+    "type": "string",
+    "desc_zh": "收起后变成的单位",
+    "desc_en": "Unit it undeploys into"
+  },
+  "DeploysInto": {
+    "type": "string",
+    "desc_zh": "部署后变成的建筑/单位",
+    "desc_en": "What it deploys into"
   }
 }
