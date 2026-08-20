@@ -1,16 +1,27 @@
-# INI 工程编辑器 (Editor)
+# INI 工程编辑器（AutoReloader 附带工具）
 
-AutoReloader **附带工具**：工程级 INI 编辑（对象树、增删改、保存回源文件、单单位调试/hotfix）。
+工程级 INI 编辑：对象树、CSF 中文名、增删改、保存回源文件、单单位调试与 hotfix 部署。
 
-## 迁入计划
+## 运行
 
-源码目前在独立仓库 [mo_ini_editor](https://github.com/jiu-zui-90817/mo_ini_editor)。
+在本目录下：
 
-稳定后将整目录迁入此处，并逐步改为使用仓库根目录的 `shared/`。
+```bash
+pip install -r requirements.txt
+python main.py
+```
 
-## 定位
+或在仓库根目录：
 
-| | 战术工坊 | 本编辑器 |
-|--|----------|----------|
-| 场景 | 局内快调参数 | 改工程结构与全文 |
-| 写入 | 主要 hotfix | 源 ini + 可选 hotfix |
+```bash
+pip install -r Frontend/editor/requirements.txt
+python Frontend/editor/main.py
+```
+
+## 说明
+
+- 与**战术工坊**分工：工坊负责快调热重载；本工具负责改工程结构与全文。
+- 热重载由仓库中的 **AutoReloader.dll** 完成；本工具可把当前单位写入 `hotfix.ini`。
+- 配置见 `config.json`（Mental Omega / Yuri's Revenge 等 profile）。
+
+源码由 [mo_ini_editor](https://github.com/jiu-zui-90817/mo_ini_editor) 迁入，正式分发以 **AutoReloader** Release 为准。
