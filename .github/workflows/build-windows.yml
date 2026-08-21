@@ -1,5 +1,5 @@
-# 双版本前端打包：每个前端各出 PyInstaller 单文件 + Nuitka 单文件
-# common_flags：仓库唯一源 shared/schemas/ → 构建前同步到各工具 schemas/ → 打进包内
+# 编辑器 + 工坊 · PyInstaller 单文件 + Nuitka 单文件
+# 构建前同步 shared/schemas → 各工具 schemas，保证打包后中文说明可用
 name: Build Windows Frontends
 
 on:
@@ -18,9 +18,7 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # ---------- 同步词典到各工具（唯一源 shared/schemas）----------
-  # 每个 job 自己 sync，避免跨 job 传 artifact 的麻烦
-
+  # ========== Editor · PyInstaller ==========
   editor-pyinstaller:
     name: Editor · PyInstaller onefile
     runs-on: windows-latest
@@ -39,7 +37,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
-          Write-Host "editor schemas synced from shared"
+          if (-not (Test-Path Frontend/editor/schemas/common_flags.json)) { throw "schema sync failed" }
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -51,7 +49,7 @@ jobs:
             --name "MO_INI_Editor" `
             --add-data "config.json;." `
             --add-data "schemas;schemas" `
-            --add-data "使用说明.txt;." `
+            --collect-all PySide6 `
             main.py
       - name: Pack
         shell: pwsh
@@ -69,6 +67,7 @@ jobs:
           path: Frontend/editor/MO_INI_Editor-PyInstaller.zip
           if-no-files-found: error
 
+  # ========== Editor · Nuitka ==========
   editor-nuitka:
     name: Editor · Nuitka onefile
     runs-on: windows-latest
@@ -105,7 +104,8 @@ jobs:
             --output-filename=MO_INI_Editor.exe `
             --include-data-files=config.json=config.json `
             --include-data-dir=schemas=schemas `
-            --include-data-files=使用说明.txt=使用说明.txt `
+            --include-package=core `
+            --include-package=ui `
             --nofollow-import-to=tkinter `
             --remove-output `
             main.py
@@ -125,6 +125,7 @@ jobs:
           path: Frontend/editor/MO_INI_Editor-Nuitka.zip
           if-no-files-found: error
 
+  # ========== Workshop · PyInstaller ==========
   workshop-pyinstaller:
     name: Workshop · PyInstaller onefile
     runs-on: windows-latest
@@ -146,14 +147,21 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
+          # 必须在仓库根：shared 与 Frontend/workshop 都能被找到
           pyinstaller --noconfirm --clean --onefile --windowed `
             --name "TacticalWorkshop" `
             --paths . `
-            --hidden-import shared.ini_loader `
-            --hidden-import shared.csf_loader `
-            --hidden-import shared.hotfix_io `
-            --hidden-import shared.project_scan `
-            --hidden-import shared.codex_builder `
+            --paths Frontend/workshop `
+            --hidden-import=app `
+            --hidden-import=fields `
+            --hidden-import=shared `
+            --hidden-import=shared.ini_loader `
+            --hidden-import=shared.csf_loader `
+            --hidden-import=shared.hotfix_io `
+            --hidden-import=shared.project_scan `
+            --hidden-import=shared.codex_builder `
+            --collect-submodules=shared `
+            --collect-all=PySide6 `
             --add-data "shared/profiles.json;shared" `
             --add-data "shared/schemas;shared/schemas" `
             --add-data "Frontend/workshop/schemas;schemas" `
@@ -164,11 +172,12 @@ jobs:
           $out = "TacticalWorkshop-PyInstaller"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item dist/TacticalWorkshop.exe $out/
-          Copy-Item shared/profiles.json $out/
-          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
-          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
+          New-Item -ItemType Directory -Force -Path "$out/shared" | Out-Null
+          Copy-Item shared/profiles.json "$out/shared/"
           New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
           if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
           Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-PyInstaller.zip" -Force
       - uses: actions/upload-artifact@v4
@@ -177,6 +186,7 @@ jobs:
           path: TacticalWorkshop-PyInstaller.zip
           if-no-files-found: error
 
+  # ========== Workshop · Nuitka ==========
   workshop-nuitka:
     name: Workshop · Nuitka onefile
     runs-on: windows-latest
@@ -207,9 +217,11 @@ jobs:
             --enable-plugin=pyside6 `
             --assume-yes-for-downloads `
             --msvc=latest `
-            --output-dir=../../dist_nuitka `
+            --output-dir=../../dist_nuitka_ws `
             --output-filename=TacticalWorkshop.exe `
             --include-package=shared `
+            --include-module=app `
+            --include-module=fields `
             --include-data-files=../../shared/profiles.json=shared/profiles.json `
             --include-data-dir=../../shared/schemas=shared/schemas `
             --include-data-dir=schemas=schemas `
@@ -222,12 +234,12 @@ jobs:
         run: |
           $out = "TacticalWorkshop-Nuitka"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item dist_nuitka/TacticalWorkshop.exe $out/
-          Copy-Item shared/profiles.json $out/
+          Copy-Item dist_nuitka_ws/TacticalWorkshop.exe $out/
+          New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
+          Copy-Item shared/profiles.json "$out/shared/"
+          Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
           New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
-          New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
-          Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
           if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
           Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-Nuitka.zip" -Force
       - uses: actions/upload-artifact@v4
