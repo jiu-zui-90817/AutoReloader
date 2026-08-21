@@ -1,22 +1,26 @@
 # 双版本前端打包：每个前端各出 PyInstaller 单文件 + Nuitka 单文件
+# common_flags：仓库唯一源 shared/schemas/ → 构建前同步到各工具 schemas/ → 打进包内
 name: Build Windows Frontends
 
 on:
   workflow_dispatch:
   push:
-    branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
+    branches: [main, master]
+    paths:
+      - "Frontend/**"
+      - "shared/**"
+      - ".github/workflows/build-windows.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # ---------- Editor: PyInstaller onefile ----------
+  # ---------- 同步词典到各工具（唯一源 shared/schemas）----------
+  # 每个 job 自己 sync，避免跨 job 传 artifact 的麻烦
+
   editor-pyinstaller:
     name: Editor · PyInstaller onefile
     runs-on: windows-latest
@@ -29,6 +33,13 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      - name: Sync common_flags from shared
+        working-directory: .
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
+          Write-Host "editor schemas synced from shared"
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -58,7 +69,6 @@ jobs:
           path: Frontend/editor/MO_INI_Editor-PyInstaller.zip
           if-no-files-found: error
 
-  # ---------- Editor: Nuitka onefile ----------
   editor-nuitka:
     name: Editor · Nuitka onefile
     runs-on: windows-latest
@@ -72,11 +82,17 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      - name: Sync common_flags from shared
+        working-directory: .
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
       - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt nuitka ordered-set zstandard
-      - name: Build Nuitka onefile
+      - name: Build Nuitka
         shell: pwsh
         run: |
           python -m nuitka `
@@ -90,6 +106,7 @@ jobs:
             --include-data-files=config.json=config.json `
             --include-data-dir=schemas=schemas `
             --include-data-files=使用说明.txt=使用说明.txt `
+            --nofollow-import-to=tkinter `
             --remove-output `
             main.py
       - name: Pack
@@ -108,7 +125,6 @@ jobs:
           path: Frontend/editor/MO_INI_Editor-Nuitka.zip
           if-no-files-found: error
 
-  # ---------- Workshop: PyInstaller onefile ----------
   workshop-pyinstaller:
     name: Workshop · PyInstaller onefile
     runs-on: windows-latest
@@ -118,6 +134,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      - name: Sync common_flags from shared
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -132,7 +153,10 @@ jobs:
             --hidden-import shared.csf_loader `
             --hidden-import shared.hotfix_io `
             --hidden-import shared.project_scan `
+            --hidden-import shared.codex_builder `
             --add-data "shared/profiles.json;shared" `
+            --add-data "shared/schemas;shared/schemas" `
+            --add-data "Frontend/workshop/schemas;schemas" `
             Frontend/workshop/main.py
       - name: Pack
         shell: pwsh
@@ -141,7 +165,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item dist/TacticalWorkshop.exe $out/
           Copy-Item shared/profiles.json $out/
-          Copy-Item Frontend/workshop/README.md "$out/README.md"
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
+          New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
+          if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
           Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-PyInstaller.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
@@ -149,7 +177,6 @@ jobs:
           path: TacticalWorkshop-PyInstaller.zip
           if-no-files-found: error
 
-  # ---------- Workshop: Nuitka onefile ----------
   workshop-nuitka:
     name: Workshop · Nuitka onefile
     runs-on: windows-latest
@@ -160,6 +187,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+      - name: Sync common_flags from shared
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -167,7 +199,6 @@ jobs:
       - name: Build Nuitka onefile
         shell: pwsh
         run: |
-          # 在 workshop 目录编译，保证 fields/app 同级可解析；PYTHONPATH 指向仓库根以导入 shared
           $env:PYTHONPATH = (Resolve-Path .).Path
           Push-Location Frontend/workshop
           python -m nuitka `
@@ -180,6 +211,8 @@ jobs:
             --output-filename=TacticalWorkshop.exe `
             --include-package=shared `
             --include-data-files=../../shared/profiles.json=shared/profiles.json `
+            --include-data-dir=../../shared/schemas=shared/schemas `
+            --include-data-dir=schemas=schemas `
             --nofollow-import-to=tkinter `
             --remove-output `
             main.py
@@ -191,35 +224,14 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item dist_nuitka/TacticalWorkshop.exe $out/
           Copy-Item shared/profiles.json $out/
-          Copy-Item Frontend/workshop/README.md "$out/README.md"
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
+          New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
+          if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
           Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-Nuitka.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
           name: TacticalWorkshop-Nuitka
           path: TacticalWorkshop-Nuitka.zip
           if-no-files-found: error
-
-  release:
-    name: Publish Release
-    needs:
-      - editor-pyinstaller
-      - editor-nuitka
-      - workshop-pyinstaller
-      - workshop-nuitka
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: Collect zips
-        run: |
-          mkdir -p release
-          find artifacts -name '*.zip' -exec cp {} release/ \;
-          ls -la release/
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: release/*
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
