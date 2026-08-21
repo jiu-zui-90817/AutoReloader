@@ -1,9 +1,10 @@
 """
-战术工坊 2.x：
-  顶栏绑定路径 | 安全模式 | 部署/恢复
-  统一对象树（步兵/载具/武器/弹头…）— 不再使用旧版页签
-  中部属性（标签在上/值在下，与编辑器共用 common_flags）+ 右侧绿字预览 + 一键复制
-无 Codex：树与下拉从工程 rules/CSF 动态生成。
+战术工坊 2.x（逻辑对齐旧版 TacticalConsole + CodexGenerator，UI 为现代对象树）
+
+- 词典：打开游戏目录后自动构建/加载 Codex（武器显示为「ID - 单位名 [主武]」）
+- 对象树：步兵/载具/飞行器/建筑/武器/弹头
+- 属性：旧版固定字段，标签在上、值在下
+- 部署：安全模式只写 hotfix.ini；高级模式可写任意工程文件
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, QObject, QEvent, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QFont
@@ -20,21 +21,29 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
-    QStatusBar, QSizePolicy, QCheckBox, QInputDialog, QGroupBox,
-    QFormLayout, QDialog, QDialogButtonBox,
+    QStatusBar, QSizePolicy, QCheckBox,
 )
 
 from fields import (
     TREE_ORDER,
-    GROUP_LABELS,
-    PREFERRED_KEYS,
-    DEFAULT_ARMORS,
-    DEFAULT_LOCOMOTORS,
+    FORM_UNITS,
+    FORM_WEAPONS,
+    FORM_WARHEADS,
+    RULES_UNITS,
 )
 
 
 def get_app_dir() -> Path:
     if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def get_bundle_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass)
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
@@ -46,340 +55,379 @@ def get_repo_root() -> Path:
 
 
 def ensure_shared_path() -> None:
-    root = get_repo_root()
-    if str(root) not in sys.path:
-        sys.path.insert(0, str(root))
+    for p in (get_repo_root(), get_bundle_dir(), get_app_dir()):
+        s = str(p)
+        if s not in sys.path:
+            sys.path.insert(0, s)
 
 
 ensure_shared_path()
 
 from shared.project_scan import GameProject, load_profiles  # noqa: E402
 from shared.hotfix_io import save_section_to_file, normalize_section_body, read_text  # noqa: E402
-
-
+from shared.codex_builder import build_codex, load_codex, save_codex  # noqa: E402
 
 
 def load_common_flags() -> dict:
-    """与编辑器共用的名词解释。优先 shared/schemas，其次本地 schemas，再回退 editor。"""
+    """开发读 shared；打包读 exe/_MEIPASS 旁 schemas（构建时从 shared 拷入）。"""
+    app = get_app_dir()
+    bundle = get_bundle_dir()
+    root = get_repo_root()
     candidates = [
-        get_repo_root() / "shared" / "schemas" / "common_flags.json",
-        get_app_dir() / "schemas" / "common_flags.json",
-        get_repo_root() / "Frontend" / "editor" / "schemas" / "common_flags.json",
-        get_app_dir().parent / "editor" / "schemas" / "common_flags.json",
+        # 打包：与 exe 同级（Pack 步骤会复制）
+        app / "schemas" / "common_flags.json",
+        app / "shared" / "schemas" / "common_flags.json",
+        # 打包：包内资源
+        bundle / "schemas" / "common_flags.json",
+        bundle / "shared" / "schemas" / "common_flags.json",
+        # 源码开发：仓库唯一源
+        root / "shared" / "schemas" / "common_flags.json",
+        root / "Frontend" / "workshop" / "schemas" / "common_flags.json",
+        root / "Frontend" / "editor" / "schemas" / "common_flags.json",
     ]
     for path in candidates:
         try:
             if path.is_file():
-                with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                if isinstance(data, dict):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and data:
                     return data
         except Exception:
             continue
     return {}
 
 
-def flag_meta(flags: dict, key: str) -> dict:
-    if not flags or not key:
-        return {}
-    if key in flags and isinstance(flags[key], dict):
-        return flags[key]
-    # 忽略大小写
-    kl = key.lower()
-    for k, v in flags.items():
-        if k.startswith("_"):
-            continue
-        if k.lower() == kl and isinstance(v, dict):
-            return v
-    return {}
-
-
 def flag_label(flags: dict, key: str) -> str:
-    meta = flag_meta(flags, key)
+    meta = flags.get(key) if flags else None
+    if not isinstance(meta, dict):
+        kl = key.lower()
+        for k, v in (flags or {}).items():
+            if k.startswith("_"):
+                continue
+            if k.lower() == kl and isinstance(v, dict):
+                meta = v
+                break
+    if not isinstance(meta, dict):
+        return key
     zh = (meta.get("desc_zh") or "").strip()
     if zh:
-        # 若解释里已含英文键名则不重复
         if key.lower() in zh.lower() or f"({key})" in zh:
             return zh
         return f"{zh} ({key})"
     return key
 
 
-def flag_widget_kind(flags: dict, key: str) -> tuple:
-    """返回 (wtype, src)：entry|combo + 选项源。"""
-    meta = flag_meta(flags, key)
+def infer_field_spec(key: str, value: str, flags: dict) -> tuple:
+    """动态键 → (label, wtype, src)。"""
+    label = flag_label(flags, key)
+    meta = {}
+    if flags:
+        if key in flags and isinstance(flags[key], dict):
+            meta = flags[key]
+        else:
+            for k, v in flags.items():
+                if not k.startswith("_") and k.lower() == key.lower() and isinstance(v, dict):
+                    meta = v
+                    break
     typ = (meta.get("type") or "").lower()
     kl = key.lower()
-    if typ in ("weapon",) or kl in {
+
+    if typ == "weapon" or kl in {
         "primary", "secondary", "eliteprimary", "elitesecondary",
         "occupyweapon", "eliteoccupyweapon", "deathweapon",
     }:
-        return "combo", "WeaponTypes"
-    if typ in ("warhead",) or kl == "warhead":
-        return "combo", "Warheads"
-    if typ in ("projectile",) or kl == "projectile":
-        return "combo", "ProjectileTypes"
-    if typ in ("animation", "anim") or "animation" in kl:
-        return "combo", "Animations"
-    if typ in ("armor",) or kl == "armor":
-        return "combo", "_armors"
-    if typ in ("locomotor",) or kl == "locomotor":
-        return "combo", "_locomotors"
-    if typ in ("bool", "boolean") or kl in {
+        return label, "combo", "WeaponList"
+    if typ == "warhead" or kl == "warhead":
+        return label, "combo", "WarheadList"
+    if typ in ("animation", "anim") or kl in {"anim", "attacheffect.animation"}:
+        return label, "combo", "AnimList"
+    if typ == "armor" or kl == "armor":
+        return label, "combo", "Armors"
+    if typ == "locomotor" or kl == "locomotor":
+        return label, "combo", "Locomotors"
+    if typ == "bool" or kl in {
         "selfhealing", "radarinvisible", "opportunityfire", "crusher",
-        "omnicrushresistant", "mindcontrol", "parasite", "rocker",
+        "omnicrushresistant", "cloakable", "trainable", "crewed", "capturable",
+        "rocker", "mindcontrol", "parasite", "wallabsolutedestroyer",
+        "attacheffect.cumulative", "attacheffect.animresetonreapply",
+        "attacheffect.forcedecloak", "attacheffect.discardonentry",
+        "attacheffect.cloakable",
     }:
-        return "combo", "bool"
-    # 值本身像 bool 的在运行时再处理；默认 entry
-    return "entry", None
+        return label, "combo", "Booleans"
+    if str(value).lower() in {"yes", "no", "true", "false"}:
+        return label, "combo", "Booleans"
+    if kl == "image":
+        return label, "combo", "DYNAMIC_IMAGE"
+    return label, "entry", None
+
 
 
 def extract_real_id(text: str) -> str:
-    """下拉显示 'M60 - 某某' 时取真实注册名。"""
+    """从「ID - 中文 [主武]」或「中文 [ID]」还原真正的 ini 值。"""
     if not text:
         return ""
-    s = text.strip()
-    if " - " in s:
-        return s.split(" - ", 1)[0].strip()
-    if s.endswith("]") and "[" in s:
-        return s[s.rfind("[") + 1 : -1].strip()
-    return s
+    text = text.strip()
+    if " - " in text:
+        return text.split(" - ", 1)[0].strip()
+    if " [" in text and text.endswith("]"):
+        return text.split("[")[-1].replace("]", "").strip()
+    return text
 
 
 class NoWheelFilter(QObject):
+    """禁止在下拉框外的控件上滚轮改值。"""
+
     def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.Wheel:
-            if isinstance(obj, QComboBox) and obj.view().isVisible():
-                return False
-            return True
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, QComboBox):
+            if not obj.view().isVisible():
+                return True
         return super().eventFilter(obj, event)
-
-
-class AddKeyDialog(QDialog):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("添加属性")
-        self.setMinimumWidth(360)
-        lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("键名（INI 字段名，如 Strength）："))
-        self.edit = QLineEdit()
-        self.edit.setPlaceholderText("例如 Primary")
-        lay.addWidget(self.edit)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        lay.addWidget(buttons)
-        self.setStyleSheet("""
-            QDialog { background: #2b2b2b; color: #eee; }
-            QLabel { color: #eee; }
-            QLineEdit {
-                background: #1e1e1e; color: #eee;
-                border: 1px solid #555; padding: 6px; border-radius: 4px;
-            }
-            QPushButton { min-width: 72px; padding: 6px 12px; }
-        """)
-
-    def key_name(self) -> str:
-        return self.edit.text().strip()
 
 
 class WorkshopWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.app_dir = get_app_dir()
-        self.repo_root = get_repo_root()
-        self.config_path = self.app_dir / "workshop_config.json"
-        self.profiles = load_profiles(self.repo_root / "shared" / "profiles.json")
-        if not (self.repo_root / "shared" / "profiles.json").exists():
-            alt = self.app_dir / "profiles.json"
-            if alt.exists():
-                self.profiles = load_profiles(alt)
+        self.setWindowTitle("战术工坊 2.x")
+        self.resize(1280, 800)
 
         self.settings = self._load_settings()
-        self.mode = self.settings.get("mode", "safe")
-        self.assist = bool(self.settings.get("assist_mode", True))
+        self.mode = self.settings.get("mode", "safe")  # safe | advanced
+        self.assist = bool(self.settings.get("assist", True))
+        self.expand_all = bool(self.settings.get("expand_all", False))
+        self.flags = load_common_flags()
         self.game: Optional[GameProject] = None
+        self.codex: dict = {}
         self.hotfix_path: Optional[Path] = None
         self.current_id: Optional[str] = None
-        self.current_group: str = ""
-        self.entries: Dict[str, QWidget] = {}
-        self.flags = load_common_flags()
-        self.extra_keys: List[str] = []
-        self._loading = False
-        self._no_wheel = NoWheelFilter(self)
-        self._option_cache: Dict[str, List[str]] = {}
-        self._filter_timer = QTimer(self)
-        self._filter_timer.setSingleShot(True)
-        self._filter_timer.timeout.connect(self.refresh_tree)
-        self._watch_mtime = 0.0
+        self.current_kind: str = "unit"  # unit | weapon | warhead
+        self.current_utype: str = "Unknown"
+        self._widgets: Dict[str, QWidget] = {}
+        self._switching = False
+        self._wheel_filter = NoWheelFilter(self)
+
+        self._build_ui()
+        self._apply_style()
+        self._update_mode_ui()
+
+        last = self.settings.get("last_game_dir")
+        if last and Path(last).is_dir():
+            QTimer.singleShot(150, lambda p=last: self.open_game_dir(p))
+        elif last:
+            # 路径失效则清掉，避免每次弹错
+            self.settings.pop("last_game_dir", None)
+            self._save_settings()
+
         self._watch = QTimer(self)
         self._watch.timeout.connect(self._file_watch)
         self._watch.start(1500)
 
-        self.setWindowTitle("战术工坊 2.x")
-        self.resize(1180, 800)
-        self._build_ui()
-        self._apply_style()
-        self._update_mode_ui()
-        self.statusBar().showMessage("请先打开游戏目录，再绑定 hotfix.ini")
+    # ---------- settings ----------
+    def _settings_path(self) -> Path:
+        # 源码/打包都尽量可写；程序目录写失败则用用户目录
+        candidates = [
+            get_app_dir() / "console_config.json",
+            Path.home() / ".tactical_workshop" / "console_config.json",
+            Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "console_config.json",
+        ]
+        for path in candidates:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.is_file():
+                    return path
+                # 探测可写
+                probe = path.parent / ".w"
+                probe.write_text("1", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+                return path
+            except Exception:
+                continue
+        return candidates[0]
 
     def _load_settings(self) -> dict:
-        if self.config_path.exists():
+        p = self._settings_path()
+        if p.is_file():
             try:
-                return json.loads(self.config_path.read_text(encoding="utf-8"))
+                return json.loads(p.read_text(encoding="utf-8"))
             except Exception:
                 pass
         return {}
 
     def _save_settings(self) -> None:
-        data = {
-            "mode": self.mode,
-            "assist_mode": self.assist,
-            "last_game_dir": self.settings.get("last_game_dir", ""),
-            "last_hotfix": str(self.hotfix_path) if self.hotfix_path else self.settings.get("last_hotfix", ""),
-            "profile": self.settings.get("profile", self.profiles.get("active_profile", "MentalOmega")),
-        }
         try:
-            self.config_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._settings_path().write_text(
+                json.dumps(self.settings, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         except Exception:
             pass
-        self.settings = data
 
     def _profile(self) -> dict:
-        name = self.settings.get("profile") or self.profiles.get("active_profile", "MentalOmega")
-        return self.profiles.get("profiles", {}).get(name, {})
+        root = get_repo_root()
+        candidates = [
+            root / "shared" / "profiles.json",
+            get_app_dir() / "shared" / "profiles.json",
+            get_bundle_dir() / "shared" / "profiles.json",
+        ]
+        data = {}
+        for p in candidates:
+            if p.is_file():
+                try:
+                    data = load_profiles(p)
+                    break
+                except Exception:
+                    pass
+        if not data:
+            data = load_profiles(Path("__missing__"))
+        active = data.get("active_profile") or "MentalOmega"
+        return (data.get("profiles") or {}).get(active) or {
+            "rules_files": ["rulesmo.ini", "rulesmd.ini"],
+            "art_files": ["artmo.ini", "artmd.ini"],
+            "csf_files": ["ra2md.csf", "stringtable*.csf"],
+        }
 
+    def _cache_dir(self) -> Path:
+        for d in (
+            get_app_dir() / "cache",
+            Path.home() / ".tactical_workshop" / "cache",
+            Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "cache",
+        ):
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                probe = d / ".w"
+                probe.write_text("1", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+                return d
+            except Exception:
+                continue
+        import tempfile
+        d = Path(tempfile.gettempdir()) / "tactical_workshop_cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _codex_path(self, game_dir: str) -> Path:
+        safe = re.sub(r"[^\w\-]+", "_", str(game_dir).strip("\\/"))[:80] or "default"
+        return self._cache_dir() / f"codex_{safe}.json"
+
+    # ---------- UI ----------
     def _build_ui(self):
         tb = QToolBar()
         tb.setMovable(False)
         self.addToolBar(tb)
 
-        btn_bind = QPushButton("📂 绑定工程文件")
-        btn_bind.setObjectName("bindBtn")
-        btn_bind.clicked.connect(self.choose_hotfix)
-        tb.addWidget(btn_bind)
+        act_open = QAction("打开游戏目录", self)
+        act_open.triggered.connect(lambda: self.open_game_dir())
+        tb.addAction(act_open)
 
-        self.path_edit = QLineEdit()
-        self.path_edit.setReadOnly(True)
-        self.path_edit.setPlaceholderText("当前目标: 未选择")
-        self.path_edit.setMinimumWidth(280)
-        tb.addWidget(self.path_edit)
+        act_hf = QAction("绑定工程文件", self)
+        act_hf.triggered.connect(self.choose_hotfix)
+        tb.addAction(act_hf)
 
-        self.btn_mode = QPushButton()
-        self.btn_mode.clicked.connect(self.toggle_mode)
-        tb.addWidget(self.btn_mode)
+        tb.addSeparator()
+        self.mode_btn = QPushButton()
+        self.mode_btn.clicked.connect(self.toggle_mode)
+        tb.addWidget(self.mode_btn)
 
-        self.mode_hint = QLabel()
-        self.mode_hint.setStyleSheet("color:#00cc00; padding:0 8px;")
-        tb.addWidget(self.mode_hint)
+        self.assist_cb = QCheckBox("辅助下拉")
+        self.assist_cb.setToolTip("开启：武器等显示「ID - 单位名 [主武]」；关闭：仅 ID")
+        self.assist_cb.setChecked(self.assist)
+        self.assist_cb.toggled.connect(self._on_assist)
+        tb.addWidget(self.assist_cb)
 
-        spacer = QWidget()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        tb.addWidget(spacer)
+        self.expand_cb = QCheckBox("展开全部键")
+        self.expand_cb.setToolTip("关闭：经典快调固定字段；开启：该单位/武器实际存在的全部键（现代动态）")
+        self.expand_cb.setChecked(self.expand_all)
+        self.expand_cb.toggled.connect(self._on_expand)
+        tb.addWidget(self.expand_cb)
 
-        self.btn_restore = QPushButton("🔄 恢复原版")
-        self.btn_restore.setObjectName("restoreBtn")
-        self.btn_restore.clicked.connect(self.restore_default)
-        tb.addWidget(self.btn_restore)
+        tb.addSeparator()
+        act_dep = QAction("测试部署 (Ctrl+S)", self)
+        act_dep.setShortcut(QKeySequence.Save)
+        act_dep.triggered.connect(self.deploy)
+        tb.addAction(act_dep)
 
-        self.btn_deploy = QPushButton("💾 测试部署 (Ctrl+S)")
-        self.btn_deploy.setObjectName("primaryBtn")
-        self.btn_deploy.clicked.connect(self.deploy)
-        tb.addWidget(self.btn_deploy)
+        act_rst = QAction("恢复默认", self)
+        act_rst.triggered.connect(self.restore_default)
+        tb.addAction(act_rst)
+
+        act_copy = QAction("复制代码", self)
+        act_copy.triggered.connect(self.copy_full_code)
+        tb.addAction(act_copy)
+
+        act_rebuild = QAction("重建词典", self)
+        act_rebuild.triggered.connect(self.rebuild_codex)
+        tb.addAction(act_rebuild)
 
         central = QWidget()
         self.setCentralWidget(central)
         root = QVBoxLayout(central)
         root.setContentsMargins(6, 6, 6, 6)
-        root.setSpacing(6)
 
-        row2 = QHBoxLayout()
-        btn_game = QPushButton("打开游戏目录")
-        btn_game.clicked.connect(self.open_game_dir)
-        row2.addWidget(btn_game)
-        self.dir_label = QLabel("游戏目录：未打开")
-        self.dir_label.setStyleSheet("color:#7dd3fc;")
-        row2.addWidget(self.dir_label, 1)
-        self.chk_assist = QCheckBox("辅助下拉（可选项）")
-        self.chk_assist.setChecked(self.assist)
-        self.chk_assist.toggled.connect(self._on_assist)
-        row2.addWidget(self.chk_assist)
-        root.addLayout(row2)
+        self.dir_label = QLabel("游戏目录：未绑定")
+        self.dir_label.setObjectName("pathLabel")
+        self.hf_label = QLabel("工程文件：未绑定")
+        self.hf_label.setObjectName("pathLabel")
+        top = QHBoxLayout()
+        top.addWidget(self.dir_label, 1)
+        top.addWidget(self.hf_label, 1)
+        root.addLayout(top)
 
-        split = QSplitter(Qt.Horizontal)
+        split = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(split, 1)
 
+        # 左：搜索 + 对象树
         left = QWidget()
         ll = QVBoxLayout(left)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(4)
-
-        search_row = QHBoxLayout()
-        search_row.addWidget(QLabel("🔍 搜索:"))
-        self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("注册名 / 中文…")
-        self.filter_edit.textChanged.connect(lambda: self._filter_timer.start(160))
-        search_row.addWidget(self.filter_edit, 1)
-        ll.addLayout(search_row)
-
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索单位 / 武器 / 弹头…")
+        self.search.textChanged.connect(self.refresh_tree)
+        ll.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
-        self.tree.setUniformRowHeights(True)
         self.tree.itemClicked.connect(self.on_tree_click)
         ll.addWidget(self.tree, 1)
-        left.setMinimumWidth(240)
-        left.setMaximumWidth(360)
         split.addWidget(left)
 
+        # 中：属性表单
         mid = QWidget()
         ml = QVBoxLayout(mid)
-        ml.setContentsMargins(4, 0, 4, 0)
-        ml.setSpacing(4)
-        self.sec_title = QLabel("选择图纸后显示参数")
-        self.sec_title.setObjectName("secTitle")
-        ml.addWidget(self.sec_title)
-
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.StyledPanel)
-        self.form_inner = QWidget()
-        self.form_inner.setObjectName("formInner")
-        self.form_layout = QVBoxLayout(self.form_inner)
-        self.form_layout.setAlignment(Qt.AlignTop)
-        self.form_layout.setSpacing(8)
-        self.form_layout.setContentsMargins(6, 6, 6, 6)
-        self.scroll.setWidget(self.form_inner)
-        ml.addWidget(self.scroll, 1)
-
-        foot = QHBoxLayout()
-        b_add = QPushButton("+ 属性")
-        b_add.clicked.connect(self.add_key)
-        foot.addWidget(b_add)
-        foot.addStretch()
-        ml.addLayout(foot)
+        ml.setContentsMargins(0, 0, 0, 0)
+        self.form_title = QLabel("选择左侧对象开始调试")
+        self.form_title.setObjectName("formTitle")
+        ml.addWidget(self.form_title)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: #252526; border: 1px solid #333; }")
+        self.form_host = QWidget()
+        self.form_host.setObjectName("formHost")
+        self.form_host.setStyleSheet("background: #252526;")
+        self.form_layout = QVBoxLayout(self.form_host)
+        self.form_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.form_layout.setContentsMargins(0, 0, 0, 0)
+        self.form_layout.setSpacing(0)
+        scroll.setWidget(self.form_host)
+        ml.addWidget(scroll, 1)
         split.addWidget(mid)
 
+        # 右：预览
         right = QWidget()
         rl = QVBoxLayout(right)
         rl.setContentsMargins(0, 0, 0, 0)
-        rl.setSpacing(4)
-        rl.addWidget(QLabel("工程沙盒代码预览"))
-        self.code = QPlainTextEdit()
-        self.code.setLineWrapMode(QPlainTextEdit.NoWrap)
-        self.code.setObjectName("codeEdit")
-        self.code.setFont(QFont("Consolas", 10))
-        rl.addWidget(self.code, 1)
-        self.btn_copy = QPushButton("📋 一键复制完整代码 (含原版属性)")
-        self.btn_copy.setObjectName("copyBtn")
-        self.btn_copy.setMinimumHeight(40)
-        self.btn_copy.clicked.connect(self.copy_full_code)
-        rl.addWidget(self.btn_copy)
-        right.setMinimumWidth(260)
-        right.setMaximumWidth(380)
+        rl.addWidget(QLabel("代码预览（可手改，部署时以预览为准）"))
+        self.preview = QPlainTextEdit()
+        self.preview.setObjectName("preview")
+        font = QFont("Consolas", 10)
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self.preview.setFont(font)
+        rl.addWidget(self.preview, 1)
         split.addWidget(right)
 
-        split.setSizes([280, 560, 300])
-        QAction("deploy", self, shortcut=QKeySequence("Ctrl+S"), triggered=self.deploy)
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 4)
+        split.setStretchFactor(2, 2)
+        split.setSizes([260, 520, 320])
+
+        self.setStatusBar(QStatusBar())
 
     def _apply_style(self):
         self.setStyleSheet("""
@@ -389,62 +437,73 @@ class WorkshopWindow(QMainWindow):
                 font-size: 13px;
             }
             QToolBar {
-                background: #1e1e1e; border-bottom: 1px solid #333;
-                spacing: 8px; padding: 8px 10px;
+                background: #1e1e1e;
+                border-bottom: 1px solid #333;
+                spacing: 8px;
+                padding: 6px 10px;
             }
-            QStatusBar { background: #1a1a1a; color: #aaa; }
+            QToolBar QToolButton {
+                padding: 4px 10px;
+                color: #e8e8e8;
+            }
+            QStatusBar {
+                background: #1a1a1a;
+                color: #aaa;
+            }
             QTreeWidget {
-                background: #252526; border: 1px solid #3c3c3c;
-                outline: none; font-size: 12px;
+                background: #252526;
+                border: 1px solid #3c3c3c;
+                outline: none;
+                font-size: 12px;
             }
             QTreeWidget::item { padding: 3px 4px; }
-            QTreeWidget::item:selected { background: #094771; }
-            QPlainTextEdit#codeEdit {
-                background: #0a0a0a; color: #00ff00;
-                border: 1px solid #333;
-                font-family: Consolas, "Courier New", monospace;
-            }
+            QTreeWidget::item:selected { background: #094771; color: #fff; }
+            QTreeWidget::item:hover { background: #2a2d2e; }
             QScrollArea {
                 border: 1px solid #333;
                 background: #252526;
             }
-            QScrollArea > QWidget > QWidget {
+            QScrollArea > QWidget > QWidget { background: #252526; }
+            QWidget#formHost { background: #252526; }
+            QWidget#propBlock {
                 background: #252526;
+                border: none;
             }
-            QWidget#formInner {
-                background: #252526;
+            QFrame#propSep {
+                background: #3c3c3c;
+                border: none;
+                max-height: 1px;
+                margin: 0 4px;
             }
-            QGroupBox {
-                background: #2a2a2e;
-                border: 1px solid #3c3c3c;
-                border-radius: 4px;
-                margin-top: 14px;
-                padding: 10px 8px 8px 8px;
+            QLabel#formTitle {
                 font-weight: 700;
-                color: #ddd;
+                font-size: 14px;
+                color: #eee;
+                padding: 6px 4px 8px 4px;
+                background: transparent;
             }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 6px;
-                color: #c8c8c8;
-                background: #2a2a2e;
+            QLabel#propLabel {
+                color: #d0d0d0;
+                font-size: 12px;
+                background: transparent;
+            }
+            QLabel#pathLabel {
+                color: #a0a0a0;
+                font-size: 12px;
+                background: transparent;
             }
             QLabel {
                 background: transparent;
                 color: #d0d0d0;
-            }
-            QLabel#secTitle {
-                font-weight: 700; font-size: 14px; color: #eee;
-                padding: 4px 0; background: transparent;
             }
             QLineEdit, QComboBox {
                 background: #1e1e22;
                 border: 1px solid #3f3f46;
                 border-radius: 3px;
                 padding: 3px 8px;
-                min-height: 22px;
+                min-height: 24px;
                 max-height: 28px;
+                max-width: 420px;
                 color: #e8e8e8;
             }
             QLineEdit:focus, QComboBox:focus {
@@ -475,340 +534,403 @@ class WorkshopWindow(QMainWindow):
                 border: 1px solid #3f3f46;
                 outline: none;
             }
+            QPlainTextEdit#preview {
+                background: #0a0a0a;
+                color: #00ff00;
+                border: 1px solid #333;
+                font-family: Consolas, "Courier New", monospace;
+            }
             QPushButton {
-                background: #333; border: 1px solid #555; border-radius: 4px;
-                padding: 6px 12px; color: #eee;
+                background: #333;
+                border: 1px solid #555;
+                border-radius: 4px;
+                padding: 5px 12px;
+                color: #eee;
             }
             QPushButton:hover { background: #404040; }
-            QPushButton#primaryBtn {
-                background: #8b0000; border-color: #a00; color: #fff; font-weight: 700;
-            }
-            QPushButton#primaryBtn:hover { background: #a01010; }
-            QPushButton#restoreBtn { background: #004488; border-color: #0066aa; color: #fff; }
-            QPushButton#bindBtn { background: #333; font-weight: 700; }
-            QPushButton#copyBtn {
-                background: #2d7d46; border-color: #3a9; color: #fff;
-                font-weight: 700; font-size: 13px;
-            }
-            QPushButton#copyBtn:hover { background: #359653; }
-            QCheckBox { spacing: 6px; background: transparent; }
-            QCheckBox::indicator {
-                width: 14px; height: 14px;
-                border: 1px solid #555; background: #1e1e22;
-            }
-            QCheckBox::indicator:checked {
-                background: #2d7d46; border-color: #3a9;
+            QCheckBox { spacing: 6px; color: #ccc; }
+            QSplitter::handle {
+                background: #333;
+                width: 3px;
             }
         """)
 
+
     def _update_mode_ui(self):
         if self.mode == "safe":
-            self.btn_mode.setText("🔒 安全模式 (仅限hotfix.ini)")
-            self.btn_mode.setStyleSheet(
-                "background:#2d5a2d; color:#fff; font-weight:700; border-radius:4px; padding:6px 10px;"
-            )
-            self.mode_hint.setText("当前模式：安全模式（仅限hotfix.ini）")
-            self.mode_hint.setStyleSheet("color:#00cc00; padding:0 8px;")
-            self.btn_restore.setEnabled(True)
+            self.mode_btn.setText("🔒 安全模式 (仅 hotfix.ini)")
+            self.mode_btn.setStyleSheet("background:#2d5a2d; color:#b6ffb6;")
         else:
-            self.btn_mode.setText("🔓 高级模式 (读写任意ini)")
-            self.btn_mode.setStyleSheet(
-                "background:#5a3a2a; color:#fff; font-weight:700; border-radius:4px; padding:6px 10px;"
-            )
-            self.mode_hint.setText("当前模式：高级模式（恢复原版已禁用）")
-            self.mode_hint.setStyleSheet("color:orange; padding:0 8px;")
-            self.btn_restore.setEnabled(False)
+            self.mode_btn.setText("⚠️ 高级模式 (可写任意 ini)")
+            self.mode_btn.setStyleSheet("background:#5a2d2d; color:#ffb6b6;")
 
     def toggle_mode(self):
         if self.mode == "safe":
-            ok = QMessageBox.question(
-                self, "切换到高级模式",
-                "高级模式允许读写任意 .ini 文件。\n\n"
-                "⚠️「恢复原版」将被禁用。\n是否继续？",
+            r = QMessageBox.warning(
+                self, "切换高级模式",
+                "高级模式可写入任意工程文件，有风险。\n确定切换？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
-            if ok != QMessageBox.Yes:
+            if r != QMessageBox.StandardButton.Yes:
                 return
             self.mode = "advanced"
         else:
-            ok = QMessageBox.question(
-                self, "切换到安全模式",
-                "安全模式仅允许操作 hotfix.ini，并重新启用恢复原版。\n是否切换？",
-            )
-            if ok != QMessageBox.Yes:
-                return
             self.mode = "safe"
-        self._update_mode_ui()
+            QMessageBox.information(self, "模式", "已回到安全模式（仅 hotfix.ini）")
+        self.settings["mode"] = self.mode
         self._save_settings()
+        self._update_mode_ui()
 
     def _on_assist(self, checked: bool):
         self.assist = checked
+        self.settings["assist"] = checked
         self._save_settings()
         if self.current_id:
-            self.load_section(self.current_id)
+            self.load_section(self.current_id, self.current_kind)
 
-    def open_game_dir(self):
-        start = self.settings.get("last_game_dir") or str(Path.home())
-        path = QFileDialog.getExistingDirectory(self, "打开游戏 / Mod 根目录", start)
+    def _on_expand(self, checked: bool):
+        self.expand_all = checked
+        self.settings["expand_all"] = checked
+        self._save_settings()
+        if self.current_id:
+            self.load_section(self.current_id, self.current_kind)
+
+    # ---------- open / codex ----------
+    def open_game_dir(self, path: Optional[str] = None):
+        if not path:
+            start = self.settings.get("last_game_dir") or str(Path.home())
+            if not Path(start).is_dir():
+                start = str(Path.home())
+            path = QFileDialog.getExistingDirectory(
+                self, "选择游戏 / 工程目录", start
+            )
         if not path:
             return
-        prof = self._profile()
-        if not prof:
-            QMessageBox.warning(self, "配置", "profiles 中没有可用 profile")
-            return
-        self.statusBar().showMessage("正在加载 rules / CSF…")
+        path = str(Path(path))
+        self.statusBar().showMessage("正在加载…")
         QApplication.processEvents()
         try:
-            self.game = GameProject(Path(path), prof)
+            self.game = GameProject(Path(path), self._profile())
         except Exception as e:
             QMessageBox.critical(self, "加载失败", str(e))
             return
-        if not self.game.rules:
-            QMessageBox.warning(
-                self, "加载",
-                f"未找到 rules（尝试: {', '.join(prof.get('rules_files', []))}）",
-            )
-            return
+
         self.settings["last_game_dir"] = path
         self._save_settings()
-        self._option_cache.clear()
         self.flags = load_common_flags()
-        self.dir_label.setText(f"游戏目录：{path}  |  CSF {len(self.game.csf.strings)} 条")
+        self.dir_label.setText(f"游戏目录：{path}")
+
+        # 默认 hotfix
+        hf = Path(path) / "hotfix.ini"
+        if hf.is_file() or self.mode == "safe":
+            self.hotfix_path = hf
+            self.hf_label.setText(f"工程文件：{hf.name}")
+
+        # 词典：缓存优先，否则构建
+        cpath = self._codex_path(path)
+        cached = load_codex(cpath)
+        if cached and cached.get("WeaponList"):
+            self.codex = cached
+            meta = cached.get("_meta") or {}
+            self.statusBar().showMessage(
+                f"词典缓存已加载：武器 {meta.get('weapons', '?')} / "
+                f"弹头 {meta.get('warheads', '?')} / 动画 {meta.get('anims', '?')}"
+            )
+        else:
+            self.statusBar().showMessage("正在构建词典（首次较慢）…")
+            QApplication.processEvents()
+            self._do_build_codex(path)
+
         self.refresh_tree()
-        n = sum(len(v) for v in self.game.list_groups().values())
-        self.statusBar().showMessage(f"已加载 {n} 个可调对象")
+        n = sum(len(v) for v in (self.codex.get("Units") or {}).values())
+        self.statusBar().showMessage(f"就绪：{n} 个单位，词典武器 {len(self.codex.get('WeaponList') or {})}")
+
+    def _do_build_codex(self, game_dir: str):
+        logs: List[str] = []
+        try:
+            self.codex = build_codex(Path(game_dir), self._profile(), log=logs.append)
+            save_codex(self.codex, self._codex_path(game_dir))
+            meta = self.codex.get("_meta") or {}
+            self.statusBar().showMessage(
+                f"词典已生成：单位 {meta.get('units')} / 武器 {meta.get('weapons')} / "
+                f"弹头 {meta.get('warheads')} / 动画 {meta.get('anims')}"
+            )
+        except Exception as e:
+            self.codex = self.codex or {}
+            QMessageBox.warning(self, "词典构建失败", f"{e}\n\n" + "\n".join(logs[-8:]))
+
+    def rebuild_codex(self):
+        d = self.settings.get("last_game_dir")
+        if not d:
+            QMessageBox.information(self, "提示", "请先打开游戏目录")
+            return
+        self.statusBar().showMessage("重建词典中…")
+        QApplication.processEvents()
+        self._do_build_codex(d)
+        self.refresh_tree()
+        if self.current_id:
+            self.load_section(self.current_id, self.current_kind)
 
     def choose_hotfix(self):
-        start = self.settings.get("last_hotfix") or self.settings.get("last_game_dir") or str(Path.home())
         if self.mode == "safe":
-            path, _ = QFileDialog.getSaveFileName(
-                self, "绑定 hotfix.ini（安全模式）",
-                str(Path(start) / "hotfix.ini"),
-                "hotfix.ini (hotfix.ini)",
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择 hotfix.ini",
+                self.settings.get("last_game_dir") or "",
+                "hotfix.ini (hotfix.ini);;All (*.*)",
             )
             if path and Path(path).name.lower() != "hotfix.ini":
-                QMessageBox.warning(self, "安全模式", "安全模式只能使用名为 hotfix.ini 的文件。")
+                QMessageBox.warning(self, "安全模式", "安全模式只能绑定名为 hotfix.ini 的文件")
                 return
         else:
-            path, _ = QFileDialog.getSaveFileName(
-                self, "绑定目标 INI", start, "INI (*.ini)",
+            path, _ = QFileDialog.getOpenFileName(
+                self, "选择工程 ini",
+                self.settings.get("last_game_dir") or "",
+                "INI (*.ini);;All (*.*)",
             )
         if not path:
             return
-        p = Path(path)
-        if not p.exists():
-            p.write_text("; Tactical Workshop target\n", encoding="utf-8")
-        self.hotfix_path = p
-        self.settings["last_hotfix"] = str(p)
-        self._save_settings()
-        self.path_edit.setText(str(p))
-        self.path_edit.setStyleSheet("color:#00ff00;")
-        self._watch_mtime = p.stat().st_mtime if p.exists() else 0
-        self.statusBar().showMessage(f"已绑定 {p}")
+        self.hotfix_path = Path(path)
+        self.hf_label.setText(f"工程文件：{self.hotfix_path.name}")
+        if self.current_id:
+            self.load_section(self.current_id, self.current_kind)
 
+    # ---------- tree ----------
     def refresh_tree(self):
         self.tree.clear()
-        if not self.game:
-            return
-        filt = self.filter_edit.text().strip().lower()
-        all_groups = self.game.list_groups()
-        ordered = list(TREE_ORDER)
-        for g in all_groups:
-            if g not in ordered:
-                ordered.append(g)
-        for gname in ordered:
-            ids = all_groups.get(gname, [])
-            if not ids:
-                continue
-            items = []
-            for uid in ids:
-                disp = self.game.display_name(uid)
-                if filt and filt not in uid.lower() and filt not in disp.lower():
+        q = (self.search.text() or "").strip().lower()
+        units = self.codex.get("Units") or {}
+        wlist = self.codex.get("WeaponList") or {}
+        whlist = self.codex.get("WarheadList") or {}
+        sides = self.codex.get("UnitSides") or {}
+        # 无 UnitSides 时退回 UnitOwners（旧缓存）
+        if not sides:
+            sides = self.codex.get("UnitOwners") or {}
+        side_labels = self.codex.get("OwnerLabels") or {}
+
+        def side_title(key: str) -> str:
+            if not key:
+                return "未分类"
+            return side_labels.get(key) or side_labels.get(key.lower()) or key
+
+        def add_leaf(parent, oid: str, zh: str, kind: str) -> bool:
+            text = f"{oid}  -  {zh}" if zh and zh != oid else oid
+            if q and q not in text.lower() and q not in oid.lower():
+                return False
+            it = QTreeWidgetItem([text])
+            it.setData(0, Qt.ItemDataRole.UserRole, (kind, oid))
+            parent.addChild(it)
+            return True
+
+        for key, title in TREE_ORDER:
+            if key in ("Infantry", "Vehicle", "Aircraft", "Building"):
+                data = units.get(key) or {}
+                if not data:
                     continue
-                items.append((uid, disp))
-            if not items and filt:
-                continue
-            label = GROUP_LABELS.get(gname, gname)
-            node = QTreeWidgetItem(self.tree, [f"{label} ({len(items) if filt else len(ids)})"])
-            node.setData(0, Qt.UserRole, None)
-            node.setData(0, Qt.UserRole + 1, gname)
-            for uid, disp in items:
-                text = disp if disp != uid else uid
-                if " - " not in text and disp != uid:
-                    text = f"{disp} [{uid}]"
-                child = QTreeWidgetItem(node, [text])
-                child.setData(0, Qt.UserRole, uid)
-                child.setData(0, Qt.UserRole + 1, gname)
-            if filt:
-                node.setExpanded(True)
+                by_side: dict = {}
+                for oid, zh in data.items():
+                    sk = sides.get(oid) or sides.get(oid.upper()) or sides.get(oid.lower()) or "未分类"
+                    by_side.setdefault(sk, []).append((oid, zh))
+
+                cat = QTreeWidgetItem([f"{title} ({len(data)})"])
+                cat.setFlags(cat.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+
+                for sk in sorted(by_side.keys(), key=lambda x: side_title(x).lower()):
+                    items = by_side[sk]
+                    side_node = QTreeWidgetItem([f"{side_title(sk)} ({len(items)})"])
+                    side_node.setFlags(side_node.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    n = 0
+                    for oid, zh in sorted(items, key=lambda x: x[0].lower()):
+                        if add_leaf(side_node, oid, zh, "unit"):
+                            n += 1
+                    if n:
+                        cat.addChild(side_node)
+                        side_node.setExpanded(bool(q))
+
+                if cat.childCount():
+                    self.tree.addTopLevelItem(cat)
+                    cat.setExpanded(bool(q))
+
+            elif key == "Weapons" and wlist:
+                cat = QTreeWidgetItem([f"武器 ({len(wlist)})"])
+                cat.setFlags(cat.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                for oid, zh in sorted(wlist.items(), key=lambda x: x[0].lower()):
+                    add_leaf(cat, oid, zh, "weapon")
+                if cat.childCount():
+                    self.tree.addTopLevelItem(cat)
+                    cat.setExpanded(bool(q))
+
+            elif key == "Warheads" and whlist:
+                cat = QTreeWidgetItem([f"弹头 ({len(whlist)})"])
+                cat.setFlags(cat.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                for oid, zh in sorted(whlist.items(), key=lambda x: x[0].lower()):
+                    add_leaf(cat, oid, zh, "warhead")
+                if cat.childCount():
+                    self.tree.addTopLevelItem(cat)
+                    cat.setExpanded(bool(q))
+
 
     def on_tree_click(self, item: QTreeWidgetItem, _col: int):
-        sid = item.data(0, Qt.UserRole)
-        if not sid:
+        data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
             return
-        group = item.data(0, Qt.UserRole + 1) or ""
-        self.current_group = str(group)
-        self.load_section(str(sid))
+        kind, oid = data
+        self.load_section(oid, kind)
 
+    # ---------- form ----------
     def _clear_form(self):
         while self.form_layout.count():
-            it = self.form_layout.takeAt(0)
-            w = it.widget()
+            item = self.form_layout.takeAt(0)
+            w = item.widget()
             if w:
                 w.deleteLater()
-        self.entries.clear()
+        self._widgets.clear()
 
-    def _get_options(self, kind: str) -> List[str]:
-        """返回下拉项。武器/弹头等带「ID - 中文」展示（结果缓存）。"""
-        if kind in self._option_cache:
-            return self._option_cache[kind]
-        opts: List[str] = []
-        if not self.game:
-            self._option_cache[kind] = opts
-            return opts
-        if kind == "_armors":
-            opts = list(DEFAULT_ARMORS)
-        elif kind == "_locomotors":
-            opts = list(DEFAULT_LOCOMOTORS)
-        elif kind == "bool":
-            opts = ["", "yes", "no", "true", "false"]
-        elif kind == "_images":
-            groups = self.game.list_groups()
-            for g in ("InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes"):
-                opts.extend(groups.get(g, []))
-            opts = sorted(set(opts))
-        elif kind == "Animations":
-            raw = self.game.list_options("Animations") or self.game.list_options("AnimTypes") or []
-            opts = self._friendly_list(raw, limit=800)
-        else:
-            raw = self.game.list_options(kind) or []
-            if not raw and kind in self.game.list_groups():
-                raw = self.game.list_groups().get(kind, [])
-            # 武器/弹头/抛射体：附带可读名（一次算完并缓存）
-            if kind in ("WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes"):
-                opts = self._friendly_list(raw, limit=2000)
-            else:
-                opts = list(raw)
-        self._option_cache[kind] = opts
-        return opts
+    def _combo_options(self, src: str) -> List[str]:
+        """对齐旧版：`ID - 中文说明`。"""
+        if not self.assist:
+            # 纯 ID
+            if src == "DYNAMIC_IMAGE":
+                d = self.codex.get(f"{self.current_utype}Images") or {}
+                return [""] + sorted(d.keys(), key=str.lower)
+            raw = self.codex.get(src) or {}
+            if src in ("Presets_Passive", "Presets_Attack"):
+                return [""] + list(raw.keys())
+            return [""] + sorted(raw.keys(), key=str.lower)
 
-    def _friendly_list(self, ids: List[str], limit: int = 2000) -> List[str]:
-        """ID -> 'ID - 中文名'；超 limit 时只显示裸 ID，避免卡顿。"""
-        if not self.game or not ids:
-            return list(ids)
-        if len(ids) > limit:
-            return list(ids)
-        out = []
-        for uid in ids:
-            disp = self.game.display_name(uid)
-            if disp and disp != uid and " - " in disp:
-                # display_name 已是 "ID  -  中文"
-                name = disp.split(" - ", 1)[-1].strip()
-                out.append(f"{uid} - {name}" if name else uid)
-            elif disp and disp != uid:
-                out.append(f"{uid} - {disp}")
-            else:
-                # 尝试 Name 键
-                sec = self.game.get_section(uid)
-                name = sec.get("Name", "") if sec else ""
-                out.append(f"{uid} - {name}" if name else uid)
-        return out
+        if src == "DYNAMIC_IMAGE":
+            d = self.codex.get(f"{self.current_utype}Images") or {}
+            return [""] + [f"{k} - {v}" if v else k for k, v in sorted(d.items(), key=lambda x: x[0].lower())]
+        if src in ("Presets_Passive", "Presets_Attack"):
+            return [""] + list((self.codex.get(src) or {}).keys())
+        d = self.codex.get(src) or {}
+        # 旧版：f"{k} - {v}"
+        return [""] + [f"{k} - {v}" if v and k != v else k for k, v in sorted(d.items(), key=lambda x: x[0].lower())]
 
-    def _match_combo_text(self, value: str, items: List[str]) -> str:
+    def _match_combo(self, value: str, items: List[str]) -> str:
         if not value:
             return ""
-        for it in items:
-            if it == value or extract_real_id(it) == value:
-                return it
+        for v in items:
+            if not v:
+                continue
+            if v == value:
+                return v
+            if v.startswith(f"{value} -"):
+                return v
+            if v.endswith(f"[{value}]"):
+                return v
+            if extract_real_id(v) == value:
+                return v
         return value
 
     def _make_control(self, wtype: str, src: Optional[str], value: str) -> QWidget:
-        # 上下布局：控件跟标签同宽，不要拉满整屏
-        max_w = 420
-        if wtype == "combo" and self.assist and src:
-            combo = QComboBox()
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.NoInsert)
-            combo.setMaximumWidth(max_w)
-            combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            opts = self._get_options(src)
-            items: List[str] = [""]
-            # 当前值若不在列表，补一条（支持纯 ID）
-            matched = self._match_combo_text(value, opts)
-            if value and matched == value and value not in opts:
-                items.append(value)
-            items.extend(opts)
-            seen = set()
-            uniq = []
-            for x in items:
-                if x not in seen:
-                    seen.add(x)
-                    uniq.append(x)
-            combo.addItems(uniq)
-            combo.setCurrentText(matched if matched else value)
-            combo.installEventFilter(self._no_wheel)
-            if combo.lineEdit():
-                combo.lineEdit().installEventFilter(self._no_wheel)
-            combo.currentTextChanged.connect(lambda *_: self.sync_form_to_code())
-            return combo
-        edit = QLineEdit(value)
-        edit.setMaximumWidth(max_w)
-        edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        edit.installEventFilter(self._no_wheel)
-        edit.textChanged.connect(lambda *_: self.sync_form_to_code())
-        return edit
+        if wtype == "combo" and src:
+            cb = QComboBox()
+            cb.setEditable(True)
+            cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            cb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            cb.setMaximumWidth(420)
+            opts = self._combo_options(src)
+            cb.addItems(opts)
+            cb.setCurrentText(self._match_combo(value, opts))
+            cb.installEventFilter(self._wheel_filter)
+            cb.currentTextChanged.connect(lambda _t: self.sync_form_to_code())
+            return cb
+        le = QLineEdit(value)
+        le.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        le.setMaximumWidth(420)
+        le.textChanged.connect(lambda _t: self.sync_form_to_code())
+        return le
 
-    def _add_form_from_config(self, form_config, values: Dict[str, str]):
-        """按实际键动态生成属性行：标签在上、值在下；解释来自 common_flags。"""
-        # form_config 保留参数以兼容旧调用，已不再使用分组
-        lower_map = {k.lower(): (k, v) for k, v in values.items()}
 
-        # 排序：PREFERRED_KEYS 优先，其余保持原顺序
-        ordered: list = []
-        seen = set()
-        for pk in PREFERRED_KEYS:
-            if pk.lower() in lower_map:
-                k, v = lower_map[pk.lower()]
-                ordered.append((k, v))
-                seen.add(pk.lower())
-        for k, v in values.items():
-            if k.lower() not in seen:
-                ordered.append((k, v))
-                seen.add(k.lower())
-        for k in self.extra_keys:
-            if k.lower() not in seen:
-                ordered.append((k, ""))
-                seen.add(k.lower())
-
-        for key, val in ordered:
-            wtype, src = flag_widget_kind(self.flags, key)
-            # 若当前值像布尔且无 schema，也给 bool 下拉
-            if wtype == "entry" and self.assist and str(val).lower() in {"yes", "no", "true", "false", "1", "0"}:
-                wtype, src = "combo", "bool"
-            ctrl = self._make_control(wtype, src, val)
-
+    def _build_form(self, fields, values: Dict[str, str], utype: str):
+        """纵排：标签在上、控件在下；行间分割线。fields 为 (key, label, wtype, src) 列表。"""
+        self._clear_form()
+        for item in fields:
+            if not item or len(item) < 4:
+                continue
+            key, label, wtype, src = item[0], item[1], item[2], item[3]
+            if key in RULES_UNITS and utype not in RULES_UNITS[key] and not self.expand_all:
+                # 展开模式下不过滤类型限制，让用户看到真实键
+                continue
             block = QWidget()
             block.setObjectName("propBlock")
             vl = QVBoxLayout(block)
-            vl.setContentsMargins(8, 6, 8, 4)
-            vl.setSpacing(3)
+            vl.setContentsMargins(10, 8, 10, 6)
+            vl.setSpacing(4)
 
-            lab = QLabel(flag_label(self.flags, key))
+            lab = QLabel(label)
             lab.setObjectName("propLabel")
             lab.setWordWrap(True)
             vl.addWidget(lab)
+
+            val = values.get(key, values.get(key.lower(), ""))
+            ctrl = self._make_control(wtype, src, val)
+            ctrl.setMaximumWidth(420)
             vl.addWidget(ctrl)
 
-            # 行间细分割线
+            self.form_layout.addWidget(block)
+            self._widgets[key] = ctrl
+
             sep = QFrame()
-            sep.setFrameShape(QFrame.HLine)
             sep.setObjectName("propSep")
             sep.setFixedHeight(1)
-
-            self.form_layout.addWidget(block)
+            sep.setFrameShape(QFrame.Shape.HLine)
             self.form_layout.addWidget(sep)
-            self.entries[key] = ctrl
+
+            if key in ("AEPreset_Passive", "AEPreset_Attack") and isinstance(ctrl, QComboBox):
+                ctrl.currentTextChanged.connect(
+                    lambda name, k=key: self._apply_ae_preset(name, k)
+                )
 
         self.form_layout.addStretch(1)
+
+    def _resolve_fields(self, kind: str, values: Dict[str, str]) -> list:
+        """经典固定表 或 固定优先 + 动态补全全部键。"""
+        if kind == "weapon":
+            base = list(FORM_WEAPONS)
+        elif kind == "warhead":
+            base = list(FORM_WARHEADS)
+        else:
+            base = list(FORM_UNITS)
+
+        if not self.expand_all:
+            return base
+
+        # 展开：固定字段优先，再追加 section 里多出来的键
+        ordered = []
+        seen = set()
+        for key, label, wtype, src in base:
+            ordered.append((key, label, wtype, src))
+            seen.add(key.lower())
+
+        # values 里既有原始大小写键也有 lower；只收非 lower 重复
+        raw_keys = []
+        for k in values.keys():
+            if k != k.lower() or k.lower() not in {x.lower() for x in values if x != x.lower()}:
+                # prefer original casing if both exist
+                pass
+        # 更稳：从 preview 顺序已体现在 values 插入顺序；过滤纯 lower 副本
+        preferred_case = {}
+        for k in values.keys():
+            kl = k.lower()
+            if kl in preferred_case:
+                # 若已有非全小写，跳过全小写副本
+                if k == kl and preferred_case[kl] != kl:
+                    continue
+            if kl not in preferred_case or (preferred_case[kl] == kl and k != kl):
+                preferred_case[kl] = k
+
+        for kl, k in preferred_case.items():
+            if kl in seen:
+                continue
+            if k.startswith("AEPreset_"):
+                continue
+            val = values.get(k, values.get(kl, ""))
+            label, wtype, src = infer_field_spec(k, val, self.flags)
+            ordered.append((k, label, wtype, src))
+            seen.add(kl)
+        return ordered
+
 
     def _widget_value(self, w: QWidget) -> str:
         if isinstance(w, QComboBox):
@@ -817,274 +939,210 @@ class WorkshopWindow(QMainWindow):
             return w.text().strip()
         return ""
 
-    def load_section(self, section_id: str):
-        if not self.game:
+    def _apply_ae_preset(self, preset_name: str, which: str):
+        if self._switching or not preset_name:
             return
-        self.current_id = section_id
-        self.extra_keys = []
-        self.sec_title.setText(self.game.display_name(section_id))
-        body = ""
-        if self.hotfix_path and self.hotfix_path.exists():
-            body = self._read_section_from_file(self.hotfix_path, section_id)
-        if not body.strip() or body.strip() == f"[{section_id}]":
-            body = self.game.get_section_text(section_id)
-        keys: Dict[str, str] = {}
-        for line in normalize_section_body(section_id, body).splitlines():
-            s = line.strip()
-            if not s or s.startswith(";") or (s.startswith("[") and "]" in s):
-                continue
-            if "=" in s:
-                if ";" in s:
-                    s = s.split(";", 1)[0].strip()
-                k, _, v = s.partition("=")
-                k, v = k.strip(), v.strip()
-                if k:
-                    keys[k] = v
-        self._loading = True
-        self._clear_form()
-        self._add_form_from_config(None, keys)
-        self.code.blockSignals(True)
-        text = normalize_section_body(section_id, body)
-        self.code.setPlainText(text if text.endswith("\n") else text + "\n")
-        self.code.blockSignals(False)
-        self._loading = False
+        bucket = "Presets_Passive" if "Passive" in which else "Presets_Attack"
+        data = (self.codex.get(bucket) or {}).get(preset_name)
+        if not isinstance(data, dict):
+            return
+        self._switching = True
+        try:
+            for k, v in data.items():
+                # 找到大小写匹配的控件
+                for wk, w in self._widgets.items():
+                    if wk.lower() == k.lower():
+                        if isinstance(w, QComboBox):
+                            opts = [w.itemText(i) for i in range(w.count())]
+                            w.setCurrentText(self._match_combo(str(v), opts))
+                        elif isinstance(w, QLineEdit):
+                            w.setText(str(v))
+                        break
+        finally:
+            self._switching = False
         self.sync_form_to_code()
+
+    def load_section(self, section_id: str, kind: str = "unit"):
+        self._switching = True
+        self.current_id = section_id
+        self.current_kind = kind
+        self.current_utype = (self.codex.get("UnitTypeMap") or {}).get(section_id, "Unknown")
+        if kind == "weapon":
+            self.current_utype = "Weapon"
+        elif kind == "warhead":
+            self.current_utype = "Warhead"
+
+        zh = ""
+        if kind == "unit":
+            for cat, mp in (self.codex.get("Units") or {}).items():
+                if section_id in mp:
+                    zh = mp[section_id]
+                    self.current_utype = cat
+                    break
+        elif kind == "weapon":
+            zh = (self.codex.get("WeaponList") or {}).get(section_id, "")
+        else:
+            zh = (self.codex.get("WarheadList") or {}).get(section_id, "")
+
+        title = f"{section_id}  -  {zh}" if zh else section_id
+        self.form_title.setText(title)
+
+        # 优先工程文件中的覆盖，否则 rules 原文
+        values: Dict[str, str] = {}
+        body_lines = [f"[{section_id}]"]
+        src_text = ""
+        if self.hotfix_path and self.hotfix_path.is_file():
+            src_text = self._read_section_from_file(self.hotfix_path, section_id)
+        if not src_text and self.game:
+            src_text = self.game.get_section_text(section_id)
+
+        if src_text:
+            for line in src_text.splitlines():
+                s = line.strip()
+                if not s or s.startswith(";"):
+                    continue
+                if s.startswith("[") and s.endswith("]"):
+                    body_lines = [s]
+                    continue
+                body_lines.append(line.rstrip())
+                clean = s.split(";", 1)[0].strip()
+                if "=" in clean:
+                    k, v = clean.split("=", 1)
+                    values[k.strip()] = v.strip()
+                    values[k.strip().lower()] = v.strip()
+
+        fields = self._resolve_fields(kind, values)
+        self._build_form(fields, values, self.current_utype)
+        self.preview.setPlainText("\n".join(body_lines))
+        mode = "全部键" if self.expand_all else "经典快调"
+        self.statusBar().showMessage(f"[{section_id}] {mode} · {len(fields)} 项", 4000)
+        self._switching = False
 
     def _read_section_from_file(self, path: Path, section_id: str) -> str:
         try:
-            text, _ = read_text(path)
+            if path.is_file():
+                text, _enc = read_text(path)
+            else:
+                text = ""
         except Exception:
-            return ""
-        m = re.search(
-            rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\][^\n]*\r?\n?",
-            text,
-        )
-        if not m:
-            return ""
-        start = m.start()
-        rest = text[m.end():]
-        nxt = re.search(r"(?m)^\[", rest)
-        end = m.end() + (nxt.start() if nxt else len(rest))
-        return text[start:end]
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                return ""
+        lines = []
+        in_sec = False
+        for line in text.splitlines():
+            s = line.strip()
+            if s.startswith("[") and s.endswith("]"):
+                name = s[1:-1].strip()
+                if in_sec:
+                    break
+                if name.lower() == section_id.lower():
+                    in_sec = True
+                    lines.append(line)
+                continue
+            if in_sec:
+                lines.append(line)
+        return "\n".join(lines)
 
     def sync_form_to_code(self):
-        if self._loading or not self.current_id:
+        if self._switching or not self.current_id:
             return
-        form_map = {k.lower(): (k, self._widget_value(w)) for k, w in self.entries.items()}
-        old_lines = self.code.toPlainText().splitlines()
-        new_lines: List[str] = []
-        written = set()
-        if old_lines and old_lines[0].strip().startswith("["):
-            new_lines.append(old_lines[0].rstrip())
-            rest = old_lines[1:]
-        else:
-            new_lines.append(f"[{self.current_id}]")
-            rest = old_lines
-        for line in rest:
-            clean = line.split(";")[0].strip()
-            if "=" in clean and not clean.startswith("["):
-                k = clean.split("=", 1)[0].strip().lower()
-                if k in form_map:
-                    rk, val = form_map[k]
-                    if val != "":
-                        new_lines.append(f"{rk}={val}")
-                    written.add(k)
-                else:
-                    new_lines.append(line.rstrip())
-            else:
-                if line.strip() or (new_lines and new_lines[-1].strip()):
-                    new_lines.append(line.rstrip())
-        for kl, (rk, val) in form_map.items():
-            if kl not in written and val != "":
-                new_lines.append(f"{rk}={val}")
-        while new_lines and not new_lines[-1].strip():
-            new_lines.pop()
-        self._loading = True
-        self.code.setPlainText("\n".join(new_lines) + "\n")
-        self._loading = False
+        lines = [f"[{self.current_id}]"]
+        # 保留预览里未出现在表单中的键
+        existing: Dict[str, str] = {}
+        for line in self.preview.toPlainText().splitlines():
+            s = line.strip()
+            if not s or s.startswith(";") or (s.startswith("[") and s.endswith("]")):
+                continue
+            clean = s.split(";", 1)[0].strip()
+            if "=" in clean:
+                k, v = clean.split("=", 1)
+                existing[k.strip()] = v.strip()
 
-    def add_key(self):
-        if not self.current_id:
-            QMessageBox.information(self, "添加", "请先选择一个图纸")
-            return
-        dlg = AddKeyDialog(self)
-        if dlg.exec() != QDialog.Accepted:
-            return
-        key = dlg.key_name()
-        if not key:
-            return
-        if any(k.lower() == key.lower() for k in self.entries):
-            QMessageBox.information(self, "添加", "该键已在表单中")
-            return
-        self.extra_keys.append(key)
-        vals = {k: self._widget_value(w) for k, w in self.entries.items()}
-        vals[key] = ""
-        self._loading = True
-        self._clear_form()
-        self._add_form_from_config(None, vals)
-        self._loading = False
-        self.sync_form_to_code()
+        form_keys = set()
+        for key, w in self._widgets.items():
+            if key.startswith("AEPreset_"):
+                continue
+            val = self._widget_value(w)
+            form_keys.add(key.lower())
+            if val != "":
+                lines.append(f"{key}={val}")
+            elif key in existing:
+                # 空值表示用户清空 → 不写
+                pass
 
+        for k, v in existing.items():
+            if k.lower() not in form_keys:
+                lines.append(f"{k}={v}")
+
+        self._switching = True
+        self.preview.setPlainText("\n".join(lines))
+        self._switching = False
+
+    # ---------- deploy ----------
     def deploy(self):
         if not self.current_id:
-            QMessageBox.information(self, "部署", "请先选择图纸")
+            QMessageBox.information(self, "提示", "请先选择对象")
             return
         if not self.hotfix_path:
-            self.choose_hotfix()
-            if not self.hotfix_path:
-                return
+            QMessageBox.information(self, "提示", "请先绑定工程文件（hotfix.ini）")
+            return
+        if self.mode == "safe" and self.hotfix_path.name.lower() != "hotfix.ini":
+            QMessageBox.warning(self, "安全模式", "只能写入 hotfix.ini")
+            return
+
         self.sync_form_to_code()
-        body = self.code.toPlainText()
-        backup_root = self.hotfix_path.parent / "backups"
-        exists = self.hotfix_path.exists()
-        result = save_section_to_file(
-            self.hotfix_path, self.current_id, body,
-            backup_root=backup_root, is_new=not exists, peer_section_names=[],
-        )
-        if exists and (not result.get("ok") or "未找到" in (result.get("message") or "")):
+        body = normalize_section_body(self.current_id, self.preview.toPlainText())
+        backup_root = get_app_dir() / "backups"
+        try:
+            backup_root.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            backup_root = self._cache_dir() / "backups"
+            backup_root.mkdir(parents=True, exist_ok=True)
+        try:
             result = save_section_to_file(
-                self.hotfix_path, self.current_id, body,
-                backup_root=backup_root, is_new=True, peer_section_names=[],
+                self.hotfix_path, self.current_id, body, backup_root
             )
-        if result.get("ok"):
-            self._watch_mtime = self.hotfix_path.stat().st_mtime
-            QTimer.singleShot(5000, self.clean_hotfix_silent)
-            QMessageBox.information(
-                self, "部署成功",
-                f"[{self.current_id}] 已写入工程文件。\n游戏内热重载后生效。\n满意请用右下角「一键复制」带走完整代码。",
-            )
-            self.statusBar().showMessage(f"已部署 {self.current_id}", 6000)
-        else:
-            QMessageBox.critical(self, "部署失败", result.get("message", ""))
+            if isinstance(result, dict) and not result.get("ok", True):
+                QMessageBox.critical(self, "部署失败", result.get("message") or str(result))
+                return
+            self.statusBar().showMessage(f"已部署 [{self.current_id}] → {self.hotfix_path.name}", 5000)
+        except Exception as e:
+            QMessageBox.critical(self, "部署失败", str(e))
 
     def restore_default(self):
-        if self.mode != "safe":
-            QMessageBox.warning(self, "恢复原版", "高级模式下已禁用，请切回安全模式。")
-            return
         if not self.current_id or not self.game:
             return
-        if not self.hotfix_path:
-            QMessageBox.information(self, "恢复", "请先绑定 hotfix.ini")
-            return
-        base = self.game.get_section_text(self.current_id)
-        result = save_section_to_file(
-            self.hotfix_path, self.current_id, base,
-            backup_root=self.hotfix_path.parent / "backups",
-            is_new=not self.hotfix_path.exists(), peer_section_names=[],
-        )
-        if not result.get("ok"):
-            result = save_section_to_file(
-                self.hotfix_path, self.current_id, base,
-                backup_root=self.hotfix_path.parent / "backups",
-                is_new=True, peer_section_names=[],
-            )
-        if result.get("ok"):
-            self.load_section(self.current_id)
-            QTimer.singleShot(5000, self.clean_hotfix_silent)
-            QMessageBox.information(self, "恢复", f"[{self.current_id}] 已写回原版数值到 hotfix。")
-        else:
-            QMessageBox.critical(self, "恢复失败", result.get("message", ""))
-
-    def clean_hotfix_silent(self):
-        if not self.hotfix_path or not self.hotfix_path.exists() or not self.game:
-            return
-        if not self.current_id:
-            return
-        try:
-            text, enc = read_text(self.hotfix_path)
-        except Exception:
-            return
-        sid = self.current_id
-        m = re.search(rf"(?im)^\[{re.escape(sid)}\][^\n]*\r?\n?", text)
-        if not m:
-            return
-        start = m.end()
-        rest = text[start:]
-        nxt = re.search(r"(?m)^\[", rest)
-        end = start + (nxt.start() if nxt else len(rest))
-        block = text[start:end]
-        base = self.game.get_section(sid)
-        base_map = {}
-        if base:
-            for k, v in base.keys.items():
-                base_map[k.lower()] = v.strip().lower()
-        kill_default = {
-            "attacheffect.animation": {"none", "0", ""},
-            "attacheffect.duration": {"0"},
-            "attacheffect.speedmultiplier": {"1", "1.0"},
-            "attacheffect.armormultiplier": {"1", "1.0"},
-            "attacheffect.firepowermultiplier": {"1", "1.0"},
-            "attacheffect.rofmultiplier": {"1", "1.0"},
-            "image": {sid.lower()},
-        }
-        new_lines = []
-        has_custom = False
-        for line in block.splitlines(keepends=True):
-            clean = line.split(";")[0].strip()
-            if "=" in clean:
-                k, _, v = clean.partition("=")
-                kl, vl = k.strip().lower(), v.strip().lower()
-                if kl in base_map and base_map[kl] == vl:
-                    continue
-                if kl in kill_default and vl in kill_default[kl]:
-                    continue
-                has_custom = True
-                new_lines.append(line if line.endswith("\n") else line + "\n")
-            elif line.strip():
-                new_lines.append(line if line.endswith("\n") else line + "\n")
-        if not has_custom:
-            new_text = text[: m.start()] + text[end:]
-        else:
-            header = text[m.start(): m.end()]
-            new_text = text[: m.start()] + header + "".join(new_lines) + text[end:]
-        try:
-            self.hotfix_path.write_text(new_text, encoding=enc)
-            self._watch_mtime = self.hotfix_path.stat().st_mtime
-        except Exception:
-            pass
+        # 从 rules 重读，并可选从 hotfix 删除覆盖
+        text = self.game.get_section_text(self.current_id)
+        self.preview.setPlainText(text)
+        # 重新灌表单
+        kind = self.current_kind
+        self.load_section(self.current_id, kind)
+        # load_section 会再读 hotfix；强制用 rules：
+        values: Dict[str, str] = {}
+        for line in text.splitlines():
+            s = line.strip()
+            if "=" in s and not s.startswith("["):
+                clean = s.split(";", 1)[0]
+                if "=" in clean:
+                    k, v = clean.split("=", 1)
+                    values[k.strip()] = v.strip()
+        fields = self._resolve_fields(kind, values)
+        self._switching = True
+        self._build_form(fields, values, self.current_utype)
+        self.preview.setPlainText(text)
+        self._switching = False
+        self.statusBar().showMessage("已恢复为 rules 原文（尚未写回文件）", 5000)
 
     def copy_full_code(self):
-        if not self.current_id or not self.game:
-            QMessageBox.information(self, "复制", "请先选择图纸")
-            return
-        self.sync_form_to_code()
-        base = self.game.get_section(self.current_id)
-        ui = {k.lower(): (k, self._widget_value(w)) for k, w in self.entries.items()}
-        lines = [f"[{self.current_id}]"]
-        written = set()
-        if base:
-            for k in base.key_order:
-                kl = k.lower()
-                if kl in ui and ui[kl][1] != "":
-                    lines.append(f"{ui[kl][0]}={ui[kl][1]}")
-                    written.add(kl)
-                else:
-                    lines.append(f"{k}={base.keys.get(k, '')}")
-                    written.add(kl)
-        for kl, (k, v) in ui.items():
-            if kl not in written and v != "":
-                lines.append(f"{k}={v}")
-        text = "\n".join(lines)
-        QApplication.clipboard().setText(text)
-        QMessageBox.information(
-            self, "复制成功",
-            "✅ 完整代码（原版底包 + 修改）已复制到剪贴板。\n可直接粘贴覆盖源 INI 区块。",
-        )
+        QApplication.clipboard().setText(self.preview.toPlainText())
+        self.statusBar().showMessage("已复制到剪贴板", 3000)
 
     def _file_watch(self):
-        if not self.hotfix_path or not self.hotfix_path.exists():
-            return
-        try:
-            mt = self.hotfix_path.stat().st_mtime
-        except Exception:
-            return
-        if mt > self._watch_mtime + 0.2 and self.current_id:
-            self._watch_mtime = mt
-            body = self._read_section_from_file(self.hotfix_path, self.current_id)
-            if body.strip():
-                self.code.blockSignals(True)
-                self.code.setPlainText(body if body.endswith("\n") else body + "\n")
-                self.code.blockSignals(False)
+        # 预留：监测 hotfix 外部修改
+        pass
 
     def closeEvent(self, event):
         self._save_settings()
@@ -1092,25 +1150,8 @@ class WorkshopWindow(QMainWindow):
 
 
 def run():
-    app = QApplication(sys.argv)
-    app.setApplicationName("战术工坊 2.x")
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle("Fusion")
     win = WorkshopWindow()
     win.show()
-    last = win.settings.get("last_game_dir")
-    if last and Path(last).is_dir():
-        try:
-            win.game = GameProject(Path(last), win._profile())
-            if win.game.rules:
-                win.dir_label.setText(
-                    f"游戏目录：{last}  |  CSF {len(win.game.csf.strings)} 条"
-                )
-                win.refresh_tree()
-        except Exception:
-            pass
-    hf = win.settings.get("last_hotfix")
-    if hf and Path(hf).exists():
-        win.hotfix_path = Path(hf)
-        win.path_edit.setText(hf)
-        win.path_edit.setStyleSheet("color:#00ff00;")
     sys.exit(app.exec())

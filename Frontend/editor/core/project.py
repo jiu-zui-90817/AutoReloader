@@ -340,6 +340,7 @@ class Project:
             "InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes",
             "WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes",
             "Animations", "Particles", "ParticleSystems", "Projectiles",
+            "TaskForces", "ScriptTypes", "TeamTypes", "AITriggerTypes",
         ])
         return target.get_all_type_ids(names)
 
@@ -348,7 +349,10 @@ class Project:
         used = set()
         groups: Dict[str, List[str]] = {}
         reg_list: List[str] = []
-        extra_lists = ["Countries", "Sides", "Colors", "Animations", "Particles", "ParticleSystems", "Projectiles"]
+        extra_lists = [
+            "Countries", "Sides", "Colors", "Animations", "Particles", "ParticleSystems", "Projectiles",
+            "TaskForces", "ScriptTypes", "TeamTypes", "AITriggerTypes",
+        ]
         all_lists = dict(lists)
         for en in extra_lists:
             if en not in all_lists:

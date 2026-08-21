@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
     QStatusBar, QTabWidget, QSizePolicy, QDialog, QFormLayout, QDialogButtonBox,
-    QSpinBox, QCheckBox, QTextEdit,
+    QSpinBox, QCheckBox, QTextEdit, QMenu,
 )
 
 from core.project import Project
@@ -282,7 +282,7 @@ class NewUnitDialog(QDialog):
         self.reg_combo = QComboBox()
         layout.addRow("写入注册表到", self.reg_combo)
         self.reg_hint = QLabel("仅列出包含该注册表节（如 [InfantryTypes]）的文件")
-        self.reg_hint.setStyleSheet("color:#9ca3af; font-size:11px;")
+        self.reg_hint.setStyleSheet("color:#b0b8c4; font-size:13px;")
         self.reg_hint.setWordWrap(True)
         layout.addRow(self.reg_hint)
 
@@ -328,7 +328,7 @@ class NewUnitDialog(QDialog):
             self.reg_hint.setStyleSheet("color:#f59e0b; font-size:11px;")
         else:
             self.reg_hint.setText(f"仅列出包含 [{type_list}] 的文件（共 {len(files)} 个）")
-            self.reg_hint.setStyleSheet("color:#9ca3af; font-size:11px;")
+            self.reg_hint.setStyleSheet("color:#b0b8c4; font-size:13px;")
             # 若当前单文件正好有注册表，优先选中
             if self.project.single_path:
                 sp = str(self.project.single_path.resolve())
@@ -400,7 +400,7 @@ class PropPanel(QWidget):
         outer.addWidget(self.title)
 
         self.hint = QLabel("此处只读。改数值请用中间代码区，或「打开调试」做热重载试调。")
-        self.hint.setStyleSheet("color:#9ca3af; font-size:11px;")
+        self.hint.setStyleSheet("color:#b0b8c4; font-size:13px;")
         self.hint.setWordWrap(True)
         outer.addWidget(self.hint)
 
@@ -424,8 +424,11 @@ class PropPanel(QWidget):
                 w.deleteLater()
         self.title.setText("")
 
-    def set_section(self, section_id: str, display: str, sec, schema: dict, src_name: str = ""):
+    def set_section(self, section_id: str, display: str, sec, schema: dict, src_name: str = "", on_jump_editor=None, on_jump_tree=None):
         self.clear()
+        self._on_jump_editor = on_jump_editor  # callable(key)
+        self._on_jump_tree = on_jump_tree  # callable(value)
+        self._section_id = section_id
         self.title.setText(display or section_id)
         if src_name:
             lab = QLabel(f"来源: {src_name}")
@@ -441,7 +444,6 @@ class PropPanel(QWidget):
             lay = QVBoxLayout(box)
             lay.setContentsMargins(6, 4, 6, 4)
             lay.setSpacing(2)
-            # 键名 + 只读值
             row = QHBoxLayout()
             kl = QLabel(key)
             kl.setFixedWidth(118)
@@ -456,14 +458,58 @@ class PropPanel(QWidget):
             desc = (schema.get(key) or {}).get("desc_zh") or (schema.get(key) or {}).get("desc_en") or ""
             if desc:
                 dl = QLabel(desc)
-                dl.setStyleSheet("color:#9ca3af; font-size:11px;")
+                dl.setStyleSheet("color:#b0b8c4; font-size:13px;")
                 dl.setWordWrap(True)
                 lay.addWidget(dl)
             else:
                 dl = QLabel("（词典暂无说明，可在 common_flags.json 中补充）")
-                dl.setStyleSheet("color:#666; font-size:11px;")
+                dl.setStyleSheet("color:#8b919a; font-size:12px;")
                 lay.addWidget(dl)
+            box.setProperty("prop_key", key)
+            box.setProperty("prop_value", value)
+            # 左键：仅在编辑器中定位（按键名）；右键菜单另有对象树/编辑器
+            box.mousePressEvent = self._make_row_click(box, key)
+            box.setContextMenuPolicy(Qt.CustomContextMenu)
+            box.customContextMenuRequested.connect(
+                lambda pos, b=box, k=key, v=value: self._prop_menu(b, pos, k, v)
+            )
             self.form.addWidget(box)
+
+    def _make_row_click(self, box, key):
+        def handler(event):
+            if event.button() == Qt.LeftButton and callable(getattr(self, "_on_jump_editor", None)):
+                self._on_jump_editor(key)
+            QFrame.mousePressEvent(box, event)
+        return handler
+
+    def _prop_menu(self, box, pos, key, value):
+        menu = QMenu(box)
+        act_tree = menu.addAction("在对象树中定位")
+        act_editor = menu.addAction("在编辑器中定位")
+        menu.addSeparator()
+        act_copy_key = menu.addAction("复制键名")
+        act_copy_val = menu.addAction("复制值")
+        act_copy_line = menu.addAction("复制整行 (键=值)")
+        menu.addSeparator()
+        act_select = menu.addAction("全选属性文本")
+        chosen = menu.exec(box.mapToGlobal(pos))
+        clip = QApplication.clipboard()
+        if chosen == act_tree and callable(getattr(self, "_on_jump_tree", None)):
+            self._on_jump_tree(value, silent=False)
+        elif chosen == act_editor and callable(getattr(self, "_on_jump_editor", None)):
+            self._on_jump_editor(key)
+        elif chosen == act_copy_key:
+            clip.setText(key)
+        elif chosen == act_copy_val:
+            clip.setText(value)
+        elif chosen == act_copy_line:
+            clip.setText(f"{key}={value}")
+        elif chosen == act_select:
+            for lab in box.findChildren(QLabel):
+                if lab.text() == value:
+                    if hasattr(lab, "setSelection"):
+                        lab.setSelection(0, len(value))
+                    break
 
 class MainWindow(QMainWindow):
     def __init__(self, project: Project):
@@ -473,6 +519,7 @@ class MainWindow(QMainWindow):
         self._display_cache: Dict[str, str] = {}
         self.current_section_id: Optional[str] = None
         self.current_prefer: str = ""
+        self.current_group: str = ""  # 树分组，消歧同名 section
         self._mem_sections: Dict[str, str] = {}
         self._dirty = False
         self._loading_section = False
@@ -494,9 +541,37 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("文件 → 打开游戏文件夹 / 打开单文件")
 
     def _load_schema(self):
-        p = Path(__file__).parent.parent / "schemas" / "common_flags.json"
-        if p.exists():
-            self.flag_schema = json.loads(p.read_text(encoding="utf-8"))
+        """开发：shared 唯一源；打包：exe 旁 / _MEIPASS 内的 schemas。"""
+        import sys
+        candidates = []
+        if getattr(sys, "frozen", False):
+            exe_dir = Path(sys.executable).resolve().parent
+            meipass = getattr(sys, "_MEIPASS", None)
+            candidates += [
+                exe_dir / "schemas" / "common_flags.json",
+                exe_dir / "shared" / "schemas" / "common_flags.json",
+            ]
+            if meipass:
+                mp = Path(meipass)
+                candidates += [
+                    mp / "schemas" / "common_flags.json",
+                    mp / "shared" / "schemas" / "common_flags.json",
+                ]
+        else:
+            here = Path(__file__).resolve().parent.parent  # Frontend/editor
+            repo = here.parents[1]  # repo root (editor -> Frontend -> root)
+            candidates += [
+                repo / "shared" / "schemas" / "common_flags.json",
+                here / "schemas" / "common_flags.json",
+            ]
+        for path in candidates:
+            try:
+                if path.is_file():
+                    self.flag_schema = json.loads(path.read_text(encoding="utf-8"))
+                    return
+            except Exception:
+                continue
+        self.flag_schema = {}
 
     def register_tool(self, name: str, callback, menu_text: str = None):
         """供未来插件/功能注册到「工具」菜单。"""
@@ -701,6 +776,12 @@ class MainWindow(QMainWindow):
         act_rep.triggered.connect(self.show_replace_dialog)
         m_edit.addAction(act_rep)
         m_edit.addSeparator()
+        self.act_word_wrap = QAction("自动换行", self)
+        self.act_word_wrap.setCheckable(True)
+        self.act_word_wrap.setShortcut(QKeySequence("Alt+Z"))
+        self.act_word_wrap.triggered.connect(self.toggle_word_wrap)
+        m_edit.addAction(self.act_word_wrap)
+        m_edit.addSeparator()
         act_new = QAction("新增 section…", self)
         act_new.setShortcut(QKeySequence("Ctrl+N"))
         act_new.triggered.connect(self.on_add_new)
@@ -882,11 +963,15 @@ class MainWindow(QMainWindow):
         ml.addWidget(self.source_label)
 
         self.code = CodeEditor()
-        self.code.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.code.setTabStopDistance(32)
         self.code.cursorPositionChanged.connect(self.on_code_cursor)
         self.code.textChanged.connect(self._on_code_edited)
         ml.addWidget(self.code, 1)
+        # 自动换行（编辑菜单，默认开，写入 settings）
+        st = self.project.config.setdefault("settings", {})
+        wrap = st.get("code_word_wrap", True)
+        self.act_word_wrap.setChecked(bool(wrap))
+        self._apply_word_wrap(bool(wrap), save=False)
         split.addWidget(mid)
 
         self.prop = PropPanel()
@@ -1062,7 +1147,11 @@ class MainWindow(QMainWindow):
         pref = prefer if prefer is not None else getattr(self, "current_prefer", "")
         if not sid:
             return ""
-        return f"art::{sid}" if pref == "art" else sid
+        if pref == "art":
+            return f"art::{sid}"
+        if pref == "ai":
+            return f"ai::{sid}"
+        return sid
 
     def _store_current_to_mem(self):
         """把当前编辑器内容写入内存（不落盘）"""
@@ -1224,7 +1313,7 @@ class MainWindow(QMainWindow):
         form.addRow("热重载目标文件", edit_hotfix)
 
         tip = QLabel("设置会写入程序目录下的 config.json，下次启动仍有效。")
-        tip.setStyleSheet("color:#9ca3af; font-size:11px;")
+        tip.setStyleSheet("color:#b0b8c4; font-size:13px;")
         tip.setWordWrap(True)
         form.addRow(tip)
 
@@ -1245,8 +1334,15 @@ class MainWindow(QMainWindow):
         self._rebuild_profile_menu()
         QMessageBox.information(self, "配置", "已重新读取 config.json（未自动重载工程，可再开一次工程目录）")
 
-    def open_project(self):
-        path = QFileDialog.getExistingDirectory(self, "打开游戏文件夹 / Mod 根目录")
+    def open_project(self, path: str | None = None):
+        if not path:
+            st = self.project.config.setdefault("settings", {})
+            start = st.get("last_project_dir") or ""
+            if not start or not Path(start).is_dir():
+                start = str(Path.home())
+            path = QFileDialog.getExistingDirectory(
+                self, "打开游戏文件夹 / Mod 根目录", start
+            )
         if not path:
             return
         if not self._confirm_discard_if_dirty():
@@ -1257,7 +1353,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "错误", "未找到 rules 或配置中的 ini")
             self.statusBar().showMessage("加载失败")
             return
+        st = self.project.config.setdefault("settings", {})
+        st["last_project_dir"] = str(Path(path).resolve())
+        try:
+            self.project.save_config()
+        except Exception:
+            pass
         self._display_cache.clear()
+        self._load_display_cache_file()
         self.tabs.clear()
         self._refresh_file_combo()
         self.act_merged.setChecked(True)
@@ -1269,6 +1372,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             f"{self.project.get_loaded_files_summary()}  |  CSF {len(self.project.csf.strings)} 条"
         )
+        QTimer.singleShot(50, self._warm_display_cache)
 
     def open_loose_file(self):
         """不依赖工程：直接打开一个 ini 进入单文件模式"""
@@ -1354,13 +1458,145 @@ class MainWindow(QMainWindow):
             )
         return self._display_cache[sid]
 
-    def select_tree_item(self, section_id: str):
+    def _norm_prefer(self, prefer: str) -> str:
+        """rules 用空串，与树上 UserRole+2 一致。"""
+        p = (prefer or "").strip()
+        return "" if p in ("", "rules") else p
+
+    def _tab_meta(self, prefer: str = "", group: str = "") -> str:
+        return f"prefer={self._norm_prefer(prefer) or 'rules'};group={group or ''}"
+
+    def _parse_tab_meta(self, tip: str) -> tuple:
+        prefer, group = "", ""
+        tip = tip or ""
+        for part in tip.split(";"):
+            part = part.strip()
+            if part.startswith("prefer="):
+                prefer = self._norm_prefer(part[7:])
+            elif part.startswith("group="):
+                group = part[6:]
+        return prefer, group
+
+    def _project_fingerprint(self) -> str:
+        """用 rules/art/ai 主文件 mtime 做指纹；外部编辑器改过会变。"""
+        parts = []
+        for ini in (self.project.rules, self.project.art, self.project.ai):
+            if not ini or not getattr(ini, "filepath", None):
+                continue
+            try:
+                fp = Path(ini.filepath)
+                if fp.is_file():
+                    st = fp.stat()
+                    parts.append(f"{fp.name}:{st.st_mtime_ns}:{st.st_size}")
+            except Exception:
+                continue
+        # 也扫 allowed 主文件
+        for key in ("rules_files", "art_files", "ai_files"):
+            for name in self.project.profile.get(key) or []:
+                if self.project.project_dir:
+                    fp = self.project.project_dir / name
+                    if fp.is_file():
+                        try:
+                            st = fp.stat()
+                            parts.append(f"{name}:{st.st_mtime_ns}:{st.st_size}")
+                        except Exception:
+                            pass
+        return "|".join(sorted(set(parts)))
+
+    def _cache_dir(self) -> Path:
+        """优先编辑器程序目录下的 cache/；不可写再退用户目录。"""
+        import sys
+        candidates = []
+        if getattr(sys, "frozen", False):
+            candidates.append(Path(sys.executable).resolve().parent / "cache")
+        else:
+            # Frontend/editor/cache
+            candidates.append(Path(__file__).resolve().parent.parent / "cache")
+        candidates.append(Path.home() / ".mo_ini_editor_cache")
+        for d in candidates:
+            try:
+                d.mkdir(parents=True, exist_ok=True)
+                probe = d / ".w"
+                probe.write_text("1", encoding="utf-8")
+                probe.unlink(missing_ok=True)
+                return d
+            except Exception:
+                continue
+        return candidates[0]
+
+    def _cache_file(self) -> Path:
+        import hashlib
+        key = str(self.project.project_dir or self.project.single_path or "default")
+        h = hashlib.md5(key.encode("utf-8")).hexdigest()[:12]
+        return self._cache_dir() / f"display_{h}.json"
+
+    def _warm_display_cache(self):
+        """内存预热 + 带指纹的磁盘缓存（外部改文件则自动失效）。"""
+        if not self.project.project_dir and not self.project.rules:
+            return
+        try:
+            ini = self.project.rules or self.project.active_ini()
+            if not ini:
+                return
+            groups = self.project.classify_sections(ini)
+            ids = []
+            for lst in groups.values():
+                ids.extend(lst)
+            seen, uniq = set(), []
+            for u in ids:
+                if u.lower() not in seen:
+                    seen.add(u.lower())
+                    uniq.append(u)
+            for u in uniq:
+                if u not in self._display_cache:
+                    self._display_cache[u] = self.project.get_display_name(
+                        u, prefer=self.project.active_ini()
+                    )
+            fp = self._project_fingerprint()
+            payload = {
+                "fingerprint": fp,
+                "project": str(self.project.project_dir or ""),
+                "names": self._display_cache,
+            }
+            path = self._cache_file()
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            self.statusBar().showMessage(
+                f"显示名缓存 {len(self._display_cache)} 项 → {path}", 5000
+            )
+        except Exception as e:
+            self.statusBar().showMessage(f"词典预热跳过: {e}", 5000)
+
+    def _load_display_cache_file(self):
+        """指纹一致才用磁盘缓存；否则丢弃（应对外部编辑器改过 ini）。"""
+        try:
+            path = self._cache_file()
+            if not path.is_file():
+                return
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                return
+            fp_now = self._project_fingerprint()
+            if data.get("fingerprint") != fp_now:
+                # 外部改过或文件变了
+                return
+            names = data.get("names") or {}
+            if isinstance(names, dict):
+                self._display_cache.update({str(k): str(v) for k, v in names.items()})
+        except Exception:
+            pass
+
+    def schedule_display_cache_rebuild(self):
+        self._display_cache.clear()
+        QTimer.singleShot(100, self._warm_display_cache)
+
+    def select_tree_item(self, section_id: str, group: str = "", prefer: str = ""):
+        """严格按 prefer（rules/art/ai）+ 可选 group 定位，绝不跨 Art/Rules 串。"""
+        prefer = self._norm_prefer(prefer)
         self.tree.blockSignals(True)
         try:
-            # 先展开可能含该 id 的分组并触发懒加载
             root = self.tree.invisibleRootItem()
-            self._expand_groups_for(root, section_id)
-            it = self._find_tree_item(root, section_id)
+            self._expand_groups_for(root, section_id, group=group, prefer=prefer)
+            it = self._find_tree_item(root, section_id, group=group, prefer=prefer)
             if it:
                 self.tree.setCurrentItem(it)
                 self.tree.scrollToItem(it)
@@ -1371,25 +1607,56 @@ class MainWindow(QMainWindow):
         finally:
             self.tree.blockSignals(False)
 
-    def _expand_groups_for(self, parent, section_id: str):
+    def _expand_groups_for(self, parent, section_id: str, group: str = "", prefer: str = ""):
+        prefer = self._norm_prefer(prefer)
         for i in range(parent.childCount()):
             child = parent.child(i)
             ids = child.data(0, Qt.UserRole + 1)
-            if ids and any(str(u).lower() == section_id.lower() for u in ids):
-                if child.childCount() == 1 and child.child(0).data(0, Qt.UserRole) is None:
-                    self._fill_tree_children(child, ids)
-                child.setExpanded(True)
-            self._expand_groups_for(child, section_id)
+            g = child.data(0, Qt.UserRole + 3) or ""
+            pref = self._norm_prefer(child.data(0, Qt.UserRole + 2) or "")
+            # 先递归子节点
+            self._expand_groups_for(child, section_id, group=group, prefer=prefer)
+            if not ids:
+                continue
+            if not any(str(u).lower() == section_id.lower() for u in ids):
+                continue
+            # prefer 必须一致（rules 空 == 空）
+            if pref != prefer:
+                continue
+            if group and g and g.lower() != group.lower():
+                continue
+            if child.childCount() == 1 and child.child(0).data(0, Qt.UserRole) is None:
+                self._fill_tree_children(child, ids, prefer=pref, group=g or group)
+            child.setExpanded(True)
 
-    def _find_tree_item(self, parent, section_id: str):
+    def _find_tree_item(self, parent, section_id: str, group: str = "", prefer: str = ""):
+        """只返回 prefer 一致的节点；group 有则再精确，否则同 prefer 下第一个。"""
+        prefer = self._norm_prefer(prefer)
+        exact, soft = None, None
         for i in range(parent.childCount()):
             child = parent.child(i)
-            if child.data(0, Qt.UserRole) == section_id:
-                return child
-            found = self._find_tree_item(child, section_id)
+            # 深度优先先搜子树，保证先处理更具体的路径
+            found = self._find_tree_item(child, section_id, group=group, prefer=prefer)
             if found:
                 return found
-        return None
+            role = child.data(0, Qt.UserRole)
+            if role is None or str(role).lower() != section_id.lower():
+                continue
+            pref = self._norm_prefer(child.data(0, Qt.UserRole + 2) or "")
+            if pref != prefer:
+                continue  # 绝不把 art 当 rules，反之亦然
+            g = child.data(0, Qt.UserRole + 3) or ""
+            if group:
+                if g.lower() == group.lower():
+                    return child
+                # group 不符：同 prefer 下仅作候选
+                if soft is None:
+                    soft = child
+            else:
+                # 未指定 group：同 prefer 即可
+                if exact is None:
+                    exact = child
+        return exact or soft
 
     def refresh_tree(self):
         """对象树：分类节点先建好；子节点展开时再填充（避免一次插入上千项卡死）"""
@@ -1415,6 +1682,8 @@ class MainWindow(QMainWindow):
                 "ProjectileTypes": "抛射体", "SuperWeaponTypes": "超武",
                 "Animations": "动画", "Particles": "粒子", "ParticleSystems": "粒子系统",
                 "Projectiles": "抛射体", "Countries": "国家", "Sides": "阵营", "Colors": "颜色",
+                "TaskForces": "特遣队", "ScriptTypes": "脚本", "TeamTypes": "小队",
+                "AITriggerTypes": "AI触发",
                 "注册表": "注册表", "国家 Country": "国家", "其他": "其他",
             }
 
@@ -1451,15 +1720,14 @@ class MainWindow(QMainWindow):
                 else:
                     node = QTreeWidgetItem(self.tree, [label])
 
-                # 存 ids 供懒加载；有过滤时直接填（数量通常较少）
+                # 存 ids 供懒加载；分组名用于同名 section 消歧
                 node.setData(0, Qt.UserRole + 1, items if filt else list(ids))
+                node.setData(0, Qt.UserRole + 3, group_name)
                 if filt or count <= 40:
-                    # 少量或搜索结果：直接展开填充
-                    self._fill_tree_children(node, items if filt else ids)
+                    self._fill_tree_children(node, items if filt else ids, group=group_name)
                     if filt:
                         node.setExpanded(True)
                 else:
-                    # 占位子节点，展开时再加载
                     ph = QTreeWidgetItem(node, ["（展开以加载…）"])
                     ph.setData(0, Qt.UserRole, None)
 
@@ -1475,15 +1743,56 @@ class MainWindow(QMainWindow):
                 else:
                     ph = QTreeWidgetItem(art_root, ["（展开以加载…）"])
                     ph.setData(0, Qt.UserRole, None)
+
+            # AI：配置里的 ai_files 已加载，但合并树以前只画 rules/art
+            if self.project.work_mode == "merged" and self.project.ai:
+                ai_root = QTreeWidgetItem(self.tree, ["AI"])
+                ai_root.setData(0, Qt.UserRole + 2, "ai")
+                ai_groups = self.project.classify_sections(self.project.ai)
+                ai_type_labels = {
+                    "TaskForces": "特遣队 · TaskForces",
+                    "ScriptTypes": "脚本 · ScriptTypes",
+                    "TeamTypes": "小队 · TeamTypes",
+                    "AITriggerTypes": "AI触发 · AITriggerTypes",
+                    "注册表": "注册表",
+                }
+                any_child = False
+                for gname, ids in ai_groups.items():
+                    items = [u for u in ids if match(u)]
+                    if filt and not items:
+                        continue
+                    label = ai_type_labels.get(gname, gname)
+                    count = len(items) if filt else len(ids)
+                    node = QTreeWidgetItem(ai_root, [f"{label} ({count})"])
+                    node.setData(0, Qt.UserRole + 2, "ai")
+                    node.setData(0, Qt.UserRole + 3, gname)
+                    show_ids = items if filt else ids
+                    node.setData(0, Qt.UserRole + 1, show_ids)
+                    if filt or len(show_ids) <= 40:
+                        self._fill_tree_children(node, show_ids, prefer="ai", group=gname)
+                    else:
+                        ph = QTreeWidgetItem(node, ["（展开以加载…）"])
+                        ph.setData(0, Qt.UserRole, None)
+                    any_child = True
+                if not any_child and not filt:
+                    # 兜底：平铺全部 AI section
+                    ai_ids = [s for s in self.project.ai.section_order if not s.startswith("#")]
+                    ai_root.setData(0, Qt.UserRole + 1, ai_ids)
+                    if len(ai_ids) <= 40:
+                        self._fill_tree_children(ai_root, ai_ids, prefer="ai")
+                    else:
+                        ph = QTreeWidgetItem(ai_root, ["（展开以加载…）"])
+                        ph.setData(0, Qt.UserRole, None)
         finally:
             self.tree.blockSignals(False)
             self.tree.setUpdatesEnabled(True)
 
-    def _fill_tree_children(self, node: QTreeWidgetItem, ids: list, prefer: str = ""):
+    def _fill_tree_children(self, node: QTreeWidgetItem, ids: list, prefer: str = "", group: str = ""):
         node.takeChildren()
         if not prefer:
             prefer = node.data(0, Qt.UserRole + 2) or ""
-        # 父节点是否是「注册表」分组
+        if not group:
+            group = node.data(0, Qt.UserRole + 3) or ""
         parent_label = node.text(0) if node else ""
         is_reg_group = parent_label.startswith("注册表")
         for uid in ids:
@@ -1494,7 +1803,14 @@ class MainWindow(QMainWindow):
             child = QTreeWidgetItem(node, [label])
             child.setData(0, Qt.UserRole, uid)
             child.setData(0, Qt.UserRole + 2, prefer)
-            tip = uid + (" · Art" if prefer == "art" else "")
+            child.setData(0, Qt.UserRole + 3, group)
+            tip = uid
+            if group:
+                tip += f" · {group}"
+            if prefer == "art":
+                tip += " · Art"
+            elif prefer == "ai":
+                tip += " · AI"
             child.setToolTip(0, tip)
 
     def on_tree_expanded(self, item: QTreeWidgetItem):
@@ -1505,7 +1821,7 @@ class MainWindow(QMainWindow):
         if item.childCount() == 1 and item.child(0).data(0, Qt.UserRole) is None:
             self.tree.setUpdatesEnabled(False)
             try:
-                self._fill_tree_children(item, ids, prefer=item.data(0, Qt.UserRole + 2) or "")
+                self._fill_tree_children(item, ids, prefer=item.data(0, Qt.UserRole + 2) or "", group=item.data(0, Qt.UserRole + 3) or "")
             finally:
                 self.tree.setUpdatesEnabled(True)
 
@@ -1513,20 +1829,56 @@ class MainWindow(QMainWindow):
         sid = item.data(0, Qt.UserRole)
         if sid:
             prefer = item.data(0, Qt.UserRole + 2) or ""
-            self.open_section_tab(str(sid), prefer=prefer)
+            group = item.data(0, Qt.UserRole + 3) or ""
+            self.open_section_tab(str(sid), prefer=prefer, group=str(group) if group else "")
 
-    def open_section_tab(self, section_id: str, prefer: str = ""):
-        # 同名 rules/art 分开展示：标签用 ADOG / ADOG · Art
-        tab_title = f"{section_id} · Art" if prefer == "art" else section_id
+    def open_section_tab(self, section_id: str, prefer: str = "", group: str = ""):
+        """同一 (section_id, prefer) 只保留一个标签，重复点击只切换不新建。"""
+        prefer = self._norm_prefer(prefer)
+        section_id = str(section_id)
+        if prefer == "art":
+            tab_title = f"{section_id} · Art"
+        elif prefer == "ai":
+            tab_title = f"{section_id} · AI"
+        else:
+            tab_title = section_id
+        meta = self._tab_meta(prefer, group)
+
+        # 1) 按标题 + prefer 精确找
         for i in range(self.tabs.count()):
-            if self.tabs.tabText(i) == tab_title:
-                self.tabs.setCurrentIndex(i)
-                self.show_section(section_id, prefer=prefer)
+            title = self.tabs.tabText(i)
+            # 兼容旧标签无带多余空格
+            base = title.split(" · ")[0].strip() if " · " in title else title.strip()
+            old_pref, _ = self._parse_tab_meta(self.tabs.tabToolTip(i) or "")
+            same_id = base.lower() == section_id.lower() or title.strip() == tab_title
+            # rules：标题等于 id；art/ai：标题带后缀
+            if prefer == "art":
+                same_id = title.strip() == f"{section_id} · Art" or (
+                    base.lower() == section_id.lower() and old_pref == "art"
+                )
+            elif prefer == "ai":
+                same_id = title.strip() == f"{section_id} · AI" or (
+                    base.lower() == section_id.lower() and old_pref == "ai"
+                )
+            else:
+                same_id = (
+                    title.strip() == section_id
+                    or (base.lower() == section_id.lower() and old_pref in ("", "rules"))
+                )
+            if same_id and old_pref == prefer:
+                self.tabs.setTabToolTip(i, meta)
+                # 避免 currentChanged 递归时重复加载：仅在索引变化时 setCurrent
+                if self.tabs.currentIndex() != i:
+                    self.tabs.setCurrentIndex(i)
+                else:
+                    self.show_section(section_id, prefer=prefer, group=group)
                 return
+
+        # 2) 没有则新建一个
         idx = self.tabs.addTab(QWidget(), tab_title)
-        self.tabs.setTabToolTip(idx, prefer or "rules")
+        self.tabs.setTabToolTip(idx, meta)
         self.tabs.setCurrentIndex(idx)
-        self.show_section(section_id, prefer=prefer)
+        self.show_section(section_id, prefer=prefer, group=group)
 
     def close_tab(self, index: int):
         title = self.tabs.tabText(index)
@@ -1542,16 +1894,13 @@ class MainWindow(QMainWindow):
                 self.source_label.setText("")
 
     def on_tab_changed(self, index: int):
-        # 切换前把当前编辑写入内存
         self._store_current_to_mem()
         if index >= 0:
             title = self.tabs.tabText(index)
-            prefer = self.tabs.tabToolTip(index) or ""
-            if prefer == "rules":
-                prefer = ""
+            prefer, group = self._parse_tab_meta(self.tabs.tabToolTip(index) or "")
             sid = title.split(" · ")[0] if " · " in title else title
-            self.show_section(sid, prefer=prefer)
-            self.select_tree_item(sid)
+            self.show_section(sid, prefer=prefer, group=group)
+            self.select_tree_item(sid, group=group, prefer=prefer)
 
     def prev_tab(self):
         n = self.tabs.count()
@@ -1563,9 +1912,10 @@ class MainWindow(QMainWindow):
         if n:
             self.tabs.setCurrentIndex((self.tabs.currentIndex() + 1) % n)
 
-    def show_section(self, section_id: str, prefer: str = ""):
+    def show_section(self, section_id: str, prefer: str = "", group: str = ""):
         self.current_section_id = section_id
         self.current_prefer = prefer or ""
+        self.current_group = group or ""
         prefer_ini = None
         if prefer == "art" and self.project.art:
             prefer_ini = self.project.art
@@ -1606,13 +1956,15 @@ class MainWindow(QMainWindow):
         if self.project.work_mode == "single":
             self.source_label.setText(f"写入目标（当前文件）: {src}")
         else:
-            tag = " [Art]" if prefer == "art" else ""
+            tag = " [Art]" if prefer == "art" else (" [AI]" if prefer == "ai" else "")
             self.source_label.setText(
                 f"写入目标{tag}: {src}" if src else "写入目标: 未知 — 保存时将请你选择文件"
             )
         self.prop.set_section(
             section_id, self._disp(section_id), sec, self.flag_schema,
             src_name=str(src) if src else "",
+            on_jump_editor=self.jump_to_editor_key,
+            on_jump_tree=self.jump_to_tree_value,
         )
 
     def on_code_cursor(self):
@@ -1624,6 +1976,102 @@ class MainWindow(QMainWindow):
             desc = (self.flag_schema.get(key) or {}).get("desc_zh") or ""
             if desc:
                 self.prop.hint.setText(f"{key}: {desc}")
+
+    def jump_to_editor_key(self, key: str):
+        """属性键 → 中间代码编辑器定位到 key= 行。"""
+        if not key:
+            return
+        text = self.code.toPlainText()
+        target = None
+        for i, line in enumerate(text.splitlines()):
+            s = line.strip()
+            if s.startswith(";") or not s or s.startswith("["):
+                continue
+            if "=" in s and s.split("=", 1)[0].strip().lower() == key.lower():
+                target = i
+                break
+        if target is None:
+            self.statusBar().showMessage(f"编辑器中未找到键: {key}", 3000)
+            return
+        block = self.code.document().findBlockByLineNumber(target)
+        if not block.isValid():
+            return
+        cur = self.code.textCursor()
+        cur.setPosition(block.position())
+        cur.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+        self.code.setTextCursor(cur)
+        self.code.setFocus()
+        self.code.centerCursor()
+        self.statusBar().showMessage(f"已在编辑器定位: {key}", 2000)
+
+    def jump_to_tree_value(self, value: str, silent: bool = False) -> bool:
+        """属性值 → 对象树定位并打开（逗号分隔则逐个尝试）。"""
+        if not value:
+            if not silent:
+                self.statusBar().showMessage("值为空，无法在对象树定位", 3000)
+            return False
+        tokens = []
+        for part in str(value).replace(";", ",").split(","):
+            part = part.strip()
+            if not part or part.lower() in ("none", "no", "yes", "true", "false"):
+                continue
+            if part.replace(".", "", 1).isdigit():
+                continue
+            tokens.append(part)
+        if not tokens:
+            if not silent:
+                self.statusBar().showMessage(f"无法解析为对象 ID: {value}", 3000)
+            return False
+        root = self.tree.invisibleRootItem()
+        for tok in tokens:
+            for prefer in ("", "art", "ai"):
+                it = self._find_tree_item(root, tok, group="", prefer=prefer)
+                if it:
+                    group = it.data(0, Qt.UserRole + 3) or ""
+                    pref = it.data(0, Qt.UserRole + 2) or ""
+                    self.select_tree_item(tok, group=str(group) if group else "", prefer=pref or prefer)
+                    self.open_section_tab(tok, prefer=pref or prefer, group=str(group) if group else "")
+                    self.statusBar().showMessage(f"已在对象树定位: {tok}", 2500)
+                    return True
+            sec = self.project.get_section(tok)
+            if sec:
+                self.open_section_tab(tok, prefer="", group="")
+                self.select_tree_item(tok, group="", prefer="")
+                self.statusBar().showMessage(f"已打开: {tok}（树中可能需展开）", 2500)
+                return True
+        if not silent:
+            self.statusBar().showMessage(f"对象树中未找到: {value}", 3000)
+        return False
+
+
+    def toggle_word_wrap(self, checked: bool = None):
+        if checked is None:
+            checked = self.act_word_wrap.isChecked()
+        else:
+            self.act_word_wrap.setChecked(bool(checked))
+        self._apply_word_wrap(bool(checked), save=True)
+
+    def _apply_word_wrap(self, enabled: bool, save: bool = True):
+        if not hasattr(self, "code") or self.code is None:
+            return
+        mode = QPlainTextEdit.WidgetWidth if enabled else QPlainTextEdit.NoWrap
+        self.code.setLineWrapMode(mode)
+        # 换行时用软换行，不插入真实换行符
+        if hasattr(self.code, "setWordWrapMode"):
+            from PySide6.QtGui import QTextOption
+            self.code.setWordWrapMode(
+                QTextOption.WrapAtWordBoundaryOrAnywhere if enabled else QTextOption.NoWrap
+            )
+        if save:
+            st = self.project.config.setdefault("settings", {})
+            st["code_word_wrap"] = bool(enabled)
+            try:
+                self.project.save_config()
+            except Exception:
+                pass
+            self.statusBar().showMessage(
+                "已开启自动换行" if enabled else "已关闭自动换行", 2500
+            )
 
     def find_next(self):
         needle = self.find_edit.text()
@@ -2180,6 +2628,7 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._display_cache.clear()
         self.refresh_tree()
+        self.schedule_display_cache_rebuild()
         extra = ("\n注册表已清理: " + ", ".join(reg_notes)) if reg_notes else ""
         QMessageBox.information(self, "删除", f"已删除 [{sid}]\n文件: {path}\n备份: {backup_root}{extra}")
 
@@ -2258,6 +2707,13 @@ class MainWindow(QMainWindow):
         if not self._confirm_discard_if_dirty():
             event.ignore()
             return
+        try:
+            if self.project.project_dir:
+                st = self.project.config.setdefault("settings", {})
+                st["last_project_dir"] = str(Path(self.project.project_dir).resolve())
+                self.project.save_config()
+        except Exception:
+            pass
         event.accept()
 
 
@@ -2268,4 +2724,13 @@ def run_app():
     app.setStyle("Fusion")
     win = MainWindow(Project(app_dir / "config.json"))
     win.show()
+    # 自动恢复上次工程目录（源码运行同样有效，配置在 Frontend/editor/config.json）
+    try:
+        st = win.project.config.get("settings") or {}
+        last = st.get("last_project_dir") or ""
+        if last and Path(last).is_dir():
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(200, lambda: win.open_project(last))
+    except Exception:
+        pass
     sys.exit(app.exec())

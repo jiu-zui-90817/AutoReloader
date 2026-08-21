@@ -8,26 +8,69 @@
   "profiles": {
     "YuriRevenge_Vanilla": {
       "display_name": "Yuri's Revenge 原版",
-      "rules_files": ["rulesmd.ini"],
-      "art_files": ["artmd.ini"],
-      "ai_files": ["aimd.ini"],
-      "csf_files": ["ra2md.csf"],
+      "rules_files": [
+        "rulesmd.ini"
+      ],
+      "art_files": [
+        "artmd.ini"
+      ],
+      "ai_files": [
+        "aimd.ini"
+      ],
+      "csf_files": [
+        "ra2md.csf"
+      ],
       "type_lists": [
-        "InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes",
-        "WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes",
-        "Animations", "Particles", "ParticleSystems", "Projectiles"
+        "InfantryTypes",
+        "VehicleTypes",
+        "AircraftTypes",
+        "BuildingTypes",
+        "WeaponTypes",
+        "Warheads",
+        "ProjectileTypes",
+        "SuperWeaponTypes",
+        "Animations",
+        "Particles",
+        "ParticleSystems",
+        "Projectiles",
+        "TaskForces",
+        "ScriptTypes",
+        "TeamTypes",
+        "AITriggerTypes"
       ]
     },
     "MentalOmega": {
       "display_name": "Mental Omega",
-      "rules_files": ["rulesmo.ini"],
-      "art_files": ["artmo.ini"],
-      "ai_files": ["aimo.ini"],
-      "csf_files": ["ra2md.csf", "stringtable*.csf"],
+      "rules_files": [
+        "rulesmo.ini"
+      ],
+      "art_files": [
+        "artmo.ini"
+      ],
+      "ai_files": [
+        "aimo.ini"
+      ],
+      "csf_files": [
+        "ra2md.csf",
+        "stringtable*.csf"
+      ],
       "type_lists": [
-        "InfantryTypes", "VehicleTypes", "AircraftTypes", "BuildingTypes",
-        "WeaponTypes", "Warheads", "ProjectileTypes", "SuperWeaponTypes",
-        "Animations", "Particles", "ParticleSystems", "Projectiles"
+        "InfantryTypes",
+        "VehicleTypes",
+        "AircraftTypes",
+        "BuildingTypes",
+        "WeaponTypes",
+        "Warheads",
+        "ProjectileTypes",
+        "SuperWeaponTypes",
+        "Animations",
+        "Particles",
+        "ParticleSystems",
+        "Projectiles",
+        "TaskForces",
+        "ScriptTypes",
+        "TeamTypes",
+        "AITriggerTypes"
       ]
     }
   },

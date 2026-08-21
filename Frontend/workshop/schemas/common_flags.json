@@ -242,5 +242,280 @@
     "type": "string",
     "desc_zh": "部署后变成的建筑/单位",
     "desc_en": "What it deploys into"
+  },
+  "EliteSecondary": {
+    "type": "weapon",
+    "desc_zh": "精英级副武器",
+    "desc_en": "Elite secondary weapon"
+  },
+  "OccupyWeapon": {
+    "type": "weapon",
+    "desc_zh": "进驻建筑时使用的武器",
+    "desc_en": "Weapon when occupying"
+  },
+  "EliteOccupyWeapon": {
+    "type": "weapon",
+    "desc_zh": "精英进驻武器",
+    "desc_en": "Elite occupy weapon"
+  },
+  "DeathWeapon": {
+    "type": "weapon",
+    "desc_zh": "死亡时触发的武器",
+    "desc_en": "Death weapon"
+  },
+  "Damage": {
+    "type": "int",
+    "desc_zh": "武器基础伤害",
+    "desc_en": "Damage"
+  },
+  "ROF": {
+    "type": "int",
+    "desc_zh": "射击间隔（帧，越小射速越快）",
+    "desc_en": "Rate of fire"
+  },
+  "Range": {
+    "type": "float",
+    "desc_zh": "射程（格）",
+    "desc_en": "Range"
+  },
+  "MinimumRange": {
+    "type": "float",
+    "desc_zh": "最小射程",
+    "desc_en": "Minimum range"
+  },
+  "Projectile": {
+    "type": "projectile",
+    "desc_zh": "抛射体（飞行方式）",
+    "desc_en": "Projectile"
+  },
+  "Warhead": {
+    "type": "warhead",
+    "desc_zh": "弹头（伤害与特效）",
+    "desc_en": "Warhead"
+  },
+  "Report": {
+    "type": "string",
+    "desc_zh": "开火音效",
+    "desc_en": "Fire sound"
+  },
+  "Anim": {
+    "type": "animation",
+    "desc_zh": "开火/命中动画",
+    "desc_en": "Animation"
+  },
+  "Bright": {
+    "type": "bool",
+    "desc_zh": "是否闪光",
+    "desc_en": "Bright flash"
+  },
+  "CellSpread": {
+    "type": "float",
+    "desc_zh": "爆炸波及格数",
+    "desc_en": "Cell spread"
+  },
+  "PercentAtMax": {
+    "type": "float",
+    "desc_zh": "边缘伤害比例",
+    "desc_en": "Percent at max range"
+  },
+  "Verses": {
+    "type": "string",
+    "desc_zh": "对各护甲伤害比例（逗号分隔）",
+    "desc_en": "Verses vs armor"
+  },
+  "InfDeath": {
+    "type": "int",
+    "desc_zh": "步兵死亡动画类型",
+    "desc_en": "Infantry death type"
+  },
+  "Rocker": {
+    "type": "bool",
+    "desc_zh": "是否震荡画面",
+    "desc_en": "Screen rocker"
+  },
+  "MindControl": {
+    "type": "bool",
+    "desc_zh": "心灵控制",
+    "desc_en": "Mind control"
+  },
+  "Parasite": {
+    "type": "bool",
+    "desc_zh": "寄生效果",
+    "desc_en": "Parasite"
+  },
+  "SelfHealing": {
+    "type": "bool",
+    "desc_zh": "自动回血",
+    "desc_en": "Self healing"
+  },
+  "RadarInvisible": {
+    "type": "bool",
+    "desc_zh": "雷达隐形",
+    "desc_en": "Radar invisible"
+  },
+  "OpportunityFire": {
+    "type": "bool",
+    "desc_zh": "移动中开火",
+    "desc_en": "Opportunity fire"
+  },
+  "Passengers": {
+    "type": "int",
+    "desc_zh": "载客数量",
+    "desc_en": "Passenger slots"
+  },
+  "Crusher": {
+    "type": "bool",
+    "desc_zh": "可碾压步兵",
+    "desc_en": "Crusher"
+  },
+  "OmniCrushResistant": {
+    "type": "bool",
+    "desc_zh": "免疫巨型碾压",
+    "desc_en": "Omni crush resistant"
+  },
+  "Cloakable": {
+    "type": "bool",
+    "desc_zh": "可隐形",
+    "desc_en": "Cloakable"
+  },
+  "Trainable": {
+    "type": "bool",
+    "desc_zh": "可升级老兵/精英",
+    "desc_en": "Trainable"
+  },
+  "ConsideredAircraft": {
+    "type": "bool",
+    "desc_zh": "视为飞行器",
+    "desc_en": "Considered aircraft"
+  },
+  "Naval": {
+    "type": "bool",
+    "desc_zh": "海军单位",
+    "desc_en": "Naval"
+  },
+  "Organic": {
+    "type": "bool",
+    "desc_zh": "有机体（受部分武器克制）",
+    "desc_en": "Organic"
+  },
+  "Fearless": {
+    "type": "bool",
+    "desc_zh": "无畏（不受压制）",
+    "desc_en": "Fearless"
+  },
+  "ImmuneToPsionics": {
+    "type": "bool",
+    "desc_zh": "免疫心灵",
+    "desc_en": "Immune to psionics"
+  },
+  "ImmuneToRadiation": {
+    "type": "bool",
+    "desc_zh": "免疫辐射",
+    "desc_en": "Immune to radiation"
+  },
+  "Bombable": {
+    "type": "bool",
+    "desc_zh": "可被Crazy Ivan类炸弹附着",
+    "desc_en": "Bombable"
+  },
+  "AttachEffect.Animation": {
+    "type": "animation",
+    "desc_zh": "状态特效动画（Ares）",
+    "desc_en": "AttachEffect animation"
+  },
+  "AttachEffect.Duration": {
+    "type": "int",
+    "desc_zh": "状态持续帧数（-1永久）",
+    "desc_en": "AttachEffect duration"
+  },
+  "AttachEffect.InitialDelay": {
+    "type": "int",
+    "desc_zh": "生效前延迟",
+    "desc_en": "AttachEffect initial delay"
+  },
+  "AttachEffect.Delay": {
+    "type": "int",
+    "desc_zh": "冷却/重置延迟",
+    "desc_en": "AttachEffect delay"
+  },
+  "AttachEffect.DiscardOnEntry": {
+    "type": "bool",
+    "desc_zh": "进入载具/建筑时丢弃",
+    "desc_en": "Discard on entry"
+  },
+  "AttachEffect.Cloakable": {
+    "type": "bool",
+    "desc_zh": "赋予隐形",
+    "desc_en": "AE cloakable"
+  },
+  "AttachEffect.SpeedMultiplier": {
+    "type": "float",
+    "desc_zh": "移速倍率",
+    "desc_en": "Speed multiplier"
+  },
+  "AttachEffect.ArmorMultiplier": {
+    "type": "float",
+    "desc_zh": "护甲倍率",
+    "desc_en": "Armor multiplier"
+  },
+  "AttachEffect.FirepowerMultiplier": {
+    "type": "float",
+    "desc_zh": "火力倍率",
+    "desc_en": "Firepower multiplier"
+  },
+  "AttachEffect.ROFMultiplier": {
+    "type": "float",
+    "desc_zh": "射速间隔倍率",
+    "desc_en": "ROF multiplier"
+  },
+  "AttachEffect.Cumulative": {
+    "type": "bool",
+    "desc_zh": "可叠加",
+    "desc_en": "Cumulative"
+  },
+  "AttachEffect.AnimResetOnReapply": {
+    "type": "bool",
+    "desc_zh": "重复施加时重置动画",
+    "desc_en": "Anim reset on reapply"
+  },
+  "AttachEffect.ForceDecloak": {
+    "type": "bool",
+    "desc_zh": "强制破隐",
+    "desc_en": "Force decloak"
+  },
+  "EMP.Threshold": {
+    "type": "int",
+    "desc_zh": "EMP 抗性阈值",
+    "desc_en": "EMP threshold"
+  },
+  "SpeedType": {
+    "type": "string",
+    "desc_zh": "移动地形类型",
+    "desc_en": "Speed type"
+  },
+  "Weight": {
+    "type": "float",
+    "desc_zh": "重量（影响碾压等）",
+    "desc_en": "Weight"
+  },
+  "OpenTransportWeapon": {
+    "type": "int",
+    "desc_zh": "运输时武器槽",
+    "desc_en": "Open transport weapon"
+  },
+  "PreventAttackMove": {
+    "type": "bool",
+    "desc_zh": "禁止强制攻击移动",
+    "desc_en": "Prevent attack move"
+  },
+  "CanPassiveAquire": {
+    "type": "bool",
+    "desc_zh": "可自动索敌",
+    "desc_en": "Can passive acquire"
+  },
+  "CanRetaliate": {
+    "type": "bool",
+    "desc_zh": "可反击",
+    "desc_en": "Can retaliate"
   }
 }
