@@ -84,6 +84,7 @@
   "settings": {
     "debug_assist_mode": true,
     "debug_window_width": 860,
-    "debug_window_height": 640
+    "debug_window_height": 640,
+    "last_project_dir": ""
   }
 }
