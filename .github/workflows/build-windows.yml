@@ -83,6 +83,7 @@ jobs:
             --include-package=shared `
             --include-module=app `
             --include-module=fields `
+            --include-data-files=../../shared/profiles.json=profiles.json `
             --include-data-files=../../shared/profiles.json=shared/profiles.json `
             --include-data-dir=../../shared/schemas=shared/schemas `
             --include-data-dir=schemas=schemas `
@@ -109,11 +110,9 @@ jobs:
             Copy-Item Frontend/editor/使用说明.txt "$root/INI工程编辑器/"
           }
 
-          # 工坊
+          # 工坊（精简：exe + profiles.json + schemas/，不再套 shared/ 双份）
           Copy-Item "build/workshop/战术工坊.exe" "$root/战术工坊/"
-          New-Item -ItemType Directory -Force -Path "$root/战术工坊/shared/schemas" | Out-Null
-          Copy-Item shared/profiles.json "$root/战术工坊/shared/"
-          Copy-Item -Force shared/schemas/common_flags.json "$root/战术工坊/shared/schemas/"
+          Copy-Item shared/profiles.json "$root/战术工坊/profiles.json"
           New-Item -ItemType Directory -Force -Path "$root/战术工坊/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$root/战术工坊/schemas/"
           if (Test-Path Frontend/workshop/README.md) {
@@ -128,21 +127,21 @@ jobs:
             战术工坊\       — 快调参数并部署 hotfix.ini
 
           使用注意：
-          1. 请解压到可写目录后再运行（不要直接在压缩包里双击）。
-          2. 首次运行会在程序目录写入配置与缓存；若目录只读，将改写到：
+          1. 从 GitHub Actions 下载的 zip 解压一次即可（不要再套一层压缩包）。
+          2. 请解压到可写目录后再运行。
+          3. 首次运行会在程序目录写入配置与缓存；若目录只读，将改写到：
                %LocalAppData%\MO_INI_Editor\
                %LocalAppData%\TacticalWorkshop\
-          3. 属性说明词典唯一源为仓库 shared/schemas/common_flags.json（已打入 schemas）。
-          4. 本包为 Nuitka 单文件构建，不再提供 PyInstaller 版本。
+          4. 战术工坊目录：exe、profiles.json、schemas/、说明；运行后可能生成 cache/、console_config.json。
+          5. 本包为 Nuitka 单文件构建。
           "@ | Set-Content -Encoding UTF8 "$root/使用说明.txt"
 
-          # 只打一层 zip：里面是文件夹，不要 zip 再套 zip
-          if (Test-Path "热重载前端工具.zip") { Remove-Item "热重载前端工具.zip" }
-          Compress-Archive -Path "$root" -DestinationPath "热重载前端工具.zip" -Force
-          Get-Item "热重载前端工具.zip" | Format-List Name, Length, FullName
+          # 不要再 Compress-Archive：upload-artifact 下载时会自动打成 zip
+          # 若这里再打 zip，用户解压会看到「压缩包套压缩包」
+          Get-ChildItem -Recurse $root | Select-Object FullName, Length
 
       - uses: actions/upload-artifact@v4
         with:
           name: 热重载前端工具
-          path: 热重载前端工具.zip
+          path: 热重载前端工具/
           if-no-files-found: error
