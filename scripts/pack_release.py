@@ -1,4 +1,4 @@
-"""CI 组装 MO/YR 完整发布目录（UTF-8 无 BOM）。在仓库根运行。"""
+"""CI 组装 MO/YR 完整发布目录。布局对齐用户约定（前端合并目录）。"""
 from __future__ import annotations
 
 import json
@@ -8,7 +8,6 @@ from pathlib import Path
 
 
 def _log(*args) -> None:
-    """Windows CI 控制台常为 cp1252，避免中文路径 print 直接炸。"""
     parts = []
     for a in args:
         s = str(a)
@@ -20,7 +19,7 @@ def _log(*args) -> None:
     try:
         print(*parts)
     except Exception:
-        print(*(str(a).encode("ascii", errors="backslashreplace").decode("ascii") for a in args))
+        print(*(repr(a) for a in args))
 
 
 def set_profile(path: Path, profile: str) -> None:
@@ -31,17 +30,8 @@ def set_profile(path: Path, profile: str) -> None:
 
 def must(p: Path) -> None:
     if not p.exists():
-        # 列出父目录便于排查
-        parent = p.parent
-        names = []
-        if parent.is_dir():
-            names = [x.name for x in parent.iterdir()]
-        raise SystemExit(
-            "missing file: "
-            + p.as_posix()
-            + " | parent contains: "
-            + repr(names)
-        )
+        names = [x.name for x in p.parent.iterdir()] if p.parent.is_dir() else []
+        raise SystemExit(f"missing {p.as_posix()} parent={names!r}")
     _log("OK", p.as_posix(), p.stat().st_size)
 
 
@@ -52,60 +42,99 @@ def pack(
     launcher: str,
     label: str,
 ) -> None:
+    """
+    热重载工具-xxx/
+      MO启动器.exe | YR启动器.exe
+      AutoReloader.dll
+      ReloaderConfig.ini
+      使用说明.txt
+      INI工程编辑器&战术工坊/
+        INI工程编辑器.exe
+        战术工坊.exe
+        config.json
+        profiles.json
+        schemas/common_flags.json
+        使用说明.txt
+    """
     root = Path(root_name)
     if root.exists():
         shutil.rmtree(root)
-    (root / "引擎").mkdir(parents=True)
-    (root / "INI工程编辑器").mkdir(parents=True)
-    (root / "战术工坊").mkdir(parents=True)
+    tools = root / "INI工程编辑器&战术工坊"
+    tools.mkdir(parents=True)
+    (tools / "schemas").mkdir(parents=True)
 
-    shutil.copy("bins/engine/AutoReloader.dll", root / "引擎" / "AutoReloader.dll")
+    # 根目录：启动器 + 引擎
+    shutil.copy(Path("bins/launchers") / launcher, root / launcher)
+    shutil.copy("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
     for src in (Path("bins/engine/ReloaderConfig.ini"), Path("Config/ReloaderConfig.ini")):
         if src.is_file():
-            shutil.copy(src, root / "引擎" / "ReloaderConfig.ini")
+            shutil.copy(src, root / "ReloaderConfig.ini")
             break
-    shutil.copy(Path("bins/launchers") / launcher, root / "引擎" / launcher)
 
-    for item in Path("bins/editor").iterdir():
-        dest = root / "INI工程编辑器" / item.name
-        if item.is_dir():
-            shutil.copytree(item, dest)
-        else:
-            shutil.copy2(item, dest)
-    must(root / "INI工程编辑器" / "INI工程编辑器.exe")
-    must(root / "INI工程编辑器" / "config.json")
-    must(root / "INI工程编辑器" / "schemas" / "common_flags.json")
-    set_profile(root / "INI工程编辑器" / "config.json", editor_profile)
+    # 前端：同一目录，共享 schemas / 配置
+    # 编辑器产物
+    ed_exe = Path("bins/editor/INI工程编辑器.exe")
+    if not ed_exe.is_file():
+        # 兼容英文中间名
+        for c in Path("bins/editor").glob("*.exe"):
+            ed_exe = c
+            break
+    shutil.copy2(ed_exe, tools / "INI工程编辑器.exe")
+    shutil.copy2("bins/editor/config.json", tools / "config.json")
+    schema_src = Path("bins/editor/schemas/common_flags.json")
+    if not schema_src.is_file():
+        schema_src = Path("shared/schemas/common_flags.json")
+    shutil.copy2(schema_src, tools / "schemas" / "common_flags.json")
+    if Path("bins/editor/使用说明.txt").is_file():
+        shutil.copy2("bins/editor/使用说明.txt", tools / "使用说明.txt")
+    elif Path("Frontend/editor/使用说明.txt").is_file():
+        shutil.copy2("Frontend/editor/使用说明.txt", tools / "使用说明.txt")
 
-    for item in Path("bins/workshop").iterdir():
-        dest = root / "战术工坊" / item.name
-        if item.is_dir():
-            shutil.copytree(item, dest)
-        else:
-            shutil.copy2(item, dest)
-    must(root / "战术工坊" / "战术工坊.exe")
-    must(root / "战术工坊" / "profiles.json")
-    must(root / "战术工坊" / "schemas" / "common_flags.json")
-    set_profile(root / "战术工坊" / "profiles.json", workshop_profile)
+    # 工坊产物
+    ws_exe = Path("bins/workshop/战术工坊.exe")
+    if not ws_exe.is_file():
+        for c in Path("bins/workshop").glob("*.exe"):
+            ws_exe = c
+            break
+    shutil.copy2(ws_exe, tools / "战术工坊.exe")
+    shutil.copy2("bins/workshop/profiles.json", tools / "profiles.json")
+    # schemas 已复制一份即可
 
-    text = (
-        f"AutoReloader 完整包 — {label}\n"
-        f"引擎 / INI工程编辑器 / 战术工坊\n"
-        f"编辑器 profile: {editor_profile}\n"
-        f"工坊 profile: {workshop_profile}\n"
-        "将「引擎」目录文件放入游戏根目录，用本包启动器启动游戏。\n"
-        "GitHub Actions 下载的 zip 解压一次即可。\n"
-        "INI 保存编码：UTF-8 无 BOM。\n"
+    must(root / launcher)
+    must(root / "AutoReloader.dll")
+    must(tools / "INI工程编辑器.exe")
+    must(tools / "战术工坊.exe")
+    must(tools / "config.json")
+    must(tools / "profiles.json")
+    must(tools / "schemas" / "common_flags.json")
+
+    set_profile(tools / "config.json", editor_profile)
+    set_profile(tools / "profiles.json", workshop_profile)
+
+    readme = (
+        f"AutoReloader 完整包 — {label}\n\n"
+        f"根目录：\n"
+        f"  {launcher}\n"
+        f"  AutoReloader.dll\n"
+        f"  ReloaderConfig.ini\n\n"
+        f"INI工程编辑器&战术工坊\\  前端工具（共享 schemas/配置）\n"
+        f"  编辑器 profile: {editor_profile}\n"
+        f"  工坊 profile: {workshop_profile}\n\n"
+        f"使用：\n"
+        f"  1. 将根目录 DLL / 配置 / 启动器 放入游戏根目录\n"
+        f"  2. 用本包启动器启动游戏\n"
+        f"  3. 前端目录可放任意可写位置运行两个 exe\n"
+        f"  4. cache、console_config 为运行后生成，不必随包分发\n"
+        f"  5. INI 保存为 UTF-8 无 BOM\n"
     )
-    (root / "使用说明.txt").write_text(text, encoding="utf-8")
+    (root / "使用说明.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name)
 
 
 def main() -> int:
-    # 强制 stdout 尽量用 utf-8（能设就设）
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
     except Exception:
         pass
 
