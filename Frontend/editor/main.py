@@ -4,7 +4,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from paths import app_dir, user_config_path
+from paths import app_dir, user_config_path, describe_paths, user_data_dir
 
 ROOT = app_dir()
 if str(ROOT) not in sys.path:
@@ -28,6 +28,10 @@ def main() -> None:
     config_path = user_config_path()
     win = MainWindow(Project(config_path))
     win.show()
+    try:
+        win.statusBar().showMessage(f"配置: {config_path}", 8000)
+    except Exception:
+        pass
     try:
         st = win.project.config.get("settings") or {}
         last = st.get("last_project_dir") or ""
