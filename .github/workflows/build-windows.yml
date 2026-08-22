@@ -52,12 +52,17 @@ jobs:
         shell: pwsh
         run: |
           # 先用 ASCII 文件名，避免 runner 代码页问题；打包阶段再改中文名
+          $iconArgs = @()
+          if (Test-Path ../../assets/editor.ico) {
+            $iconArgs = @("--windows-icon-from-ico=../../assets/editor.ico")
+          }
           python -m nuitka `
             --onefile `
             --windows-console-mode=disable `
             --enable-plugin=pyside6 `
             --assume-yes-for-downloads `
             --msvc=latest `
+            @iconArgs `
             --output-dir=../../build/editor `
             --output-filename=MO_INI_Editor.exe `
             --include-data-files=config.json=config.json `
@@ -106,12 +111,17 @@ jobs:
         run: |
           $env:PYTHONPATH = (Resolve-Path .).Path
           Push-Location Frontend/workshop
+          $iconArgs = @()
+          if (Test-Path ../../assets/workshop.ico) {
+            $iconArgs = @("--windows-icon-from-ico=../../assets/workshop.ico")
+          }
           python -m nuitka `
             --onefile `
             --windows-console-mode=disable `
             --enable-plugin=pyside6 `
             --assume-yes-for-downloads `
             --msvc=latest `
+            @iconArgs `
             --output-dir=../../build/workshop `
             --output-filename=TacticalWorkshop.exe `
             --include-package=shared `
