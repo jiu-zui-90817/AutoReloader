@@ -1,0 +1,56 @@
+name: Build AutoReloader DLL
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "Backend/**"
+      - ".github/workflows/build-dll.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-dll:
+    name: Build x86 DLL
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup MSVC x86
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Clone YRpp
+        run: |
+          if (-not (Test-Path Backend/YRpp)) {
+            git clone --depth 1 https://github.com/Phobos-developers/YRpp.git Backend/YRpp
+          }
+      - name: Configure & Build (CMake Win32)
+        working-directory: Backend
+        run: |
+          cmake -B build -A Win32 -G "Visual Studio 17 2022"
+          cmake --build build --config Release
+      - name: Collect DLL
+        run: |
+          $dll = Get-ChildItem -Path Backend -Recurse -Filter AutoReloader.dll -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "Release|bin" } |
+            Select-Object -First 1
+          if (-not $dll) {
+            Get-ChildItem -Path Backend -Recurse -Filter *.dll | Select-Object -ExpandProperty FullName
+            throw "AutoReloader.dll not found"
+          }
+          New-Item -ItemType Directory -Force -Path dist-dll | Out-Null
+          Copy-Item $dll.FullName dist-dll/AutoReloader.dll
+          if (Test-Path Config/ReloaderConfig.ini) {
+            Copy-Item Config/ReloaderConfig.ini dist-dll/
+          }
+          Write-Host "Collected:" $dll.FullName
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoReloader-dll-win32
+          path: dist-dll/
+          if-no-files-found: error
