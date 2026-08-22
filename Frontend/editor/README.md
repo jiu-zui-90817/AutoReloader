@@ -28,7 +28,7 @@ python Frontend/editor/main.py
 
 - `config.json`：profile（Mental Omega / YR）、rules/art/ai/csf 路径
 - 属性说明唯一源：`shared/schemas/common_flags.json`（本目录 `schemas/` 为打包副本）
-- 显示名缓存：程序目录 `cache/`（带文件指纹，外部改 ini 会失效，勿提交）
+- 显示名缓存：程序目录 `cache/`（带文件指纹，外部改 ini 会失效）
 
 ## 分工
 
