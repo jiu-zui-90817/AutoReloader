@@ -7,6 +7,22 @@ import sys
 from pathlib import Path
 
 
+def _log(*args) -> None:
+    """Windows CI 控制台常为 cp1252，避免中文路径 print 直接炸。"""
+    parts = []
+    for a in args:
+        s = str(a)
+        try:
+            s.encode(sys.stdout.encoding or "utf-8")
+            parts.append(s)
+        except Exception:
+            parts.append(s.encode("unicode_escape", errors="replace").decode("ascii"))
+    try:
+        print(*parts)
+    except Exception:
+        print(*(str(a).encode("ascii", errors="backslashreplace").decode("ascii") for a in args))
+
+
 def set_profile(path: Path, profile: str) -> None:
     data = json.loads(path.read_text(encoding="utf-8-sig"))
     data["active_profile"] = profile
@@ -15,8 +31,18 @@ def set_profile(path: Path, profile: str) -> None:
 
 def must(p: Path) -> None:
     if not p.exists():
-        raise SystemExit(f"missing {p}")
-    print("OK", p, p.stat().st_size)
+        # 列出父目录便于排查
+        parent = p.parent
+        names = []
+        if parent.is_dir():
+            names = [x.name for x in parent.iterdir()]
+        raise SystemExit(
+            "missing file: "
+            + p.as_posix()
+            + " | parent contains: "
+            + repr(names)
+        )
+    _log("OK", p.as_posix(), p.stat().st_size)
 
 
 def pack(
@@ -72,10 +98,17 @@ def pack(
         "INI 保存编码：UTF-8 无 BOM。\n"
     )
     (root / "使用说明.txt").write_text(text, encoding="utf-8")
-    print("packed", root_name)
+    _log("packed", root_name)
 
 
 def main() -> int:
+    # 强制 stdout 尽量用 utf-8（能设就设）
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
     ed = json.loads(Path("bins/editor/config.json").read_text(encoding="utf-8-sig"))
     keys = list((ed.get("profiles") or {}).keys())
     yr_ed = (
