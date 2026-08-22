@@ -6,7 +6,7 @@
 
 1. **战术工坊**（`Frontend/workshop`）— 快调热重载；2.x 已可用，不依赖 Codex  
 2. **INI 编辑器**（`Frontend/editor`）— 工程级编辑；已可用  
-3. **经典工坊**（`TacticalConsole.py`，若保留）— 给习惯旧流程的用户  
+3. **经典工坊**（`TacticalConsole.py`，目前保留）— 给习惯旧流程的用户  
 
 ## 阶段（现状）
 
