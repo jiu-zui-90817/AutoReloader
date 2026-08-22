@@ -4,23 +4,37 @@
 
 ## 运行
 
-在本目录下：
-
 ```bash
+# 本目录
 pip install -r requirements.txt
 python main.py
-```
 
-或在仓库根目录：
-
-```bash
+# 或仓库根
 pip install -r Frontend/editor/requirements.txt
 python Frontend/editor/main.py
 ```
 
-## 说明
+## 主要能力
 
-- 与**战术工坊**分工：工坊负责快调热重载；本工具负责改工程结构与全文。
-- 热重载由仓库中的 **AutoReloader.dll** 完成；本工具可把当前单位写入 `hotfix.ini`。
-- 配置见 `config.json`（Mental Omega / Yuri's Revenge 等 profile）。
-- 源码已从 [mo_ini_editor](https://github.com/jiu-zui-90817/mo_ini_editor) 迁入本目录；正式分发以 **AutoReloader** Release 为准。
+- 打开**游戏/工程目录**或**单文件**；记住上次目录（`config.json` → `settings`）
+- 合并视图：Rules + Art + **AI**（配置中的 `ai_files`）
+- 对象树分类；同名 section 按 Rules/Art/AI 与分组消歧
+- 属性说明（`common_flags.json`）；右键可在对象树 / 编辑器中定位
+- 代码区自动换行（编辑菜单）；查找替换
+- 保存当前 / 保存全部；删除 section（带备份）
+- 调试窗口 → 部署 `hotfix.ini` 配合 AutoReloader
+
+## 配置与词典
+
+- `config.json`：profile（Mental Omega / YR）、rules/art/ai/csf 路径
+- 属性说明唯一源：`shared/schemas/common_flags.json`（本目录 `schemas/` 为打包副本）
+- 显示名缓存：程序目录 `cache/`（带文件指纹，外部改 ini 会失效，勿提交）
+
+## 分工
+
+| 工具 | 职责 |
+|------|------|
+| 本编辑器 | 改工程结构与全文 |
+| 战术工坊 | 快调热重载常用字段 |
+
+热重载由 **AutoReloader.dll** 完成。正式分发以 AutoReloader Release 为准。
