@@ -36,6 +36,22 @@ def read_text(path: Path) -> Tuple[str, str]:
     return raw.decode("latin-1", errors="replace"), "latin-1"
 
 
+def encode_ini_bytes(text: str, enc: str) -> bytes:
+    """
+    写回磁盘用的编码。
+    读入时可能用 utf-8-sig 去掉 BOM，但写回必须用无 BOM 的 utf-8，
+    否则游戏引擎 / AutoReloader 可能无法正确识别。
+    GBK 等本地编码保持原样。
+    """
+    e = (enc or "utf-8").lower().replace("_", "-")
+    if e in ("utf-8-sig", "utf8-sig", "utf-8", "utf8"):
+        return text.encode("utf-8", errors="replace")  # 无 BOM
+    try:
+        return text.encode(enc, errors="replace")
+    except LookupError:
+        return text.encode("utf-8", errors="replace")
+
+
 def normalize_section_body(section_id: str, body: str) -> str:
     lines = []
     for ln in body.splitlines():
@@ -144,7 +160,7 @@ def save_section_to_file(
             action = "未找到原块，已按新增插入"
 
     try:
-        data = text.encode(enc, errors="replace")
+        data = encode_ini_bytes(text, enc)
         tmp = filepath.with_suffix(filepath.suffix + ".tmp_moeditor")
         tmp.write_bytes(data)
         tmp.replace(filepath)

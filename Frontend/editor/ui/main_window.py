@@ -27,6 +27,10 @@ from PySide6.QtWidgets import (
 from core.project import Project
 from paths import app_dir, bundle_dir, user_config_path, user_cache_dir, is_frozen
 
+APP_TITLE = "INI 工程编辑器"
+APP_TITLE_EN = "INI Project Editor"
+APP_VERSION = "2.0"
+
 class LineNumberArea(QWidget):
     def __init__(self, editor):
         super().__init__(editor)
@@ -838,14 +842,12 @@ class MainWindow(QMainWindow):
         self.menu_config.addAction(act_settings)
 
         m_help = mb.addMenu("帮助(&H)")
+        act_help = QAction("使用说明…", self)
+        act_help.setShortcut(QKeySequence("F1"))
+        act_help.triggered.connect(self.show_help)
+        m_help.addAction(act_help)
         act_about = QAction("关于", self)
-        act_about.triggered.connect(lambda: QMessageBox.about(
-            self, "关于",
-            "MO / YR INI Editor\n"
-            "打开工程 / 打开单文件\n"
-            "保存=写回来源文件；另存为=复制到新文件\n"
-            "工具菜单可扩展"
-        ))
+        act_about.triggered.connect(self.show_about)
         m_help.addAction(act_about)
 
     def _build_toolbar(self):
@@ -1134,13 +1136,13 @@ class MainWindow(QMainWindow):
         d = self.project.project_dir
         prof = self.project.profile.get("display_name", self.project.profile_name)
         if d:
-            self.setWindowTitle(f"MO INI Editor  —  {prof}  —  {mode}  —  {d}")
+            self.setWindowTitle(f"{APP_TITLE}  —  {prof}  —  {mode}  —  {d}")
             self.dir_label.setText(f"  [{prof}]  {d}")
         elif self.project.single_path:
-            self.setWindowTitle(f"MO INI Editor  —  {mode}")
+            self.setWindowTitle(f"{APP_TITLE}  —  {mode}")
             self.dir_label.setText(f"  {self.project.single_path}")
         else:
-            self.setWindowTitle("MO INI Editor")
+            self.setWindowTitle(APP_TITLE)
             self.dir_label.setText("  未打开")
 
     def _mem_key(self, section_id: str = None, prefer: str = None) -> str:
@@ -2687,6 +2689,37 @@ class MainWindow(QMainWindow):
                         sec.key_order.remove(k)
         self.project.section_sources.pop(sid_l, None)
 
+
+    def show_help(self):
+        text = (
+            f"<h3>{APP_TITLE}</h3>"
+            "<p><b>适用</b>：红警2 尤里的复仇 / 心灵终结 等基于 INI 的 Mod 工程。</p>"
+            "<p><b>打开</b>：工程目录（按 profile 读 rules/art/ai/csf）或单个 ini。</p>"
+            "<p><b>编辑</b>：对象树选择单位；中间改代码；右侧为属性说明（只读）。</p>"
+            "<p><b>保存</b>：保存当前 / 保存全部 → 写回来源文件（自动备份）。"
+            "编码为 <b>UTF-8（无 BOM）</b>，兼容游戏引擎与热重载。</p>"
+            "<p><b>调试</b>：可部署到 hotfix.ini，配合 AutoReloader 热重载。</p>"
+            "<p><b>配置</b>：菜单「配置」可选 Mental Omega / Yuri's Revenge 等 profile。</p>"
+        )
+        box = QMessageBox(self)
+        box.setWindowTitle("使用说明")
+        box.setTextFormat(Qt.RichText)
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok)
+        box.exec()
+
+    def show_about(self):
+        QMessageBox.about(
+            self,
+            "关于",
+            f"{APP_TITLE} ({APP_TITLE_EN})\n"
+            f"版本 {APP_VERSION}\n\n"
+            "AutoReloader 工具链 · 前端工程编辑器\n"
+            "开源仓库以 AutoReloader 为准。\n\n"
+            "保存格式：UTF-8 无 BOM\n"
+            "热重载：配合 AutoReloader.dll + 启动器",
+        )
+
     def closeEvent(self, event):
         if not self._confirm_discard_if_dirty():
             event.ignore()
@@ -2703,7 +2736,7 @@ class MainWindow(QMainWindow):
 
 def run_app():
     app = QApplication(sys.argv)
-    app.setApplicationName("MO INI Editor")
+    app.setApplicationName("INI 工程编辑器")
     app.setStyle("Fusion")
     cfg = user_config_path()
     win = MainWindow(Project(cfg))

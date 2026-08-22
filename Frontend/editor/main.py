@@ -23,7 +23,7 @@ def main() -> None:
     用户配置固定落到 exe 旁或 AppData，单文件 Nuitka 下上次工程路径可持久。
     """
     app = QApplication(sys.argv)
-    app.setApplicationName("MO INI Editor")
+    app.setApplicationName("INI 工程编辑器")
     app.setStyle("Fusion")
     config_path = user_config_path()
     win = MainWindow(Project(config_path))

@@ -1,23 +1,31 @@
-MO / YR INI Editor（PySide6 版）
+INI 工程编辑器（AutoReloader 工具链）
 
-一、安装依赖（只需一次）
-  1. 打开命令提示符 / PowerShell
-  2. cd 到本程序目录（有 main.py 的那一层）
-  3. 执行：
-       pip install -r requirements.txt
+一、用途
+  面向红警2：尤里的复仇 / 心灵终结等 Mod 的工程级 INI 编辑。
+  可打开游戏/工程目录或单个 ini，浏览对象树、编辑、保存回源文件，
+  并可配合 AutoReloader 将当前单位部署到 hotfix.ini 做热重载调试。
 
-   若提示没有 pip，先安装 Python 3.10+ 并勾选 Add to PATH。
-
-二、运行
-       python main.py
+二、运行（源码）
+  pip install -r requirements.txt
+  python main.py
 
 三、工作模式
-  · 合并视图：把 #include 都合在一起，方便查单位（适合大多数人）
-  · 单文件：只编辑当前选中的一个 ini，保存只写该文件（适合拆分维护）
+  · 合并视图：汇总 rules / art / ai（含 #include），便于查找
+  · 单文件：只编辑当前 ini，适合拆分维护
 
 四、保存
-  · 会先备份到 工程目录/backups/ 再写回磁盘
-  · 单文件模式下写入目标固定为当前文件
+  · 保存前自动备份到工程 backups/（或程序配置目录）
+  · 写回编码为 UTF-8（无 BOM），与游戏引擎、热重载 DLL 一致
+  · 请勿用会强制加 BOM 的编辑器覆盖后再用本工具混存
 
-五、词典说明
-  · schemas/common_flags.json 可自行补充中文说明
+五、热重载
+  · 菜单/调试中设置 hotfix 目标（默认 hotfix.ini）
+  · 游戏需用对应启动器（MO / YR）加载 AutoReloader.dll
+  · 热重载只能刷新已存在的类型 ID，不能新增单位类型
+
+六、配置
+  · 配置 → 选择 Mental Omega / Yuri's Revenge 等 profile
+  · 用户配置写在程序目录或 %LocalAppData%\MO_INI_Editor\
+
+七、说明文件
+  · 属性词典：shared/schemas/common_flags.json（唯一源）
