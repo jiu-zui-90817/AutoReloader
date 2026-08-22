@@ -21,4 +21,4 @@ pip install -r Frontend/editor/requirements.txt
 python Frontend/editor/main.py
 ```
 
-打包见仓库根 README 与 `.github/workflows/`（若已配置）。
+打包见仓库根 README 与 `.github/workflows/`。
