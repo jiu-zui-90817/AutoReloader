@@ -6,6 +6,7 @@ on:
     branches: [main, master]
     paths:
       - "Backend/**"
+      - "Config/**"
       - ".github/workflows/build-dll.yml"
 
 permissions:
@@ -14,33 +15,72 @@ permissions:
 jobs:
   build-dll:
     name: Build x86 DLL
-    runs-on: windows-latest
+    # 固定 2022：windows-latest 可能升到没有 VS17 的镜像
+    runs-on: windows-2022
     defaults:
       run:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup MSVC x86
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+
       - name: Clone YRpp
         run: |
-          if (-not (Test-Path Backend/YRpp)) {
+          if (-not (Test-Path Backend/YRpp/.git)) {
             git clone --depth 1 https://github.com/Phobos-developers/YRpp.git Backend/YRpp
           }
-      - name: Configure & Build (CMake Win32)
+
+      - name: Configure & Build
         working-directory: Backend
         run: |
-          cmake -B build -A Win32 -G "Visual Studio 17 2022"
-          cmake --build build --config Release
+          # 优先 VS2022 生成器；找不到则用 Ninja + 当前 msvc-dev-cmd 环境（x86）
+          $ErrorActionPreference = "Stop"
+          $built = $false
+
+          if (Get-Command vswhere -ErrorAction SilentlyContinue) {
+            $vs = & vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+            Write-Host "vswhere installationPath: $vs"
+          } else {
+            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+              Write-Host "vswhere installationPath: $vs"
+            }
+          }
+
+          cmake -B build -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -eq 0) {
+            cmake --build build --config Release -- /m
+            if ($LASTEXITCODE -eq 0) { $built = $true }
+          } else {
+            Write-Host "VS2022 generator not available (exit $LASTEXITCODE), will fallback to Ninja"
+          }
+
+          if (-not $built) {
+            Write-Host "Fallback: Ninja + MSVC (from msvc-dev-cmd x86)"
+            if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+              choco install ninja -y --no-progress
+            }
+            if (Test-Path build) { Remove-Item -Recurse -Force build }
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            if ($LASTEXITCODE -ne 0) { throw "cmake Ninja configure failed" }
+            cmake --build build --parallel
+            if ($LASTEXITCODE -ne 0) { throw "cmake Ninja build failed" }
+          }
+
       - name: Collect DLL
         run: |
           $dll = Get-ChildItem -Path Backend -Recurse -Filter AutoReloader.dll -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -match "Release|bin" } |
+            Where-Object { $_.FullName -match "Release|bin|build" } |
             Select-Object -First 1
           if (-not $dll) {
-            Get-ChildItem -Path Backend -Recurse -Filter *.dll | Select-Object -ExpandProperty FullName
+            Write-Host "=== all dll under Backend ==="
+            Get-ChildItem -Path Backend -Recurse -Filter *.dll -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
             throw "AutoReloader.dll not found"
           }
           New-Item -ItemType Directory -Force -Path dist-dll | Out-Null
@@ -49,6 +89,8 @@ jobs:
             Copy-Item Config/ReloaderConfig.ini dist-dll/
           }
           Write-Host "Collected:" $dll.FullName
+          Get-Item dist-dll/* | Format-Table Name, Length
+
       - uses: actions/upload-artifact@v4
         with:
           name: AutoReloader-dll-win32
