@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.project import Project
+from paths import app_dir, bundle_dir, user_config_path, user_cache_dir, is_frozen
 
 class LineNumberArea(QWidget):
     def __init__(self, editor):
@@ -1284,7 +1285,7 @@ class MainWindow(QMainWindow):
         )
 
     def open_config_file(self):
-        cfg = Path(__file__).resolve().parent.parent / "config.json"
+        cfg = user_config_path()
         if not cfg.exists():
             QMessageBox.warning(self, "配置", f"未找到 {cfg}")
             return
@@ -1504,25 +1505,9 @@ class MainWindow(QMainWindow):
         return "|".join(sorted(set(parts)))
 
     def _cache_dir(self) -> Path:
-        """优先编辑器程序目录下的 cache/；不可写再退用户目录。"""
-        import sys
-        candidates = []
-        if getattr(sys, "frozen", False):
-            candidates.append(Path(sys.executable).resolve().parent / "cache")
-        else:
-            # Frontend/editor/cache
-            candidates.append(Path(__file__).resolve().parent.parent / "cache")
-        candidates.append(Path.home() / ".mo_ini_editor_cache")
-        for d in candidates:
-            try:
-                d.mkdir(parents=True, exist_ok=True)
-                probe = d / ".w"
-                probe.write_text("1", encoding="utf-8")
-                probe.unlink(missing_ok=True)
-                return d
-            except Exception:
-                continue
-        return candidates[0]
+        """显示名缓存：exe 旁或 LocalAppData（打包可写）。"""
+        return user_cache_dir()
+
 
     def _cache_file(self) -> Path:
         import hashlib
@@ -1978,31 +1963,30 @@ class MainWindow(QMainWindow):
                 self.prop.hint.setText(f"{key}: {desc}")
 
     def jump_to_editor_key(self, key: str):
-        """属性键 → 中间代码编辑器定位到 key= 行。"""
+        """按属性键在代码编辑器中定位（按文档块遍历，避免行号/换行错位）。"""
         if not key:
             return
-        text = self.code.toPlainText()
-        target = None
-        for i, line in enumerate(text.splitlines()):
-            s = line.strip()
-            if s.startswith(";") or not s or s.startswith("["):
-                continue
-            if "=" in s and s.split("=", 1)[0].strip().lower() == key.lower():
-                target = i
-                break
-        if target is None:
-            self.statusBar().showMessage(f"编辑器中未找到键: {key}", 3000)
-            return
-        block = self.code.document().findBlockByLineNumber(target)
-        if not block.isValid():
-            return
-        cur = self.code.textCursor()
-        cur.setPosition(block.position())
-        cur.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-        self.code.setTextCursor(cur)
-        self.code.setFocus()
-        self.code.centerCursor()
-        self.statusBar().showMessage(f"已在编辑器定位: {key}", 2000)
+        key_l = key.strip().lower()
+        doc = self.code.document()
+        block = doc.begin()
+        while block.isValid():
+            raw = block.text()
+            s = raw.strip()
+            if s and not s.startswith(";") and not s.startswith("["):
+                if "=" in s:
+                    left = s.split("=", 1)[0].strip().lower()
+                    if left == key_l:
+                        cur = QTextCursor(block)
+                        cur.movePosition(QTextCursor.StartOfBlock)
+                        cur.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                        self.code.setTextCursor(cur)
+                        self.code.setFocus()
+                        self.code.centerCursor()
+                        self.statusBar().showMessage(f"已在编辑器定位: {key}", 2000)
+                        return
+            block = block.next()
+        self.statusBar().showMessage(f"编辑器中未找到键: {key}", 3000)
+
 
     def jump_to_tree_value(self, value: str, silent: bool = False) -> bool:
         """属性值 → 对象树定位并打开（逗号分隔则逐个尝试）。"""
@@ -2718,13 +2702,12 @@ class MainWindow(QMainWindow):
 
 
 def run_app():
-    app_dir = Path(__file__).resolve().parent.parent
     app = QApplication(sys.argv)
     app.setApplicationName("MO INI Editor")
     app.setStyle("Fusion")
-    win = MainWindow(Project(app_dir / "config.json"))
+    cfg = user_config_path()
+    win = MainWindow(Project(cfg))
     win.show()
-    # 自动恢复上次工程目录（源码运行同样有效，配置在 Frontend/editor/config.json）
     try:
         st = win.project.config.get("settings") or {}
         last = st.get("last_project_dir") or ""
