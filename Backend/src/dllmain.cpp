@@ -5,9 +5,24 @@
  * =========================================================================================
  */
 
-                 
-#define WIN32_LEAN_AND_MEAN       
+// ---------- 务必放在所有包含之前 ----------
+// 1. 取消 Windows SDK 可能的 byte 宏
+#ifdef byte
+#undef byte
+#endif
 
+// 2. 包含 C++20 所需的标准库头文件（YRpp 依赖）
+#include <cstddef>
+#include <cstdint>
+#include <concepts>
+#include <type_traits>
+#include <bit>
+#include <utility>
+
+// 3. 显式定义 byte 为 unsigned char（YRpp 期望）
+using byte = unsigned char;
+
+// 4. 包含 Windows 头（注意：WIN32_LEAN_AND_MEAN 由 CMake 定义，此处不再重复定义）
 #include <windows.h>
 #include <string>
 #include <iostream>
@@ -16,22 +31,23 @@
 #include <map>
 #include <fstream>
 
- // YRpp Headers
-#include <YRpp.h>
-#include <CCINIClass.h>
-#include <CCFileClass.h>
-#include <WeaponTypeClass.h>
-#include <WarheadTypeClass.h>
-#include <BulletTypeClass.h>
-#include <InfantryTypeClass.h>
-#include <UnitTypeClass.h>
-#include <AircraftTypeClass.h>
-#include <BuildingTypeClass.h>
-#include <SuperWeaponTypeClass.h>
-#include <AnimTypeClass.h>
-#include <ParticleTypeClass.h>
-#include <ParticleSystemTypeClass.h>
-#include <VoxelAnimTypeClass.h>
+// 5. YRpp 头文件 —— 去掉不存在的 YRpp.h，改为包含核心头
+#include "YRPPCore.h"          // 必须的基类定义
+// 然后包含具体需要使用的类
+#include "CCINIClass.h"
+#include "CCFileClass.h"
+#include "WeaponTypeClass.h"
+#include "WarheadTypeClass.h"
+#include "BulletTypeClass.h"
+#include "InfantryTypeClass.h"
+#include "UnitTypeClass.h"
+#include "AircraftTypeClass.h"
+#include "BuildingTypeClass.h"
+#include "SuperWeaponTypeClass.h"
+#include "AnimTypeClass.h"
+#include "ParticleTypeClass.h"
+#include "ParticleSystemTypeClass.h"
+#include "VoxelAnimTypeClass.h"
 
 // ========================================================
 // Global Configuration Variables
@@ -119,22 +135,19 @@ FILETIME GetFileLastWriteTime(const std::string& path)
 
 // EOF 吞噬陷阱拦截器
 void EnsureTrailingNewline(const std::string& path) {
-    // 以二进制读写模式打开文件，并将指针直接定位到末尾 (ate)
     std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary | std::ios::ate);
     if (!file.is_open()) return;
 
     std::streampos size = file.tellg();
     if (size > 0) {
-        // 读取最后一个字节
         file.seekg(-1, std::ios::end);
         char lastChar;
         file.get(lastChar);
 
-        // 如果最后一个字符既不是换行(\n)也不是回车(\r)，说明忘记敲空行了
         if (lastChar != '\n' && lastChar != '\r') {
-            file.clear(); // 清除 EOF 状态标志
+            file.clear();
             file.seekp(0, std::ios::end);
-            file.write("\r\n", 2); // 强制打上换行补丁
+            file.write("\r\n", 2);
         }
     }
     file.close();
@@ -160,22 +173,16 @@ bool TryReloadType(const std::string& targetID, CCINIClass* pINI, const char* ty
 
 void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fileName)
 {
-    // 在交给引擎解析之前，C++ 底层强制做最后一次格式净检
     EnsureTrailingNewline(iniPath);
 
-    // ==========================================================
-    // 修复 4KB 截断 Bug：抛弃 Windows API，改用 C++ 动态流读取
-    // ==========================================================
     std::vector<std::string> targetSections;
     std::ifstream fileStream(iniPath);
     if (fileStream.is_open()) {
         std::string line;
         while (std::getline(fileStream, line)) {
-            // 去除行首尾的空白和回车符
             line.erase(0, line.find_first_not_of(" \t\r\n"));
             line.erase(line.find_last_not_of(" \t\r\n") + 1);
 
-            // 提取被 [ ] 包裹的有效区块名
             if (!line.empty() && line.front() == '[' && line.back() == ']') {
                 targetSections.push_back(line.substr(1, line.length() - 2));
             }
@@ -183,7 +190,7 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
         fileStream.close();
     }
 
-    if (targetSections.empty()) return; // 空文件直接跳过
+    if (targetSections.empty()) return;
 
     CCFileClass file(iniPath.c_str());
     CCINIClass ini;
@@ -194,9 +201,6 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
             std::cout << "[PARSE] Capturing data stream from: " << fileName << std::endl;
         }
 
-        // ==========================================================
-        // 遍历提取出来的所有标签
-        // ==========================================================
         for (const std::string& targetID : targetSections)
         {
             bool matched =
@@ -225,7 +229,7 @@ void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fi
 }
 
 // ========================================================
-// Module 5: Thread Monitor (Logic Fixed!)
+// Module 5: Thread Monitor
 // ========================================================
 DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
 {
@@ -234,7 +238,6 @@ DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
     std::string pathStr = exePath;
     std::string gameDir = pathStr.substr(0, pathStr.find_last_of("\\/"));
 
-    // 立刻读取配置并拉起控制台，不等待引擎加载
     LoadReloaderConfig(gameDir);
     ToggleConsole(g_ShowConsole);
 
@@ -248,7 +251,6 @@ DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
 
     while (true)
     {
-        // 阶段 1：检查引擎是否就绪
         if (!engineReady) {
             if (UnitTypeClass::Array.Count > 0) {
                 engineReady = true;
@@ -256,7 +258,6 @@ DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
                     std::cout << "[SYSTEM] Engine Ready! Loaded Entities: " << UnitTypeClass::Array.Count << std::endl;
                     std::cout << "[SYSTEM] Protocol Mode: " << (g_AutoMonitor ? "Auto-Monitor" : "Manual Hotkey") << std::endl;
                 }
-                // 引擎就绪后，初始化文件时间戳基准线
                 if (g_AutoMonitor) {
                     for (const auto& fileName : g_TargetINIs) {
                         fileTimes[fileName] = GetFileLastWriteTime(gameDir + "\\" + fileName);
@@ -264,13 +265,12 @@ DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
                 }
             }
             else {
-                Sleep(500); // 引擎还没好，继续等
+                Sleep(500);
                 continue;
             }
         }
 
-        // 阶段 2：引擎就绪后的热重载轮询
-        LoadReloaderConfig(gameDir); // 支持运行时动态改配置文件
+        LoadReloaderConfig(gameDir);
 
         if (lastMonitorState != g_AutoMonitor) {
             lastMonitorState = g_AutoMonitor;
