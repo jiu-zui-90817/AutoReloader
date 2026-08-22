@@ -1,5 +1,7 @@
-# 编辑器 + 工坊 · PyInstaller 单文件 + Nuitka 单文件
-# 构建前同步 shared/schemas → 各工具 schemas，保证打包后中文说明可用
+# 编辑器 + 工坊 · PyInstaller 目录版（onedir）
+# - 不再默认 onefile / Nuitka（体积大、临时目录导致配置与词典难持久化）
+# - 解压后整目录运行；可写配置/缓存落在程序目录旁
+# 构建前同步 shared/schemas → 各工具 schemas
 name: Build Windows Frontends
 
 on:
@@ -18,9 +20,8 @@ env:
   PYTHON_VERSION: "3.12"
 
 jobs:
-  # ========== Editor · PyInstaller ==========
   editor-pyinstaller:
-    name: Editor · PyInstaller onefile
+    name: Editor · PyInstaller onedir
     runs-on: windows-latest
     defaults:
       run:
@@ -42,10 +43,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
-      - name: Build
+      - name: Build (onedir)
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --onefile --windowed `
+          pyinstaller --noconfirm --clean --onedir --windowed `
             --name "MO_INI_Editor" `
             --add-data "config.json;." `
             --add-data "schemas;schemas" `
@@ -56,10 +57,15 @@ jobs:
         run: |
           $out = "MO_INI_Editor-PyInstaller"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item dist/MO_INI_Editor.exe $out/
-          Copy-Item config.json $out/
-          Copy-Item -Recurse schemas $out/
+          Copy-Item -Recurse dist/MO_INI_Editor/* $out/
+          New-Item -ItemType Directory -Force -Path "$out/data" | Out-Null
           if (Test-Path "使用说明.txt") { Copy-Item "使用说明.txt" $out/ }
+          @"
+          使用说明（打包版）
+          1. 解压整个文件夹后运行 MO_INI_Editor.exe（不要只复制单个 exe）
+          2. 用户配置写入本目录 config.json（或用户目录回退路径）
+          3. schemas 为只读资源；data 目录可放缓存
+          "@ | Set-Content -Encoding UTF8 "$out/打包说明.txt"
           Compress-Archive -Path "$out/*" -DestinationPath "MO_INI_Editor-PyInstaller.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
@@ -67,67 +73,8 @@ jobs:
           path: Frontend/editor/MO_INI_Editor-PyInstaller.zip
           if-no-files-found: error
 
-  # ========== Editor · Nuitka ==========
-  editor-nuitka:
-    name: Editor · Nuitka onefile
-    runs-on: windows-latest
-    timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: Frontend/editor
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-      - name: Sync common_flags from shared
-        working-directory: .
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
-          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt nuitka ordered-set zstandard
-      - name: Build Nuitka
-        shell: pwsh
-        run: |
-          python -m nuitka `
-            --onefile `
-            --windows-console-mode=disable `
-            --enable-plugin=pyside6 `
-            --assume-yes-for-downloads `
-            --msvc=latest `
-            --output-dir=dist_nuitka `
-            --output-filename=MO_INI_Editor.exe `
-            --include-data-files=config.json=config.json `
-            --include-data-dir=schemas=schemas `
-            --include-package=core `
-            --include-package=ui `
-            --nofollow-import-to=tkinter `
-            --remove-output `
-            main.py
-      - name: Pack
-        shell: pwsh
-        run: |
-          $out = "MO_INI_Editor-Nuitka"
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item dist_nuitka/MO_INI_Editor.exe $out/
-          Copy-Item config.json $out/
-          Copy-Item -Recurse schemas $out/
-          if (Test-Path "使用说明.txt") { Copy-Item "使用说明.txt" $out/ }
-          Compress-Archive -Path "$out/*" -DestinationPath "MO_INI_Editor-Nuitka.zip" -Force
-      - uses: actions/upload-artifact@v4
-        with:
-          name: MO_INI_Editor-Nuitka
-          path: Frontend/editor/MO_INI_Editor-Nuitka.zip
-          if-no-files-found: error
-
-  # ========== Workshop · PyInstaller ==========
   workshop-pyinstaller:
-    name: Workshop · PyInstaller onefile
+    name: Workshop · PyInstaller onedir
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -144,11 +91,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r Frontend/workshop/requirements.txt pyinstaller
-      - name: Build
+      - name: Build (onedir)
         shell: pwsh
         run: |
-          # 必须在仓库根：shared 与 Frontend/workshop 都能被找到
-          pyinstaller --noconfirm --clean --onefile --windowed `
+          pyinstaller --noconfirm --clean --onedir --windowed `
             --name "TacticalWorkshop" `
             --paths . `
             --paths Frontend/workshop `
@@ -171,79 +117,23 @@ jobs:
         run: |
           $out = "TacticalWorkshop-PyInstaller"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item dist/TacticalWorkshop.exe $out/
-          New-Item -ItemType Directory -Force -Path "$out/shared" | Out-Null
-          Copy-Item shared/profiles.json "$out/shared/"
+          Copy-Item -Recurse dist/TacticalWorkshop/* $out/
+          New-Item -ItemType Directory -Force -Path "$out/data/cache" | Out-Null
           New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
+          Copy-Item shared/profiles.json "$out/shared/"
           Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
           New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
           if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
+          @"
+          使用说明（打包版）
+          1. 解压整个文件夹后运行 TacticalWorkshop.exe
+          2. 上次路径：console_config.json（程序目录优先）
+          3. 词典缓存：data\cache\（不再依赖系统 Temp）
+          "@ | Set-Content -Encoding UTF8 "$out/打包说明.txt"
           Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-PyInstaller.zip" -Force
       - uses: actions/upload-artifact@v4
         with:
           name: TacticalWorkshop-PyInstaller
           path: TacticalWorkshop-PyInstaller.zip
-          if-no-files-found: error
-
-  # ========== Workshop · Nuitka ==========
-  workshop-nuitka:
-    name: Workshop · Nuitka onefile
-    runs-on: windows-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-      - name: Sync common_flags from shared
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
-          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r Frontend/workshop/requirements.txt nuitka ordered-set zstandard
-      - name: Build Nuitka onefile
-        shell: pwsh
-        run: |
-          $env:PYTHONPATH = (Resolve-Path .).Path
-          Push-Location Frontend/workshop
-          python -m nuitka `
-            --onefile `
-            --windows-console-mode=disable `
-            --enable-plugin=pyside6 `
-            --assume-yes-for-downloads `
-            --msvc=latest `
-            --output-dir=../../dist_nuitka_ws `
-            --output-filename=TacticalWorkshop.exe `
-            --include-package=shared `
-            --include-module=app `
-            --include-module=fields `
-            --include-data-files=../../shared/profiles.json=shared/profiles.json `
-            --include-data-dir=../../shared/schemas=shared/schemas `
-            --include-data-dir=schemas=schemas `
-            --nofollow-import-to=tkinter `
-            --remove-output `
-            main.py
-          Pop-Location
-      - name: Pack
-        shell: pwsh
-        run: |
-          $out = "TacticalWorkshop-Nuitka"
-          New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item dist_nuitka_ws/TacticalWorkshop.exe $out/
-          New-Item -ItemType Directory -Force -Path "$out/shared/schemas" | Out-Null
-          Copy-Item shared/profiles.json "$out/shared/"
-          Copy-Item -Force shared/schemas/common_flags.json "$out/shared/schemas/"
-          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
-          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/"
-          if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/README.md" }
-          Compress-Archive -Path "$out/*" -DestinationPath "TacticalWorkshop-Nuitka.zip" -Force
-      - uses: actions/upload-artifact@v4
-        with:
-          name: TacticalWorkshop-Nuitka
-          path: TacticalWorkshop-Nuitka.zip
           if-no-files-found: error
