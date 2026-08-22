@@ -150,8 +150,27 @@ class Project:
         self.profile = self.config.get("profiles", {}).get(self.profile_name, {})
 
     def save_config(self):
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(self.config, f, ensure_ascii=False, indent=2)
+        """写入 config；失败则尝试 %LocalAppData%\\MO_INI_Editor\\config.json。"""
+        import os
+        payload = json.dumps(self.config, ensure_ascii=False, indent=2)
+        targets = [Path(self.config_path)]
+        la = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
+        if la:
+            targets.append(Path(la) / "MO_INI_Editor" / "config.json")
+        targets.append(Path.home() / ".mo_ini_editor" / "config.json")
+        last_err = None
+        for path in targets:
+            try:
+                path = Path(path)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload, encoding="utf-8")
+                self.config_path = path
+                return
+            except Exception as e:
+                last_err = e
+                continue
+        if last_err:
+            raise last_err
 
     def set_active_profile(self, name: str):
         if name in self.config.get("profiles", {}):
