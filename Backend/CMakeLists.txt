@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(AutoReloader LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)          # 从 17 改为 20
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 强制 32 位（在 Windows 上用 Win32 生成器时更自然）
