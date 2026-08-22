@@ -1,0 +1,300 @@
+# 唯一发布工作流：引擎 + 启动器 + 编辑器 + 工坊
+# 产出两个完整包：心灵终结(MO) / 尤里的复仇(YR)
+name: Build Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - "Backend/**"
+      - "Launcher/**"
+      - "Frontend/**"
+      - "shared/**"
+      - "Config/**"
+      - "assets/**"
+      - "scripts/**"
+      - ".github/workflows/build-release.yml"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  # ========== 32 位引擎 DLL ==========
+  build-dll:
+    name: AutoReloader.dll
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Clone YRpp
+        run: |
+          if (-not (Test-Path Backend/YRpp/.git)) {
+            git clone --depth 1 https://github.com/Phobos-developers/YRpp.git Backend/YRpp
+          }
+      - name: Configure & Build
+        working-directory: Backend
+        run: |
+          $built = $false
+          cmake -B build -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -eq 0) {
+            cmake --build build --config Release -- /m
+            if ($LASTEXITCODE -eq 0) { $built = $true }
+          }
+          if (-not $built) {
+            if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+              choco install ninja -y --no-progress
+            }
+            if (Test-Path build) { Remove-Item -Recurse -Force build }
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
+            cmake --build build --parallel
+            if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+          }
+      - name: Collect
+        run: |
+          $dll = Get-ChildItem Backend -Recurse -Filter AutoReloader.dll |
+            Select-Object -First 1
+          if (-not $dll) { throw "AutoReloader.dll not found" }
+          New-Item -ItemType Directory -Force -Path dist/engine | Out-Null
+          Copy-Item $dll.FullName dist/engine/AutoReloader.dll
+          if (Test-Path Config/ReloaderConfig.ini) {
+            Copy-Item Config/ReloaderConfig.ini dist/engine/
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: dist/engine/
+          if-no-files-found: error
+
+  # ========== 启动器 x86 ==========
+  build-launchers:
+    name: Launchers
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Build
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/launchers | Out-Null
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MO启动器.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib
+          if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YR启动器.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS
+          if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
+          Get-ChildItem dist/launchers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launchers
+          path: dist/launchers/
+          if-no-files-found: error
+
+  # ========== 编辑器（资源与 exe 打成一套上传）==========
+  build-editor:
+    name: Editor
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/editor/requirements.txt
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Prepare resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
+          if (-not (Test-Path Frontend/editor/config.json)) { throw "config.json missing" }
+          if (-not (Test-Path Frontend/editor/schemas/common_flags.json)) { throw "schemas missing" }
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/editor/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka
+        working-directory: Frontend/editor
+        shell: pwsh
+        run: |
+          $iconArgs = @()
+          if (Test-Path ../../assets/editor.ico) { $iconArgs += "--windows-icon-from-ico=../../assets/editor.ico" }
+          python -m nuitka `
+            --onefile `
+            --windows-console-mode=disable `
+            --enable-plugin=pyside6 `
+            --assume-yes-for-downloads `
+            --msvc=latest `
+            @iconArgs `
+            --output-dir=../../build/editor `
+            --output-filename=INI_Editor.exe `
+            --include-data-files=config.json=config.json `
+            --include-data-dir=schemas=schemas `
+            --include-module=paths `
+            --include-package=core `
+            --include-package=ui `
+            --nofollow-import-to=tkinter `
+            --remove-output `
+            main.py
+          if ($LASTEXITCODE -ne 0) { throw "Nuitka editor failed" }
+      - name: Stage folder (exe + 旁路资源)
+        shell: pwsh
+        run: |
+          $out = "dist/editor"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out/schemas | Out-Null
+          Copy-Item build/editor/INI_Editor.exe "$out/INI工程编辑器.exe"
+          Copy-Item Frontend/editor/config.json "$out/config.json"
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          if (Test-Path Frontend/editor/使用说明.txt) { Copy-Item Frontend/editor/使用说明.txt "$out/" }
+          # 校验
+          @(
+            "$out/INI工程编辑器.exe",
+            "$out/config.json",
+            "$out/schemas/common_flags.json"
+          ) | ForEach-Object {
+            if (-not (Test-Path $_)) { throw "missing $_" }
+            Write-Host "OK $_" (Get-Item $_).Length
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-bundle
+          path: dist/editor/
+          if-no-files-found: error
+
+  # ========== 工坊 ==========
+  build-workshop:
+    name: Workshop
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/workshop/requirements.txt
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Prepare resources
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/workshop/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = (Resolve-Path .).Path
+          Push-Location Frontend/workshop
+          $iconArgs = @()
+          if (Test-Path ../../assets/workshop.ico) { $iconArgs += "--windows-icon-from-ico=../../assets/workshop.ico" }
+          python -m nuitka `
+            --onefile `
+            --windows-console-mode=disable `
+            --enable-plugin=pyside6 `
+            --assume-yes-for-downloads `
+            --msvc=latest `
+            @iconArgs `
+            --output-dir=../../build/workshop `
+            --output-filename=Workshop.exe `
+            --include-package=shared `
+            --include-module=app `
+            --include-module=fields `
+            --include-data-files=../../shared/profiles.json=profiles.json `
+            --include-data-dir=schemas=schemas `
+            --nofollow-import-to=tkinter `
+            --remove-output `
+            main.py
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "Nuitka workshop failed" }
+      - name: Stage folder
+        shell: pwsh
+        run: |
+          $out = "dist/workshop"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out/schemas | Out-Null
+          Copy-Item build/workshop/Workshop.exe "$out/战术工坊.exe"
+          Copy-Item shared/profiles.json "$out/profiles.json"
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/说明.txt" }
+          @(
+            "$out/战术工坊.exe",
+            "$out/profiles.json",
+            "$out/schemas/common_flags.json"
+          ) | ForEach-Object {
+            if (-not (Test-Path $_)) { throw "missing $_" }
+            Write-Host "OK $_" (Get-Item $_).Length
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workshop-bundle
+          path: dist/workshop/
+          if-no-files-found: error
+
+  # ========== 组装 MO / YR 完整包 ==========
+  pack:
+    name: Pack MO + YR
+    needs: [build-dll, build-launchers, build-editor, build-workshop]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: bins/engine
+      - uses: actions/download-artifact@v4
+        with:
+          name: launchers
+          path: bins/launchers
+      - uses: actions/download-artifact@v4
+        with:
+          name: editor-bundle
+          path: bins/editor
+      - uses: actions/download-artifact@v4
+        with:
+          name: workshop-bundle
+          path: bins/workshop
+      - name: Pack MO + YR editions
+        shell: pwsh
+        run: |
+          python scripts/pack_release.py
+          if ($LASTEXITCODE -ne 0) { throw "pack_release.py failed" }
+          Write-Host "==== MO ===="
+          Get-ChildItem -Recurse "热重载工具-心灵终结" | Format-Table Name, Length
+          Write-Host "==== YR ===="
+          Get-ChildItem -Recurse "热重载工具-尤里的复仇" | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 热重载工具-心灵终结
+          path: 热重载工具-心灵终结/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: 热重载工具-尤里的复仇
+          path: 热重载工具-尤里的复仇/
+          if-no-files-found: error
