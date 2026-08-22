@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(AutoReloader LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 20)          # 从 17 改为 20
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 强制 32 位（在 Windows 上用 Win32 生成器时更自然）
+# 显式指定使用最新 C++ 标准（覆盖默认）
 if(MSVC)
+  add_compile_options(/std:c++latest)
 endif()
 
 add_library(AutoReloader SHARED
@@ -17,12 +18,10 @@ target_include_directories(AutoReloader PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
-# 关闭强制符合模式
 if(MSVC)
   target_compile_options(AutoReloader PRIVATE /permissive)
 endif()
 
-# 输出名固定
 set_target_properties(AutoReloader PROPERTIES
   OUTPUT_NAME "AutoReloader"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
