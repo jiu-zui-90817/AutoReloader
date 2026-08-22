@@ -1,5 +1,5 @@
 """
-战术工坊字段表：对齐旧版可调项，但 UI 用新版纵排（无分组框）。
+战术工坊默认字段：与旧版 TacticalConsole 可调项对齐（纵排 UI，不分组框）。
 每项: (ini键, 显示标签, entry|combo, Codex源名或None)
 """
 
@@ -14,8 +14,11 @@ TREE_ORDER = [
     ("Warheads", "弹头"),
 ]
 
+# 与旧版 FORM_UNITS 一致（含 Cost / TechLevel）
 FORM_UNITS = [
     ("Strength", "生命值 (Strength)", "entry", None),
+    ("Cost", "造价 (Cost)", "entry", None),
+    ("TechLevel", "科技等级 (TechLevel)", "entry", None),
     ("Armor", "装甲类型 (Armor)", "combo", "Armors"),
     ("Image", "模型换皮 (Image)", "combo", "DYNAMIC_IMAGE"),
     ("SelfHealing", "自动回血 (SelfHealing)", "combo", "Booleans"),
@@ -35,17 +38,18 @@ FORM_UNITS = [
     ("Crusher", "允许碾压步兵 (Crusher)", "combo", "Booleans"),
     ("OmniCrushResistant", "免疫巨型碾压 (OmniCrushResistant)", "combo", "Booleans"),
     ("EMP.Threshold", "EMP瘫痪抗性 (EMP.Threshold)", "entry", None),
-    ("AEPreset_Passive", "💡 套用现成光环", "combo", "Presets_Passive"),
+    ("AEPreset_Passive", "💡 直接套用游戏现成光环", "combo", "Presets_Passive"),
     ("AttachEffect.Animation", "状态绑定动画", "combo", "AnimList"),
     ("AttachEffect.Duration", "持续时长 (填-1为永久)", "entry", None),
-    ("AttachEffect.InitialDelay", "生效延迟 (0立刻)", "entry", None),
-    ("AttachEffect.Delay", "冷却时间 (负值不重置)", "entry", None),
+    ("AttachEffect.InitialDelay", "生效延迟 (0为立刻生效)", "entry", None),
+    ("AttachEffect.Delay", "冷却时间 (负值为不重置)", "entry", None),
     ("AttachEffect.DiscardOnEntry", "进入建筑/载具时失效", "combo", "Booleans"),
     ("AttachEffect.Cloakable", "赋予隐形能力", "combo", "Booleans"),
-    ("AttachEffect.SpeedMultiplier", "移速倍率", "entry", None),
-    ("AttachEffect.ArmorMultiplier", "护甲倍率", "entry", None),
-    ("AttachEffect.FirepowerMultiplier", "伤害倍率", "entry", None),
-    ("AttachEffect.ROFMultiplier", "攻击间隔倍率", "entry", None),
+    ("AttachEffect.TemporalHidesAnim", "超时空冻结不隐藏动画", "combo", "Booleans"),
+    ("AttachEffect.SpeedMultiplier", "移速倍率 (1为不变)", "entry", None),
+    ("AttachEffect.ArmorMultiplier", "护甲倍率 (1不变)", "entry", None),
+    ("AttachEffect.FirepowerMultiplier", "伤害倍率 (1不变)", "entry", None),
+    ("AttachEffect.ROFMultiplier", "攻击间隔 (1不变)", "entry", None),
 ]
 
 RULES_UNITS = {

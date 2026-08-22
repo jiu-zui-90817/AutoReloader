@@ -1137,10 +1137,11 @@ class WorkshopWindow(QMainWindow):
         self.preview.setPlainText("\n".join(lines))
         self._switching = False
 
-    # ---------- deploy ----------
+    # ---------- deploy / restore（对齐旧版 TacticalConsole 行为）----------
     def deploy(self):
+        """把当前预览写入 hotfix，并瘦身与 rules 相同的键（旧版 clean_ini）。"""
         if not self.current_id:
-            QMessageBox.information(self, "提示", "请先选择对象")
+            QMessageBox.information(self, "提示", "请先选择单位")
             return
         if not self.hotfix_path:
             QMessageBox.information(self, "提示", "请先绑定工程文件（hotfix.ini）")
@@ -1164,36 +1165,190 @@ class WorkshopWindow(QMainWindow):
             if isinstance(result, dict) and not result.get("ok", True):
                 QMessageBox.critical(self, "部署失败", result.get("message") or str(result))
                 return
-            self.statusBar().showMessage(f"已部署 [{self.current_id}] → {self.hotfix_path.name}", 5000)
+            # 部署后瘦身：去掉与 rules 完全一致的键、以及无意义的 AE 默认值
+            self._clean_hotfix_file()
+            # 重新载入以反映文件真实内容
+            self.load_section(self.current_id, self.current_kind)
+            self.statusBar().showMessage(
+                f"已部署 [{self.current_id}] → {self.hotfix_path.name}", 5000
+            )
         except Exception as e:
             QMessageBox.critical(self, "部署失败", str(e))
 
     def restore_default(self):
+        """
+        安全模式：用 rules 原文覆盖 hotfix 中该 section（旧版「恢复原版」）。
+        高级模式：禁止写回，防止误覆盖工程源文件。
+        """
         if not self.current_id or not self.game:
             return
-        # 从 rules 重读，并可选从 hotfix 删除覆盖
-        text = self.game.get_section_text(self.current_id)
-        self.preview.setPlainText(text)
-        # 重新灌表单
-        kind = self.current_kind
-        self.load_section(self.current_id, kind)
-        # load_section 会再读 hotfix；强制用 rules：
-        values: Dict[str, str] = {}
-        for line in text.splitlines():
-            s = line.strip()
-            if "=" in s and not s.startswith("["):
-                clean = s.split(";", 1)[0]
+        if self.mode != "safe":
+            QMessageBox.warning(
+                self,
+                "功能禁用",
+                "当前为高级模式，为防止误覆盖源文件，「恢复默认」已禁用。\n"
+                "请切换回安全模式后再用（仅操作 hotfix.ini）。",
+            )
+            return
+        if not self.hotfix_path:
+            QMessageBox.information(self, "提示", "请先绑定 hotfix.ini")
+            return
+        if self.hotfix_path.name.lower() != "hotfix.ini":
+            QMessageBox.warning(self, "安全模式", "只能操作 hotfix.ini")
+            return
+
+        rules_text = self.game.get_section_text(self.current_id) or ""
+        if not rules_text.strip():
+            QMessageBox.information(self, "提示", "原版 rules 中不存在该图纸数据")
+            return
+
+        # 与旧版一致：补 Image=自身、无 AE 时写一组清零
+        lines = []
+        for line in rules_text.splitlines():
+            s = line.rstrip()
+            if s.strip():
+                lines.append(s)
+        if not lines or not lines[0].strip().startswith("["):
+            lines.insert(0, f"[{self.current_id}]")
+
+        keys_lower = set()
+        for line in lines[1:]:
+            clean = line.split(";", 1)[0].strip()
+            if "=" in clean:
+                keys_lower.add(clean.split("=", 1)[0].strip().lower())
+
+        body_lines = list(lines)
+        if "image" not in keys_lower:
+            body_lines.append(f"Image={self.current_id}")
+        has_ae = any(k.startswith("attacheffect.") for k in keys_lower)
+        if not has_ae:
+            body_lines.extend(
+                [
+                    "AttachEffect.Animation=none",
+                    "AttachEffect.Duration=0",
+                    "AttachEffect.SpeedMultiplier=1",
+                    "AttachEffect.ArmorMultiplier=1",
+                    "AttachEffect.FirepowerMultiplier=1",
+                    "AttachEffect.ROFMultiplier=1",
+                    "AttachEffect.Delay=0",
+                    "AttachEffect.InitialDelay=0",
+                    "AttachEffect.Cumulative=no",
+                ]
+            )
+        body = "\n".join(body_lines)
+        if not body.endswith("\n"):
+            body += "\n"
+
+        backup_root = get_app_dir() / "backups"
+        try:
+            backup_root.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            backup_root = self._cache_dir() / "backups"
+            backup_root.mkdir(parents=True, exist_ok=True)
+
+        try:
+            result = save_section_to_file(
+                self.hotfix_path, self.current_id, body, backup_root
+            )
+            if isinstance(result, dict) and not result.get("ok", True):
+                QMessageBox.critical(self, "恢复失败", result.get("message") or str(result))
+                return
+            self._clean_hotfix_file()
+            self.load_section(self.current_id, self.current_kind)
+            self.statusBar().showMessage(
+                f"已恢复 [{self.current_id}] 为 rules 并写回 hotfix", 5000
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "恢复失败", str(e))
+
+    def _clean_hotfix_file(self) -> None:
+        """对齐旧版 clean_ini_silent：去掉与 rules 相同的键及无意义 AE 默认。"""
+        if not self.hotfix_path or not self.hotfix_path.is_file() or not self.game:
+            return
+        try:
+            text, _enc = read_text(self.hotfix_path)
+        except Exception:
+            return
+
+        out_lines: list[str] = []
+        section_id: str | None = None
+        section_buf: list[str] = []
+
+        kill_cmds = {
+            "attacheffect.animation": {"none", "0", ""},
+            "attacheffect.duration": {"0"},
+            "attacheffect.speedmultiplier": {"1", "1.0"},
+            "attacheffect.armormultiplier": {"1", "1.0"},
+            "attacheffect.firepowermultiplier": {"1", "1.0"},
+            "attacheffect.rofmultiplier": {"1", "1.0"},
+            "attacheffect.delay": {"0"},
+            "attacheffect.initialdelay": {"0"},
+            "attacheffect.cumulative": {"no", "false", "0"},
+        }
+
+        def flush():
+            nonlocal section_buf, section_id
+            if not section_id or not section_buf:
+                section_buf = []
+                section_id = None
+                return
+            base = {}
+            if self.game:
+                raw = self.game.get_section_text(section_id) or ""
+                for line in raw.splitlines():
+                    c = line.split(";", 1)[0].strip()
+                    if "=" in c and not c.startswith("["):
+                        k, v = c.split("=", 1)
+                        base[k.strip().lower()] = v.strip().lower()
+            kept = [section_buf[0]]
+            has_custom = False
+            for line in section_buf[1:]:
+                clean = line.split(";", 1)[0].strip()
                 if "=" in clean:
                     k, v = clean.split("=", 1)
-                    values[k.strip()] = v.strip()
-        fields = self._resolve_fields(kind, values)
-        self._switching = True
-        self._build_form(fields, values, self.current_utype)
-        self.preview.setPlainText(text)
-        self._switching = False
-        self.statusBar().showMessage("已恢复为 rules 原文（尚未写回文件）", 5000)
+                    kl, vl = k.strip().lower(), v.strip().lower()
+                    if kl in base and base[kl] == vl:
+                        continue
+                    if kl in kill_cmds and vl in kill_cmds[kl]:
+                        continue
+                    if kl == "image" and vl == section_id.lower():
+                        continue
+                    has_custom = True
+                    kept.append(line if line.endswith("\n") else line + "\n")
+                else:
+                    if line.strip():
+                        kept.append(line if line.endswith("\n") else line + "\n")
+            if has_custom:
+                out_lines.extend(kept)
+                if not str(kept[-1]).endswith("\n"):
+                    out_lines.append("\n")
+            section_buf = []
+            section_id = None
+
+        for line in text.splitlines(keepends=True):
+            stripped = line.strip()
+            if stripped.startswith("[") and stripped.endswith("]"):
+                flush()
+                section_id = stripped[1:-1].strip()
+                section_buf = [line if line.endswith("\n") else line + "\n"]
+            else:
+                if section_id is not None:
+                    section_buf.append(line if line.endswith("\n") else line + "\n")
+                else:
+                    out_lines.append(line if line.endswith("\n") else line + "\n")
+        flush()
+
+        try:
+            # 无 BOM UTF-8
+            data = "".join(out_lines).encode("utf-8")
+            tmp = self.hotfix_path.with_suffix(self.hotfix_path.suffix + ".tmp_clean")
+            tmp.write_bytes(data)
+            tmp.replace(self.hotfix_path)
+        except Exception:
+            pass
 
     def copy_full_code(self):
+
         QApplication.clipboard().setText(self.preview.toPlainText())
         self.statusBar().showMessage("已复制到剪贴板", 3000)
 
