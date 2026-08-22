@@ -4,8 +4,8 @@
 |------|------|------|
 | `workshop/` | **战术工坊 2.x**：快调 + hotfix，读工程/CSF，不依赖 Codex | 可用 |
 | `editor/` | **INI 工程编辑器**：对象树、全文编辑、保存回源、调试 | 可用 |
-| `TacticalConsole.py` | 经典战术工坊（若保留） | 需 Codex |
-| `CodexGenerator.py` | 经典工坊词典生成（若保留） | 仅旧流程 |
+| `TacticalConsole.py` | 经典战术工坊（当前保留） | 需 Codex |
+| `CodexGenerator.py` | 经典工坊词典生成（当前保留） | 仅旧流程 |
 
 公共逻辑在仓库根目录 **`shared/`**。
 
