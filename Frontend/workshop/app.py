@@ -33,23 +33,49 @@ from fields import (
 )
 
 
-def get_app_dir() -> Path:
+def is_frozen() -> bool:
     if getattr(sys, "frozen", False):
+        return True
+    try:
+        import __main__
+        if getattr(__main__, "__compiled__", None) is not None:
+            return True
+    except Exception:
+        pass
+    try:
+        s = str(Path(__file__).resolve()).replace("\\", "/").lower()
+        if "onefile_" in s or "/onefile/" in s:
+            return True
+    except Exception:
+        pass
+    import os
+    if os.environ.get("NUITKA_ONEFILE_PARENT"):
+        return True
+    return False
+
+
+def get_app_dir() -> Path:
+    """用户可见程序目录：打包=真实 exe 旁，源码=Frontend/workshop。"""
+    if is_frozen():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def get_bundle_dir() -> Path:
-    if getattr(sys, "frozen", False):
+    """只读资源目录（onefile 临时目录或源码目录）。"""
+    if is_frozen():
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
             return Path(meipass)
-        return Path(sys.executable).resolve().parent
+        try:
+            return Path(__file__).resolve().parent
+        except Exception:
+            return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def get_repo_root() -> Path:
-    if getattr(sys, "frozen", False):
+    if is_frozen():
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parents[2]
 
@@ -222,25 +248,25 @@ class WorkshopWindow(QMainWindow):
 
     # ---------- settings ----------
     def _settings_path(self) -> Path:
-        # 源码/打包都尽量可写；程序目录写失败则用用户目录
+        """可写 console_config（含 last_game_dir）。优先 exe 旁，否则 LocalAppData。"""
         candidates = [
             get_app_dir() / "console_config.json",
-            Path.home() / ".tactical_workshop" / "console_config.json",
             Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "console_config.json",
+            Path.home() / ".tactical_workshop" / "console_config.json",
         ]
         for path in candidates:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 if path.is_file():
                     return path
-                # 探测可写
                 probe = path.parent / ".w"
                 probe.write_text("1", encoding="utf-8")
                 probe.unlink(missing_ok=True)
                 return path
             except Exception:
                 continue
-        return candidates[0]
+        return candidates[-1]
+
 
     def _load_settings(self) -> dict:
         p = self._settings_path()
@@ -287,8 +313,8 @@ class WorkshopWindow(QMainWindow):
     def _cache_dir(self) -> Path:
         for d in (
             get_app_dir() / "cache",
-            Path.home() / ".tactical_workshop" / "cache",
             Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "cache",
+            Path.home() / ".tactical_workshop" / "cache",
         ):
             try:
                 d.mkdir(parents=True, exist_ok=True)
@@ -302,6 +328,7 @@ class WorkshopWindow(QMainWindow):
         d = Path(tempfile.gettempdir()) / "tactical_workshop_cache"
         d.mkdir(parents=True, exist_ok=True)
         return d
+
 
     def _codex_path(self, game_dir: str) -> Path:
         safe = re.sub(r"[^\w\-]+", "_", str(game_dir).strip("\\/"))[:80] or "default"
