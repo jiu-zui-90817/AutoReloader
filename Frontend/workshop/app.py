@@ -33,8 +33,18 @@ from fields import (
 )
 
 
+def _is_ephemeral(path: Path) -> bool:
+    s = str(path).replace("\\", "/").lower()
+    return any(n in s for n in (
+        "/temp/", "/tmp/", "appdata/local/temp", "onefile_", "/onefile/", "nuitka_temp",
+    ))
+
+
 def is_frozen() -> bool:
     if getattr(sys, "frozen", False):
+        return True
+    import os
+    if os.environ.get("NUITKA_ONEFILE_PARENT"):
         return True
     try:
         import __main__
@@ -43,26 +53,37 @@ def is_frozen() -> bool:
     except Exception:
         pass
     try:
-        s = str(Path(__file__).resolve()).replace("\\", "/").lower()
-        if "onefile_" in s or "/onefile/" in s:
+        if _is_ephemeral(Path(__file__).resolve().parent):
             return True
     except Exception:
         pass
-    import os
-    if os.environ.get("NUITKA_ONEFILE_PARENT"):
-        return True
     return False
 
 
+def local_appdata() -> Path:
+    import os
+    env = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
+    if env:
+        return Path(env)
+    return Path.home() / "AppData" / "Local"
+
+
 def get_app_dir() -> Path:
-    """用户可见程序目录：打包=真实 exe 旁，源码=Frontend/workshop。"""
     if is_frozen():
-        return Path(sys.executable).resolve().parent
+        parent = Path(sys.executable).resolve().parent
+        if not _is_ephemeral(parent):
+            return parent
+        try:
+            a0 = Path(sys.argv[0]).resolve()
+            if a0.suffix.lower() == ".exe" and not _is_ephemeral(a0.parent):
+                return a0.parent
+        except Exception:
+            pass
+        return parent
     return Path(__file__).resolve().parent
 
 
 def get_bundle_dir() -> Path:
-    """只读资源目录（onefile 临时目录或源码目录）。"""
     if is_frozen():
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
@@ -76,8 +97,9 @@ def get_bundle_dir() -> Path:
 
 def get_repo_root() -> Path:
     if is_frozen():
-        return Path(sys.executable).resolve().parent
+        return get_app_dir()
     return Path(__file__).resolve().parents[2]
+
 
 
 def ensure_shared_path() -> None:
@@ -248,12 +270,13 @@ class WorkshopWindow(QMainWindow):
 
     # ---------- settings ----------
     def _settings_path(self) -> Path:
-        """可写 console_config（含 last_game_dir）。优先 exe 旁，否则 LocalAppData。"""
-        candidates = [
-            get_app_dir() / "console_config.json",
-            Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "console_config.json",
-            Path.home() / ".tactical_workshop" / "console_config.json",
-        ]
+        """可写 console_config。禁止写临时目录。"""
+        candidates = []
+        ad = get_app_dir()
+        if not _is_ephemeral(ad):
+            candidates.append(ad / "console_config.json")
+        candidates.append(local_appdata() / "TacticalWorkshop" / "console_config.json")
+        candidates.append(Path.home() / ".tactical_workshop" / "console_config.json")
         for path in candidates:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -265,7 +288,12 @@ class WorkshopWindow(QMainWindow):
                 return path
             except Exception:
                 continue
-        return candidates[-1]
+        fallback = local_appdata() / "TacticalWorkshop" / "console_config.json"
+        try:
+            fallback.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return fallback
 
 
     def _load_settings(self) -> dict:
@@ -311,11 +339,13 @@ class WorkshopWindow(QMainWindow):
         }
 
     def _cache_dir(self) -> Path:
-        for d in (
-            get_app_dir() / "cache",
-            Path.home() / "AppData" / "Local" / "TacticalWorkshop" / "cache",
-            Path.home() / ".tactical_workshop" / "cache",
-        ):
+        candidates = []
+        ad = get_app_dir()
+        if not _is_ephemeral(ad):
+            candidates.append(ad / "cache")
+        candidates.append(local_appdata() / "TacticalWorkshop" / "cache")
+        candidates.append(Path.home() / ".tactical_workshop" / "cache")
+        for d in candidates:
             try:
                 d.mkdir(parents=True, exist_ok=True)
                 probe = d / ".w"
