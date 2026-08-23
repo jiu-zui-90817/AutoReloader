@@ -40,8 +40,6 @@
 
 ![工坊主界面](assets/screenshots/03_workshop_main.png)
 
-![工坊部署 hotfix](assets/screenshots/04_workshop_deploy.png)
-
 ---
 
 ## 下载与安装（正式包）
