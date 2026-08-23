@@ -13,9 +13,22 @@
 
 ---
 
-## 界面预览
+## 构建与发布说明
 
-> 正式截图请替换 `assets/screenshots/` 下同名文件后，本段图片会自动更新。
+本项目**源代码公开**于本仓库，欢迎查阅与自行构建。
+
+**正式发布包**通过本仓库的 **GitHub Actions** 自动构建（工作流：`.github/workflows/build-release.yml`）：
+
+- 在 GitHub 托管的 runner 上完成编译与打包，步骤与日志可在 [Actions](../../actions) 中查看；
+- 发布文件见 [Releases](../../releases)，与对应 tag / commit 关联，便于对照源码版本；
+- 内容一般包括注入 DLL、启动器、INI 工程编辑器、战术工坊等（以当次工作流为准）。
+
+推荐从本仓库的 **Releases** 或 **Actions** 获取与当前源码一致的构建产物。若你希望完全自主可控，也可按下文「开发者」说明从源码本地编译。
+
+
+---
+
+## 界面预览
 
 ### INI 工程编辑器
 
@@ -93,25 +106,6 @@ scripts/           发布打包脚本
 
 ---
 
-## 图标与截图
-
-| 文件 | 用途 |
-|------|------|
-| `assets/editor.ico` | 工程编辑器 |
-| `assets/workshop.ico` | 战术工坊 |
-| `assets/reloader.ico` | 工具链 / DLL 相关 |
-| `assets/launcher_mo.ico` / `launcher_yr.ico` | 启动器 |
-| `assets/screenshots/*.png` | 本 README 预览图 |
-
-当前仓库内为 **可用占位图标与截图框**。正式发布前建议：
-
-1. 用设计稿替换 `.ico`（保留多尺寸 16–256）。  
-2. 用真实窗口截图替换 `screenshots/` 四张图（建议 1280×720 或同比例）。  
-3. 不必改 README 里的路径。
-
-详见 `assets/README.md`。
-
----
 
 ## 开发者
 
