@@ -31,13 +31,13 @@
 
 ### INI 工程编辑器
 
-![编辑器主界面](assets/screenshots/01_editor_main.png)
+![编辑器主界面](assets/screenshots/editor_main.png)
 
-![编辑器调试与部署](assets/screenshots/02_editor_debug.png)
+![编辑器调试与部署](assets/screenshots/editor_debug.png)
 
 ### 战术工坊
 
-![工坊主界面](assets/screenshots/03_workshop_main.png)
+![工坊主界面](assets/screenshots/workshop_main.png)
 ---
 
 
