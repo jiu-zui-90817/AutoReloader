@@ -1,4 +1,4 @@
-"""CI 组装 MO/YR 完整发布目录。布局对齐用户约定（前端合并目录）。"""
+"""CI 组装 MO/YR 完整发布目录。包名与目录均为英文：AutoReloader-MO / AutoReloader-YR。"""
 from __future__ import annotations
 
 import json
@@ -35,75 +35,88 @@ def must(p: Path) -> None:
     _log("OK", p.as_posix(), p.stat().st_size)
 
 
+def _first_exe(folder: Path, preferred: list[str]) -> Path:
+    for name in preferred:
+        c = folder / name
+        if c.is_file():
+            return c
+    for c in sorted(folder.glob("*.exe")):
+        return c
+    raise SystemExit(f"no exe in {folder}")
+
+
 def pack(
     root_name: str,
     editor_profile: str,
     workshop_profile: str,
-    launcher: str,
+    launcher_src_names: list[str],
+    launcher_dst: str,
     label: str,
 ) -> None:
     """
-    热重载工具-xxx/
-      MO启动器.exe | YR启动器.exe
+    AutoReloader-MO/  or AutoReloader-YR/
+      MOLauncher.exe | YRLauncher.exe
       AutoReloader.dll
       ReloaderConfig.ini
-      使用说明.txt
-      INI工程编辑器&战术工坊/
-        INI工程编辑器.exe
-        战术工坊.exe
+      README.txt
+      Tools/
+        INIEditor.exe
+        Workshop.exe
         config.json
         profiles.json
         schemas/common_flags.json
-        使用说明.txt
+        README.txt   (optional)
     """
     root = Path(root_name)
     if root.exists():
         shutil.rmtree(root)
-    tools = root / "INI工程编辑器&战术工坊"
+    tools = root / "Tools"
     tools.mkdir(parents=True)
     (tools / "schemas").mkdir(parents=True)
 
-    # 根目录：启动器 + 引擎
-    shutil.copy(Path("bins/launchers") / launcher, root / launcher)
-    shutil.copy("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
+    # 启动器
+    launcher_src = _first_exe(Path("bins/launchers"), launcher_src_names)
+    shutil.copy2(launcher_src, root / launcher_dst)
+
+    # 引擎
+    shutil.copy2("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
     for src in (Path("bins/engine/ReloaderConfig.ini"), Path("Config/ReloaderConfig.ini")):
         if src.is_file():
-            shutil.copy(src, root / "ReloaderConfig.ini")
+            shutil.copy2(src, root / "ReloaderConfig.ini")
             break
 
-    # 前端：同一目录，共享 schemas / 配置
-    # 编辑器产物
-    ed_exe = Path("bins/editor/INI工程编辑器.exe")
-    if not ed_exe.is_file():
-        # 兼容英文中间名
-        for c in Path("bins/editor").glob("*.exe"):
-            ed_exe = c
-            break
-    shutil.copy2(ed_exe, tools / "INI工程编辑器.exe")
+    # 编辑器
+    ed_exe = _first_exe(
+        Path("bins/editor"),
+        ["INIEditor.exe", "INI工程编辑器.exe", "editor.exe"],
+    )
+    shutil.copy2(ed_exe, tools / "INIEditor.exe")
     shutil.copy2("bins/editor/config.json", tools / "config.json")
     schema_src = Path("bins/editor/schemas/common_flags.json")
     if not schema_src.is_file():
         schema_src = Path("shared/schemas/common_flags.json")
     shutil.copy2(schema_src, tools / "schemas" / "common_flags.json")
-    if Path("bins/editor/使用说明.txt").is_file():
-        shutil.copy2("bins/editor/使用说明.txt", tools / "使用说明.txt")
-    elif Path("Frontend/editor/使用说明.txt").is_file():
-        shutil.copy2("Frontend/editor/使用说明.txt", tools / "使用说明.txt")
-
-    # 工坊产物
-    ws_exe = Path("bins/workshop/战术工坊.exe")
-    if not ws_exe.is_file():
-        for c in Path("bins/workshop").glob("*.exe"):
-            ws_exe = c
+    for readme_src in (
+        Path("bins/editor/使用说明.txt"),
+        Path("Frontend/editor/使用说明.txt"),
+        Path("bins/editor/README.txt"),
+    ):
+        if readme_src.is_file():
+            shutil.copy2(readme_src, tools / "README.txt")
             break
-    shutil.copy2(ws_exe, tools / "战术工坊.exe")
-    shutil.copy2("bins/workshop/profiles.json", tools / "profiles.json")
-    # schemas 已复制一份即可
 
-    must(root / launcher)
+    # 工坊
+    ws_exe = _first_exe(
+        Path("bins/workshop"),
+        ["Workshop.exe", "战术工坊.exe", "workshop.exe"],
+    )
+    shutil.copy2(ws_exe, tools / "Workshop.exe")
+    shutil.copy2("bins/workshop/profiles.json", tools / "profiles.json")
+
+    must(root / launcher_dst)
     must(root / "AutoReloader.dll")
-    must(tools / "INI工程编辑器.exe")
-    must(tools / "战术工坊.exe")
+    must(tools / "INIEditor.exe")
+    must(tools / "Workshop.exe")
     must(tools / "config.json")
     must(tools / "profiles.json")
     must(tools / "schemas" / "common_flags.json")
@@ -112,22 +125,22 @@ def pack(
     set_profile(tools / "profiles.json", workshop_profile)
 
     readme = (
-        f"AutoReloader 完整包 — {label}\n\n"
-        f"根目录：\n"
-        f"  {launcher}\n"
+        f"AutoReloader full package — {label}\n\n"
+        f"Root:\n"
+        f"  {launcher_dst}\n"
         f"  AutoReloader.dll\n"
         f"  ReloaderConfig.ini\n\n"
-        f"INI工程编辑器&战术工坊\\  前端工具（共享 schemas/配置）\n"
-        f"  编辑器 profile: {editor_profile}\n"
-        f"  工坊 profile: {workshop_profile}\n\n"
-        f"使用：\n"
-        f"  1. 将根目录 DLL / 配置 / 启动器 放入游戏根目录\n"
-        f"  2. 用本包启动器启动游戏\n"
-        f"  3. 前端目录可放任意可写位置运行两个 exe\n"
-        f"  4. cache、console_config 为运行后生成，不必随包分发\n"
-        f"  5. INI 保存为 UTF-8 无 BOM\n"
+        f"Tools\\  frontend (shared schemas/config)\n"
+        f"  INIEditor.exe   (editor profile: {editor_profile})\n"
+        f"  Workshop.exe    (workshop profile: {workshop_profile})\n\n"
+        f"Usage:\n"
+        f"  1. Copy DLL / ReloaderConfig.ini / launcher into the game folder\n"
+        f"  2. Start the game with this package's launcher (admin UAC)\n"
+        f"  3. Run Tools\\INIEditor.exe or Tools\\Workshop.exe from any writable path\n"
+        f"  4. cache / local config files are created at runtime; no need to ship them\n"
+        f"  5. INI saves use UTF-8 without BOM\n"
     )
-    (root / "使用说明.txt").write_text(readme, encoding="utf-8")
+    (root / "README.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name)
 
 
@@ -146,18 +159,20 @@ def main() -> int:
         else ("YuriRevenge_Vanilla" if "YuriRevenge_Vanilla" in keys else "MentalOmega")
     )
     pack(
-        "热重载工具-心灵终结",
+        "AutoReloader-MO",
         "MentalOmega",
         "MentalOmega",
-        "MO启动器.exe",
-        "心灵终结 (Mental Omega)",
+        ["MOLauncher.exe", "MO启动器.exe"],
+        "MOLauncher.exe",
+        "Mental Omega",
     )
     pack(
-        "热重载工具-尤里的复仇",
+        "AutoReloader-YR",
         yr_ed,
         "YurisRevenge",
-        "YR启动器.exe",
-        "尤里的复仇 (Yuri's Revenge)",
+        ["YRLauncher.exe", "YR启动器.exe"],
+        "YRLauncher.exe",
+        "Yuri's Revenge",
     )
     return 0
 
