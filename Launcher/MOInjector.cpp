@@ -28,6 +28,47 @@ void WriteLog(const char* msg) {
     out.close();
 }
 
+
+// ==========================================
+// UAC：清单 requireAdministrator + 运行时兜底提权
+// ==========================================
+static bool IsRunAsAdmin()
+{
+    BOOL isAdmin = FALSE;
+    PSID adminGroup = NULL;
+    SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+            DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup))
+    {
+        CheckTokenMembership(NULL, adminGroup, &isAdmin);
+        FreeSid(adminGroup);
+    }
+    return isAdmin == TRUE;
+}
+
+// 若当前不是管理员：用 runas 重启自身并退出（清单失效时的兜底）
+static void EnsureAdminOrRelaunch()
+{
+    if (IsRunAsAdmin())
+        return;
+
+    wchar_t path[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, path, MAX_PATH))
+        return;
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.lpVerb = L"runas";
+    sei.lpFile = path;
+    sei.nShow = SW_SHOWNORMAL;
+    if (ShellExecuteExW(&sei))
+    {
+        // 已请求提升，当前进程退出
+        ExitProcess(0);
+    }
+    // 用户拒绝 UAC 等：继续跑（注入可能失败），写日志由调用方处理
+}
+
 // ==========================================
 // 提权：破除 Win7 UAC 隔离
 // ==========================================
@@ -76,8 +117,11 @@ bool IsLobbyRunning() {
 
 int main()
 {
+    EnsureAdminOrRelaunch();
+
     // 每次启动清空旧日志
     std::ofstream clearLog("Injector_Log.txt", std::ios::trunc);
+    clearLog << (IsRunAsAdmin() ? "[权限] 已以管理员运行\n" : "[权限] 未获得管理员（UAC 可能被拒绝）\n");
     clearLog.close();
 
     WriteLog("========== 战术工坊 MO 引导器启动 ==========");

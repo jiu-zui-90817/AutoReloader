@@ -5,6 +5,7 @@
  */
 
 #include <windows.h>
+#include <shellapi.h>
 #include <tlhelp32.h>
 #include <string>
 
@@ -19,6 +20,47 @@ processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'\"")
 #define ID_BTN_LAUNCH  104
 
 HWND hRadioWin, hRadioFull, hRadioAres, hBtnLaunch, hLblStatus;
+
+
+// ==========================================
+// UAC：清单 requireAdministrator + 运行时兜底提权
+// ==========================================
+static bool IsRunAsAdmin()
+{
+    BOOL isAdmin = FALSE;
+    PSID adminGroup = NULL;
+    SID_IDENTIFIER_AUTHORITY ntAuth = SECURITY_NT_AUTHORITY;
+    if (AllocateAndInitializeSid(&ntAuth, 2, SECURITY_BUILTIN_DOMAIN_RID,
+            DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &adminGroup))
+    {
+        CheckTokenMembership(NULL, adminGroup, &isAdmin);
+        FreeSid(adminGroup);
+    }
+    return isAdmin == TRUE;
+}
+
+// 若当前不是管理员：用 runas 重启自身并退出（清单失效时的兜底）
+static void EnsureAdminOrRelaunch()
+{
+    if (IsRunAsAdmin())
+        return;
+
+    wchar_t path[MAX_PATH];
+    if (!GetModuleFileNameW(NULL, path, MAX_PATH))
+        return;
+
+    SHELLEXECUTEINFOW sei = {};
+    sei.cbSize = sizeof(sei);
+    sei.lpVerb = L"runas";
+    sei.lpFile = path;
+    sei.nShow = SW_SHOWNORMAL;
+    if (ShellExecuteExW(&sei))
+    {
+        // 已请求提升，当前进程退出
+        ExitProcess(0);
+    }
+    // 用户拒绝 UAC 等：继续跑（注入可能失败），写日志由调用方处理
+}
 
 // ==========================================
 // 辅助函数
@@ -217,6 +259,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 // 主程序入口
 // ==========================================
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    EnsureAdminOrRelaunch();
+
     const wchar_t CLASS_NAME[] = L"TacticalLauncherClass";
 
     WNDCLASSW wc = { 0 };
