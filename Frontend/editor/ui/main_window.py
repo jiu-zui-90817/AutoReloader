@@ -682,50 +682,36 @@ class MainWindow(QMainWindow):
         self.refresh_tree()
 
     def _tool_deploy_hotfix(self):
-        """只把当前 section 写入 hotfix，不改工程源文件。供 AutoReloader 监控。"""
+        """把当前节部署到 hotfix.ini（AutoReloader TargetINI），不改工程源文件。"""
         if not self.current_section_id:
             QMessageBox.information(self, "热重载", "请先选择一个单位/section")
             return
         path = self._hotfix_path()
         if path is None:
-            QMessageBox.information(self, "热重载", "请先设置 hotfix 路径")
+            QMessageBox.information(self, "热重载", "请先在「首选项」或菜单中设置 hotfix 路径")
             return
-        body = self.code.toPlainText()
+        from core.save_util import normalize_section_body, save_section_to_file
+
         sid = self.current_section_id
+        body = normalize_section_body(sid, self.code.toPlainText())
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-        from core.save_util import save_section_to_file
-        exists = path.exists()
         result = save_section_to_file(
             path, sid, body, backup_root=backup_root,
-            is_new=not exists, peer_section_names=[],
+            is_new=not path.exists(), peer_section_names=[],
         )
-        if exists and result.get("ok"):
-            # 若已存在但未替换成功信息含未找到，再新增
-            if "未找到" in (result.get("message") or ""):
-                result = save_section_to_file(
-                    path, sid, body, backup_root=backup_root, is_new=True, peer_section_names=[]
-                )
-        if not result.get("ok"):
-            # 文件存在时优先 replace
-            result = save_section_to_file(
-                path, sid, body, backup_root=backup_root, is_new=False, peer_section_names=[]
-            )
-            if not result.get("ok"):
-                result = save_section_to_file(
-                    path, sid, body, backup_root=backup_root, is_new=True, peer_section_names=[]
-                )
         if result.get("ok"):
-            self.statusBar().showMessage(f"已部署 [{sid}] → {path}（请在游戏内热重载）", 8000)
+            self.statusBar().showMessage(f"已部署 [{sid}] → {path.name}", 8000)
             QMessageBox.information(
                 self, "已部署到热重载文件",
                 f"[{sid}] 已写入:\n{path}\n\n"
-                f"请确认 AutoReloader 的 ReloaderConfig.ini 中 TargetINI 包含该文件。\n"
-                f"游戏中按热键或开启 AutoMonitor 即可生效。"
+                f"请确认游戏目录 ReloaderConfig.ini 的 TargetINI 包含该文件名，\n"
+                f"并用启动器以管理员运行游戏；保存后 AutoMonitor 或热键即可重载。",
             )
         else:
             QMessageBox.critical(self, "部署失败", result.get("message", ""))
 
     def _tool_deploy_hotfix_and_save(self):
+
         self.save_current()
         if self._dirty:
             return
@@ -2236,49 +2222,63 @@ class MainWindow(QMainWindow):
         )
 
     def save_as(self):
-        """另存为：把当前 section 写到用户指定的文件；不修改原来源文件。"""
+        """另存为：仅把「当前编辑器中的这一节」写到新文件，不改原文件。"""
         if not self.current_section_id:
             QMessageBox.information(self, "提示", "请先选择一个 section")
             return
         section_id = self.current_section_id
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "另存为（写入到指定文件，不改原文件）",
+            self, "另存为（只写入当前单位/节，不改原文件）",
             str(self.project.project_dir or Path.home()),
             "INI 文件 (*.ini)",
         )
         if not path_str:
             return
         path = Path(path_str)
-        body = self.code.toPlainText()
-        peers = self._peers_for(section_id)
+        from core.save_util import normalize_section_body, save_section_to_file, encode_ini_bytes, read_text
+
+        body = normalize_section_body(section_id, self.code.toPlainText())
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-        from core.save_util import save_section_to_file
-        # 已存在：先尝试原地替换该 section；没有该 section 再按新增插入
-        if path.exists():
-            result = save_section_to_file(
-                path, section_id, body, backup_root=backup_root,
-                is_new=False, peer_section_names=peers,
-            )
-            if not result.get("ok") or "未找到" in (result.get("message") or ""):
-                result = save_section_to_file(
-                    path, section_id, body, backup_root=backup_root,
-                    is_new=True, peer_section_names=peers,
+
+        # 新文件：只写这一节，绝不把整个工程塞进去
+        # 已存在：只替换/插入这一节一次（save_section_to_file 内部已处理“找不到则追加”）
+        if not path.exists():
+            try:
+                backup_root.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                data = encode_ini_bytes(
+                    f"; Saved by INI Project Editor — section only\n{body}",
+                    "utf-8",
                 )
+                path.write_bytes(data)
+                result = {"ok": True, "message": f"已新建并写入 [{section_id}] → {path}", "path": str(path)}
+            except Exception as e:
+                result = {"ok": False, "message": str(e)}
         else:
             result = save_section_to_file(
                 path, section_id, body, backup_root=backup_root,
-                is_new=True, peer_section_names=peers,
+                is_new=False, peer_section_names=[],
             )
 
         if not result.get("ok"):
             QMessageBox.critical(self, "另存为失败", result.get("message", ""))
             return
 
+        # 同步编辑器为规范后的单节，避免界面仍显示重复头
+        self._loading_section = True
+        self.code.blockSignals(True)
+        self.code.setPlainText(body if body.endswith("\n") else body + "\n")
+        self.code.blockSignals(False)
+        self._loading_section = False
+
         box = QMessageBox(self)
         box.setWindowTitle("另存为成功")
         box.setText(result.get("message", "OK"))
-        box.setInformativeText("是否切换到该文件继续编辑？（原文件不会被修改）")
-        yes = box.addButton("切换到新文件", QMessageBox.AcceptRole)
+        box.setInformativeText("是否用该文件作为单文件模式打开？（原工程文件不会被修改）")
+        yes = box.addButton("打开新文件", QMessageBox.AcceptRole)
         box.addButton("保持当前", QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() == yes:

@@ -54,19 +54,57 @@ def encode_ini_bytes(text: str, enc: str) -> bytes:
 
 
 def normalize_section_body(section_id: str, body: str) -> str:
-    """保证 body 以 [ID] 开头，去掉工具自己加的提示行"""
-    lines = []
+    """
+    规范为单一 section 文本：
+      [ID]
+      key=value
+      ...
+    - 去掉工具提示行
+    - 多个同名 [ID] 只保留第一段
+    - 头前注释不会再触发“缺头就再插一个 [ID]”
+    """
+    lines_in = []
     for ln in body.splitlines():
         s = ln.strip()
         if s.startswith("; 来源:") or s.startswith("; 来源："):
             continue
-        lines.append(ln.rstrip())
-    text = "\n".join(lines).strip()
-    if not text:
-        text = f"[{section_id}]"
-    first = text.splitlines()[0].strip() if text else ""
-    if not (first.startswith("[") and first.endswith("]")):
-        text = f"[{section_id}]\n" + text
+        lines_in.append(ln.rstrip())
+    text = "\n".join(lines_in).strip("\n")
+    if not text.strip():
+        return f"[{section_id}]\n"
+
+    header_re = re.compile(
+        rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\]\s*$"
+    )
+    matches = list(header_re.finditer(text))
+    if matches:
+        start = matches[0].start()
+        preamble = text[:start].strip("\n")
+        rest = text[matches[0].end() :]
+        next_hdr = re.search(r"(?m)^\[", rest)
+        chunk = rest[: next_hdr.start()] if next_hdr else rest
+        body_lines = [f"[{section_id}]"]
+        if preamble:
+            for ln in preamble.splitlines():
+                st = ln.strip()
+                if not st or (st.startswith("[") and st.endswith("]")):
+                    continue
+                body_lines.append(ln)
+        for ln in chunk.splitlines():
+            st = ln.strip()
+            if st.startswith("[") and st.endswith("]"):
+                break
+            body_lines.append(ln.rstrip())
+        text = "\n".join(body_lines)
+    else:
+        body_lines = [f"[{section_id}]"]
+        for ln in text.splitlines():
+            st = ln.strip()
+            if st.startswith("[") and st.endswith("]"):
+                continue
+            body_lines.append(ln.rstrip())
+        text = "\n".join(body_lines)
+
     if not text.endswith("\n"):
         text += "\n"
     return text

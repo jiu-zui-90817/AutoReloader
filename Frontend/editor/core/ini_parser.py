@@ -48,10 +48,16 @@ class INISection:
             self.source_file = other.source_file
 
     def to_text(self) -> str:
-        lines = []
+        # [ID] 必须在第一行，避免保存时再被 normalize 插一个头
+        lines = [f"[{self.name}]"]
         for c in self.comments_before:
-            lines.append(c)
-        lines.append(f"[{self.name}]")
+            if c is None:
+                continue
+            s = str(c).rstrip()
+            if not s:
+                continue
+            # 分类注释保留在 section 内
+            lines.append(s if s.lstrip().startswith(";") else f"; {s}")
         for key in self.key_order:
             val = self.keys.get(key, "")
             comment = self.inline_comments.get(key, "")
