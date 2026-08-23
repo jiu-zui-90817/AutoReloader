@@ -1,31 +1,37 @@
-INI 工程编辑器（AutoReloader 工具链）
+════════════════════════════════════════
+  INI 工程编辑器 — 使用说明
+  （AutoReloader 工具链附带）
+════════════════════════════════════════
 
-一、用途
-  面向红警2：尤里的复仇 / 心灵终结等 Mod 的工程级 INI 编辑。
-  可打开游戏/工程目录或单个 ini，浏览对象树、编辑、保存回源文件，
-  并可配合 AutoReloader 将当前单位部署到 hotfix.ini 做热重载调试。
+【这是什么】
+  面向红警2 / 尤里的复仇 / 心灵终结等 MOD 的 INI 工程浏览与编辑工具。
+  支持工程目录、Ares #include、CSF 中文名、按源文件保存与自动备份。
+  热重载由 AutoReloader.dll + 启动器完成；本程序可把当前单位部署到 hotfix.ini。
 
-二、运行（源码）
-  pip install -r requirements.txt
-  python main.py
+【推荐流程】
+  1. 用配套启动器（管理员）启动游戏。
+  2. 本程序打开游戏或 MOD 根目录。
+  3. 在对象树选择单位 / 武器等，在中间修改代码。
+  4. 「保存当前」写回来源文件（会备份）；或「部署到 hotfix」只影响热重载。
+  5. 游戏内按热键或 AutoMonitor 触发重载。
 
-三、工作模式
-  · 合并视图：汇总 rules / art / ai（含 #include），便于查找
-  · 单文件：只编辑当前 ini，适合拆分维护
+【文件菜单】
+  · 打开游戏文件夹 / 打开单文件
+  · 保存当前 / 保存全部
+  · 另存为：只导出当前这一节到新文件（不改原工程）
 
-四、保存
-  · 保存前自动备份到工程 backups/（或程序配置目录）
-  · 写回编码为 UTF-8（无 BOM），与游戏引擎、热重载 DLL 一致
-  · 请勿用会强制加 BOM 的编辑器覆盖后再用本工具混存
+【工具 / 热重载】
+  · 设置 hotfix 路径（默认 hotfix.ini）
+  · 部署当前单位到 hotfix（不改 rules 源文件）
+  · 部署并保存：先保存工程再部署
 
-五、热重载
-  · 菜单/调试中设置 hotfix 目标（默认 hotfix.ini）
-  · 游戏需用对应启动器（MO / YR）加载 AutoReloader.dll
-  · 热重载只能刷新已存在的类型 ID，不能新增单位类型
+【注意】
+  · 保存为 UTF-8（无 BOM），以兼容引擎。
+  · 合并视图下同名节（如 Special）请结合分类/来源区分。
+  · 另存为不是「另存整个工程」，只保存当前编辑的 section。
 
-六、配置
-  · 配置 → 选择 Mental Omega / Yuri's Revenge 等 profile
-  · 用户配置写在程序目录或 %LocalAppData%\MO_INI_Editor\
+【与战术工坊的分工】
+  · 编辑器：改结构、全文、批量与工程维护
+  · 工坊：快调常用数值并部署 hotfix
 
-七、说明文件
-  · 属性词典：shared/schemas/common_flags.json（唯一源）
+版本与发布以 AutoReloader 仓库 Release 为准。
