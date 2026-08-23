@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from PySide6.QtCore import Qt, QObject, QEvent, QTimer
-from PySide6.QtGui import QAction, QKeySequence, QFont
+from PySide6.QtGui import QAction, QKeySequence, QFont, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
@@ -234,6 +234,19 @@ class NoWheelFilter(QObject):
 class WorkshopWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        try:
+            from pathlib import Path as _Path
+            for cand in (
+                _Path(__file__).resolve().parents[2] / "assets" / "workshop.ico",
+                _Path(__file__).resolve().parent / "assets" / "workshop.ico",
+                _Path.cwd() / "assets" / "workshop.ico",
+            ):
+                if cand.is_file():
+                    self.setWindowIcon(QIcon(str(cand)))
+                    break
+        except Exception:
+            pass
         self.setWindowTitle("战术工坊 2.x")
         self.resize(1280, 800)
 
