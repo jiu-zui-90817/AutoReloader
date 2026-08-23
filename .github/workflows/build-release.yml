@@ -341,25 +341,46 @@ jobs:
           name: 热重载工具-尤里的复仇
           path: yr_pack
 
-      - name: Zip packages
+      - name: Zip packages (ASCII filenames)
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
-          # 文件夹 → zip，便于 Release 单文件下载
-          (cd mo_pack && zip -r -q "../热重载工具-心灵终结-${TAG}.zip" .)
-          (cd yr_pack && zip -r -q "../热重载工具-尤里的复仇-${TAG}.zip" .)
-          ls -la *.zip
+          # 使用 ASCII 文件名，避免 GitHub Release API 对非 ASCII 资源名更新失败
+          (cd mo_pack && zip -r -q "../AutoReloader-MO-${TAG}.zip" .)
+          (cd yr_pack && zip -r -q "../AutoReloader-YR-${TAG}.zip" .)
+          ls -la AutoReloader-*-"${TAG}".zip
+          echo "MO_ZIP=AutoReloader-MO-${TAG}.zip" >> "$GITHUB_ENV"
+          echo "YR_ZIP=AutoReloader-YR-${TAG}.zip" >> "$GITHUB_ENV"
 
-      - name: Publish Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: AutoReloader ${{ steps.tag.outputs.tag }}
-          generate_release_notes: true
-          files: |
-            热重载工具-心灵终结-${{ steps.tag.outputs.tag }}.zip
-            热重载工具-尤里的复仇-${{ steps.tag.outputs.tag }}.zip
-          fail_on_unmatched_files: true
+      # 不用 softprops 改 label（中文名易 404）；gh 上传更稳
+      - name: Publish Release with gh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          TITLE="AutoReloader ${TAG}"
+          # 已有同名 Release 则直接用；否则创建
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists, will upload/overwrite assets"
+          else
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --generate-notes \
+              --verify-tag || \
+            gh release create "$TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$TITLE" \
+              --generate-notes \
+              --target "${{ github.sha }}"
+          fi
+          # --clobber 覆盖已上传的同名资源（重跑友好）
+          gh release upload "$TAG" \
+            "AutoReloader-MO-${TAG}.zip" \
+            "AutoReloader-YR-${TAG}.zip" \
+            --repo "${{ github.repository }}" \
+            --clobber
+          gh release view "$TAG" --repo "${{ github.repository }}"
