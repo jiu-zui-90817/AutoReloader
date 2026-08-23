@@ -1,80 +1,135 @@
-# YR/MO Hot Reloader Toolchain（红警2 / 心灵终结 热重载工具链）
+# AutoReloader — 红警2 / 尤里的复仇 · 心灵终结 热重载工具链
 
-一套面向 **红警2：尤里的复仇 (YR)** 与 **心灵终结 (Mental Omega)** 的前后端分离式动态热重载工具链。
+在游戏运行中修改 INI 参数并即时生效，配套 **INI 工程编辑器** 与 **战术工坊**，面向 MOD 作者与调试向玩家。
 
-## 组成
+| 组件 | 作用 |
+|------|------|
+| **AutoReloader.dll** | 注入游戏进程，监控目标 INI 并热写属性 |
+| **MO / YR 启动器** | 以管理员权限启动游戏并注入 DLL（需 UAC） |
+| **INI 工程编辑器** | 工程级浏览 / 编辑 / 保存 / 备份，单单位调试部署 |
+| **战术工坊 2.x** | 快调常用字段 → 安全写入 `hotfix.ini` |
 
-1. **后端注入引擎 (`AutoReloader.dll`)**：基于 YRpp，游戏运行中监测并写入 INI 属性。  
-2. **前端工具（`Frontend/`）**
-   - **战术工坊 2.x**（`Frontend/workshop/`）：快调常用参数 → 部署 `hotfix.ini`；**不再依赖** Codex 词典。  
-   - **经典战术工坊**（`Frontend/TacticalConsole.py`，若仓库中仍保留）：旧版入口，需 `Codex_ZH.json`。  
-   - **INI 工程编辑器**（`Frontend/editor/`）：工程级浏览/编辑/保存，附带单单位调试与 hotfix 部署。  
-3. **公共逻辑（`shared/`）**：INI / Ares `#include`、CSF、hotfix 写回、词典构建、profile 与属性说明。
-
-**版本号与 GitHub Release 以本仓库（AutoReloader）为准。**
+**版本与 Release 以本仓库为准。**
 
 ---
 
-## 仓库目录
+## 界面预览
+
+> 正式截图请替换 `assets/screenshots/` 下同名文件后，本段图片会自动更新。
+
+### INI 工程编辑器
+
+![编辑器主界面](assets/screenshots/01_editor_main.png)
+
+![编辑器调试与部署](assets/screenshots/02_editor_debug.png)
+
+### 战术工坊
+
+![工坊主界面](assets/screenshots/03_workshop_main.png)
+
+![工坊部署 hotfix](assets/screenshots/04_workshop_deploy.png)
+
+---
+
+## 下载与安装（正式包）
+
+1. 从 [Releases](../../releases) 下载对应版本：
+   - **心灵终结 (MO)** 整合包  
+   - **尤里的复仇 (YR)** 整合包  
+2. 解压到游戏根目录（或按包内说明放置）。  
+3. 典型内容包括：
+   - 启动器（`MO启动器.exe` / `YR启动器.exe`）与 `AutoReloader.dll`、`ReloaderConfig.ini`
+   - `INI工程编辑器/`、`战术工坊/`（或合并目录，以实际包为准）
+4. **必须用配套启动器启动游戏**（会请求管理员权限），不要直接双击原客户端后指望注入成功。
+
+源码运行见下文「开发者」。
+
+---
+
+## 快速使用
+
+### 热重载（游戏内）
+
+1. 用启动器启动游戏并进入可调试场景。  
+2. 在工坊或编辑器中修改参数，部署到 **`hotfix.ini`**（或你在 `ReloaderConfig.ini` 里配置的 TargetINI）。  
+3. 按热键（默认常见为 **F5**，以配置为准）或开启 AutoMonitor。  
+4. 确认改动生效；需要时用工坊「恢复」清理安全模式下的覆盖。
+
+### 战术工坊
+
+- 打开游戏 / MOD 根目录 → 在对象树选单位 → 改常用字段 → **部署**。  
+- **安全模式**（推荐）：只写 `hotfix.ini`，不改原版 rules。  
+- 显示名来自 CSF；可重建词典以刷新列表。
+
+### INI 工程编辑器
+
+- 打开工程目录（或单文件）→ 对象树浏览 → 中间改代码 → **保存当前 / 保存全部**（自动备份）。  
+- 右侧为属性说明（只读释义）；调试可把当前单位部署到 hotfix。  
+- 支持 Ares `#include`、profile（Mental Omega / YR）、CSF 中文对照。  
+
+更细的说明见：
+
+- `Frontend/editor/使用说明.txt`
+- `Frontend/editor/README.md`
+- `Frontend/workshop/README.md`
+
+---
+
+## 仓库结构
 
 ```text
-Backend/                  # 注入 DLL 源码
-Launcher/                 # MOInjector / YRInjector
-shared/                   # 工坊与编辑器共用逻辑与 schemas
+Backend/           注入 DLL（YRpp）
+Launcher/          MO / YR 启动器（需管理员清单）
+shared/            公共 INI / CSF / hotfix / schema
 Frontend/
-  workshop/               # 战术工坊 2.x（推荐）
-  editor/                 # INI 工程编辑器
-docs/frontend-roadmap.md
-.github/workflows/        # Windows 双打包（若启用 CI）
+  editor/          INI 工程编辑器
+  workshop/        战术工坊 2.x
+assets/
+  *.ico            程序图标
+  screenshots/     README 用截图（可替换）
+docs/              设计与路线说明
+scripts/           发布打包脚本
 ```
 
 ---
 
-## 快速上手
+## 图标与截图
 
-### 1. 后端
+| 文件 | 用途 |
+|------|------|
+| `assets/editor.ico` | 工程编辑器 |
+| `assets/workshop.ico` | 战术工坊 |
+| `assets/reloader.ico` | 工具链 / DLL 相关 |
+| `assets/launcher_mo.ico` / `launcher_yr.ico` | 启动器 |
+| `assets/screenshots/*.png` | 本 README 预览图 |
 
-1. 从 [Releases](../../releases) 下载整合包。  
-2. 将 `AutoReloader.dll`、`ReloaderConfig.ini`、`MOInjector.exe` 放入游戏根目录。  
-3. **必须用 `MOInjector.exe` 启动游戏**。
+当前仓库内为 **可用占位图标与截图框**。正式发布前建议：
 
-### 2. 战术工坊 2.x（推荐）
+1. 用设计稿替换 `.ico`（保留多尺寸 16–256）。  
+2. 用真实窗口截图替换 `screenshots/` 四张图（建议 1280×720 或同比例）。  
+3. 不必改 README 里的路径。
+
+详见 `assets/README.md`。
+
+---
+
+## 开发者
 
 ```bash
+# 编辑器
+pip install -r Frontend/editor/requirements.txt
+python Frontend/editor/main.py
+
+# 工坊
 pip install -r Frontend/workshop/requirements.txt
 python Frontend/workshop/main.py
 ```
 
-打开游戏/Mod 根目录即可；显示名与列表由 rules + CSF 生成，可「重建词典」。
-
-### 3. INI 工程编辑器
-
-```bash
-pip install -r Frontend/editor/requirements.txt
-python Frontend/editor/main.py
-```
-
-对象树 + CSF 中文名、Ares `#include`、按源文件保存与备份、属性说明、单单位调试部署 hotfix。详见 `Frontend/editor/README.md`。
+属性说明唯一源：`shared/schemas/common_flags.json`。  
+CI：`.github/workflows/build-release.yml`（DLL + 启动器 + 前端打包）。
 
 ---
 
-## 标准调试流程
+## 许可
 
-1. 在工坊或编辑器中改参数。  
-2. 部署到 `hotfix.ini`（安全模式）或写回工程源文件。  
-3. 游戏内热键（默认 F5）或 AutoMonitor 触发重载。  
-4. 需要时用前端瘦身/恢复逻辑清理脏数据。
-
----
-
-## 打包与词典说明
-
-- GitHub Actions（若已配置）：编辑器 / 工坊可出 PyInstaller、Nuitka 单文件包。  
-- 属性说明唯一源：`shared/schemas/common_flags.json`（构建时同步到各工具 `schemas/`）。  
-- 本地日常只改这一份即可。
-
----
-
-## 许可证
-
-见 `LICENSE`。
+见 `LICENSE`。请遵守游戏与 MOD 相关使用约定；勿将本工具用于破坏他人受保护资源的宣传用途。
