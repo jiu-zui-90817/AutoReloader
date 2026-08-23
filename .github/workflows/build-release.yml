@@ -94,9 +94,9 @@ jobs:
       - name: Build
         run: |
           New-Item -ItemType Directory -Force -Path dist/launchers | Out-Null
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MO启动器.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MO启动器.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YR启动器.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YR启动器.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
           Get-ChildItem dist/launchers
       - uses: actions/upload-artifact@v4
@@ -280,13 +280,15 @@ jobs:
           path: bins/workshop
       - name: Pack MO + YR editions
         shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
         run: |
           python scripts/pack_release.py
           if ($LASTEXITCODE -ne 0) { throw "pack_release.py failed" }
-          Write-Host "==== MO ===="
-          Get-ChildItem -Recurse "热重载工具-心灵终结" | Format-Table Name, Length
-          Write-Host "==== YR ===="
-          Get-ChildItem -Recurse "热重载工具-尤里的复仇" | Format-Table Name, Length
+          # 避免控制台代码页打印中文失败
+          cmd /c "dir /s /b 热重载工具-心灵终结"
+          cmd /c "dir /s /b 热重载工具-尤里的复仇"
 
       - uses: actions/upload-artifact@v4
         with:
