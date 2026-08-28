@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# 编辑器 / 工坊运行时
+**/backups/
+**/.mo_ini_editor_cache/
+**/.cache/
+**/cache/
+*.log
+
+# 本地配置与用户数据（勿提交本机路径）
+# 若需提供示例，请用 config.example.json
+Frontend/editor/config.json
+Frontend/workshop/config.json
+
+# PyInstaller / Nuitka 产物
+*.spec.bak
+**/MO_INI_Editor*/
+**/TacticalWorkshop*/
+**/*-PyInstaller/
+**/*-Nuitka/
+**/*.dist/
+**/*.build/
+**/*.onefile-build/
+
+# IDE / 系统
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 测试 / 临时
+/tmp/
+*.tmp
+*.bak
+*.zip
+!assets/**/*.zip
+
+# Backend 编译
+Backend/build/
+Backend/bin/
+Backend/YRpp/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+!assets/**/*.dll
+
+# 本地解压的说明文档等大文件（按需保留）
+ARES3.0说明书/
