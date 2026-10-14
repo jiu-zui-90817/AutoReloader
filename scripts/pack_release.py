@@ -45,6 +45,26 @@ def _first_exe(folder: Path, preferred: list[str]) -> Path:
     raise SystemExit(f"no exe in {folder}")
 
 
+def _merge_tree(src: Path, dst: Path, *, overwrite_exe: bool = False) -> int:
+    """把 src 整树合并进 dst。同名文件：exe 默认不覆盖已有；其它文件后写覆盖（便于共用 Qt DLL）。"""
+    n = 0
+    if not src.is_dir():
+        raise SystemExit(f"merge source missing: {src}")
+    for path in src.rglob("*"):
+        rel = path.relative_to(src)
+        target = dst / rel
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if path.suffix.lower() == ".exe" and target.exists() and not overwrite_exe:
+            _log("skip exe exists", target.as_posix())
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        n += 1
+    return n
+
+
 def pack(
     root_name: str,
     editor_profile: str,
@@ -59,20 +79,19 @@ def pack(
       AutoReloader.dll
       ReloaderConfig.ini
       README.txt
-      Tools/
+      Tools/                    # 编辑器 + 工坊共用运行库（standalone 合并）
         INIEditor.exe
         Workshop.exe
         config.json
         profiles.json
         schemas/common_flags.json
-        README.txt   (optional)
+        *.dll / PySide6 / ...   # Nuitka standalone 依赖，两工具共享
     """
     root = Path(root_name)
     if root.exists():
         shutil.rmtree(root)
     tools = root / "Tools"
     tools.mkdir(parents=True)
-    (tools / "schemas").mkdir(parents=True)
 
     # 启动器
     launcher_src = _first_exe(Path("bins/launchers"), launcher_src_names)
@@ -85,33 +104,60 @@ def pack(
             shutil.copy2(src, root / "ReloaderConfig.ini")
             break
 
-    # 编辑器
-    ed_exe = _first_exe(
-        Path("bins/editor"),
-        ["INIEditor.exe", "INI工程编辑器.exe", "editor.exe"],
-    )
-    shutil.copy2(ed_exe, tools / "INIEditor.exe")
-    shutil.copy2("bins/editor/config.json", tools / "config.json")
-    schema_src = Path("bins/editor/schemas/common_flags.json")
+    ed_bin = Path("bins/editor")
+    ws_bin = Path("bins/workshop")
+
+    # 先合并编辑器整包，再合并工坊（DLL 同名覆盖 = 共用一份 Qt/PySide）
+    n_ed = _merge_tree(ed_bin, tools, overwrite_exe=True)
+    n_ws = _merge_tree(ws_bin, tools, overwrite_exe=True)
+    _log("merged editor files", n_ed, "workshop files", n_ws)
+
+    # 确保主程序文件名固定
+    for preferred, names in (
+        ("INIEditor.exe", ["INIEditor.exe", "INI_Editor.exe", "INI工程编辑器.exe", "editor.exe", "main.exe"]),
+        ("Workshop.exe", ["Workshop.exe", "战术工坊.exe", "workshop.exe", "main.exe"]),
+    ):
+        target = tools / preferred
+        if target.is_file():
+            continue
+        found = None
+        for name in names:
+            c = tools / name
+            if c.is_file():
+                found = c
+                break
+        if not found:
+            # bins 里可能只有一层
+            try:
+                found = _first_exe(ed_bin if preferred.startswith("INI") else ws_bin, names)
+            except SystemExit:
+                found = None
+        if found and found.resolve() != target.resolve():
+            shutil.copy2(found, target)
+        if not target.is_file():
+            raise SystemExit(f"missing {target} after merge")
+
+    # 旁路配置（可写目录 = Tools）
+    cfg = ed_bin / "config.json"
+    if cfg.is_file():
+        shutil.copy2(cfg, tools / "config.json")
+    prof = ws_bin / "profiles.json"
+    if prof.is_file():
+        shutil.copy2(prof, tools / "profiles.json")
+    schema_src = ed_bin / "schemas" / "common_flags.json"
     if not schema_src.is_file():
         schema_src = Path("shared/schemas/common_flags.json")
-    shutil.copy2(schema_src, tools / "schemas" / "common_flags.json")
+    (tools / "schemas").mkdir(parents=True, exist_ok=True)
+    if schema_src.is_file():
+        shutil.copy2(schema_src, tools / "schemas" / "common_flags.json")
     for readme_src in (
-        Path("bins/editor/使用说明.txt"),
+        ed_bin / "使用说明.txt",
         Path("Frontend/editor/使用说明.txt"),
-        Path("bins/editor/README.txt"),
+        ed_bin / "README.txt",
     ):
         if readme_src.is_file():
             shutil.copy2(readme_src, tools / "README.txt")
             break
-
-    # 工坊
-    ws_exe = _first_exe(
-        Path("bins/workshop"),
-        ["Workshop.exe", "战术工坊.exe", "workshop.exe"],
-    )
-    shutil.copy2(ws_exe, tools / "Workshop.exe")
-    shutil.copy2("bins/workshop/profiles.json", tools / "profiles.json")
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
@@ -130,18 +176,20 @@ def pack(
         f"  {launcher_dst}\n"
         f"  AutoReloader.dll\n"
         f"  ReloaderConfig.ini\n\n"
-        f"Tools\\  frontend (shared schemas/config)\n"
-        f"  INIEditor.exe   (editor profile: {editor_profile})\n"
-        f"  Workshop.exe    (workshop profile: {workshop_profile})\n\n"
+        f"Tools\\  editor + workshop share one runtime folder (no onefile temp extract)\n"
+        f"  INIEditor.exe   (profile: {editor_profile})\n"
+        f"  Workshop.exe    (profile: {workshop_profile})\n"
+        f"  config.json / profiles.json / schemas / Qt-PySide DLLs\n\n"
         f"Usage:\n"
-        f"  1. Copy DLL / ReloaderConfig.ini / launcher into the game folder\n"
+        f"  1. Place launcher + DLL + ReloaderConfig.ini in the game folder\n"
         f"  2. Start the game with this package's launcher (admin UAC)\n"
-        f"  3. Run Tools\\INIEditor.exe or Tools\\Workshop.exe from any writable path\n"
-        f"  4. cache / local config files are created at runtime; no need to ship them\n"
+        f"  3. Run Tools\\INIEditor.exe or Tools\\Workshop.exe (keep Tools folder intact)\n"
+        f"  4. Do not move only the .exe out of Tools — DLLs must stay beside them\n"
         f"  5. INI saves use UTF-8 without BOM\n"
     )
     (root / "README.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name)
+
 
 
 def main() -> int:
