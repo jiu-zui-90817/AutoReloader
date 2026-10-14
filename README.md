@@ -30,19 +30,38 @@
 
 ## 界面预览
 
-> 正式截图请替换 `assets/screenshots/` 下同名文件后，本段图片会自动更新。
+截图位于 `assets/screenshots/`，替换同名文件后本段会自动更新。
 
 ### INI 工程编辑器
 
+主界面（对象树 + 合并视图）
+
 ![编辑器主界面](assets/screenshots/01_editor_main.png)
 
-![编辑器调试与部署](assets/screenshots/02_editor_debug.png)
+代码编辑（语法高亮、属性说明）
+
+![代码编辑](assets/screenshots/02_editor_code.png)
+
+依赖关系图（单位 → 武器 / 弹头 / 抛射体 / 前提 / 动画）
+
+![依赖关系图](assets/screenshots/03_editor_deps.png)
+
+新增单位向导
+
+![新增单位](assets/screenshots/04_editor_new.png)
+
+克隆单位向导
+
+![克隆单位](assets/screenshots/05_editor_clone.png)
+
+调试与部署
+
+![调试部署](assets/screenshots/06_editor_debug.png)
 
 ### 战术工坊
 
-![工坊主界面](assets/screenshots/03_workshop_main.png)
+![工坊主界面](assets/screenshots/07_workshop_main.png)
 
-![工坊部署 hotfix](assets/screenshots/04_workshop_deploy.png)
 
 ---
 
