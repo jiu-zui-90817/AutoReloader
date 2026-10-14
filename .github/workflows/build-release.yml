@@ -135,49 +135,59 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r Frontend/editor/requirements.txt nuitka ordered-set zstandard
-      - name: Nuitka
+      - name: Nuitka standalone (不 onefile，避免每次解压到临时目录)
         working-directory: Frontend/editor
         shell: pwsh
         run: |
           $iconArgs = @()
           if (Test-Path ../../assets/editor.ico) { $iconArgs += "--windows-icon-from-ico=../../assets/editor.ico" }
+          # standalone：依赖与 exe 同目录，启动更快、更稳；与工坊在 pack 阶段合并同一 Tools\
+          # attach：cmd 启动可见日志；崩溃写入 INIEditor_crash.log
           python -m nuitka `
-            --onefile `
-            --windows-console-mode=disable `
+            --standalone `
+            --windows-console-mode=attach `
             --enable-plugin=pyside6 `
             --assume-yes-for-downloads `
             --msvc=latest `
             @iconArgs `
             --output-dir=../../build/editor `
-            --output-filename=INI_Editor.exe `
+            --output-filename=INIEditor.exe `
             --include-data-files=config.json=config.json `
             --include-data-dir=schemas=schemas `
             --include-module=paths `
             --include-package=core `
             --include-package=ui `
+            --include-module=core.dependency_view `
+            --include-module=core.linter `
+            --include-module=core.save_util `
+            --include-module=ui.ini_highlighter `
             --nofollow-import-to=tkinter `
             --remove-output `
             main.py
           if ($LASTEXITCODE -ne 0) { throw "Nuitka editor failed" }
-      - name: Stage folder (exe + 旁路资源)
+      - name: Stage folder (整个 .dist，供与工坊共用运行库)
         shell: pwsh
         run: |
           $out = "dist/editor"
           Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $out/schemas | Out-Null
-          Copy-Item build/editor/INI_Editor.exe "$out/INIEditor.exe"
-          Copy-Item Frontend/editor/config.json "$out/config.json"
-          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
-          if (Test-Path Frontend/editor/使用说明.txt) { Copy-Item Frontend/editor/使用说明.txt "$out/" }
-          # 校验
-          @(
-            "$out/INIEditor.exe",
-            "$out/config.json",
-            "$out/schemas/common_flags.json"
-          ) | ForEach-Object {
-            if (-not (Test-Path $_)) { throw "missing $_" }
-            Write-Host "OK $_" (Get-Item $_).Length
+          $dist = Get-ChildItem -Path build/editor -Directory -Filter "*.dist" | Select-Object -First 1
+          if (-not $dist) { throw "editor .dist not found under build/editor" }
+          Write-Host "Using dist:" $dist.FullName
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $dist.FullName "*") -Destination $out -Recurse -Force
+          # 统一主程序名
+          $exe = Get-ChildItem $out -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "no exe in editor dist" }
+          if ($exe.Name -ne "INIEditor.exe") {
+            Move-Item -Force $exe.FullName (Join-Path $out "INIEditor.exe")
           }
+          # 旁路资源（config 写在 exe 旁，paths.py 可读）
+          Copy-Item -Force Frontend/editor/config.json "$out/config.json"
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          if (Test-Path Frontend/editor/使用说明.txt) { Copy-Item -Force Frontend/editor/使用说明.txt "$out/" }
+          if (-not (Test-Path "$out/INIEditor.exe")) { throw "missing INIEditor.exe" }
+          Write-Host "OK editor files:" (Get-ChildItem $out -Recurse -File | Measure-Object).Count
       - uses: actions/upload-artifact@v4
         with:
           name: editor-bundle
@@ -208,7 +218,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r Frontend/workshop/requirements.txt nuitka ordered-set zstandard
-      - name: Nuitka
+      - name: Nuitka standalone
         shell: pwsh
         run: |
           $env:PYTHONPATH = (Resolve-Path .).Path
@@ -216,7 +226,7 @@ jobs:
           $iconArgs = @()
           if (Test-Path ../../assets/workshop.ico) { $iconArgs += "--windows-icon-from-ico=../../assets/workshop.ico" }
           python -m nuitka `
-            --onefile `
+            --standalone `
             --windows-console-mode=disable `
             --enable-plugin=pyside6 `
             --assume-yes-for-downloads `
@@ -240,9 +250,18 @@ jobs:
         run: |
           $out = "dist/workshop"
           Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $out/schemas | Out-Null
-          Copy-Item build/workshop/Workshop.exe "$out/Workshop.exe"
-          Copy-Item shared/profiles.json "$out/profiles.json"
+          $dist = Get-ChildItem -Path build/workshop -Directory -Filter "*.dist" | Select-Object -First 1
+          if (-not $dist) { throw "workshop .dist not found under build/workshop" }
+          Write-Host "Using dist:" $dist.FullName
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $dist.FullName "*") -Destination $out -Recurse -Force
+          $exe = Get-ChildItem $out -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "no exe in workshop dist" }
+          if ($exe.Name -ne "Workshop.exe") {
+            Move-Item -Force $exe.FullName (Join-Path $out "Workshop.exe")
+          }
+          Copy-Item -Force shared/profiles.json "$out/profiles.json"
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
           if (Test-Path Frontend/workshop/README.md) { Copy-Item Frontend/workshop/README.md "$out/说明.txt" }
           @(
