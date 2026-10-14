@@ -14,10 +14,19 @@ import sys
 from pathlib import Path
 from typing import Dict, Optional, List
 
-from PySide6.QtCore import Qt, QTimer, QSize, QRect
-from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QTextCursor, QPainter, QColor, QFont, QTextFormat, QIcon
+from PySide6.QtCore import Qt, QTimer, QSize, QRect, QPoint
+from PySide6.QtGui import (
+    QPainterPath, QAction, QActionGroup, QKeySequence, QTextCursor, QPainter, QColor, QFont,
+    QTextFormat, QIcon, QMouseEvent, QBrush, QPen,
+)
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+    QApplication,
+    QGraphicsItem,
+    QGraphicsSimpleTextItem,
+    QGraphicsPathItem,
+    QGraphicsRectItem,
+    QGraphicsScene,
+    QGraphicsView, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
     QStatusBar, QTabWidget, QSizePolicy, QDialog, QFormLayout, QDialogButtonBox,
@@ -29,7 +38,7 @@ from paths import app_dir, bundle_dir, user_config_path, user_cache_dir, is_froz
 
 APP_TITLE = "INI 工程编辑器"
 APP_TITLE_EN = "INI Project Editor"
-APP_VERSION = "2.0"
+APP_VERSION = "2.1.0"
 
 class LineNumberArea(QWidget):
     def __init__(self, editor):
@@ -42,22 +51,58 @@ class LineNumberArea(QWidget):
     def paintEvent(self, event):
         self.editor.line_number_area_paint_event(event)
 
+    def mousePressEvent(self, event):
+        if hasattr(self.editor, "line_number_area_mouse_press"):
+            self.editor.line_number_area_mouse_press(event)
+        else:
+            super().mousePressEvent(event)
+
 
 class CodeEditor(QPlainTextEdit):
-    """带行号的代码编辑框"""
+    """带行号、INI 高亮的代码编辑框。注释折叠不改动 QTextBlock 布局，避免行号错乱。"""
     def __init__(self, parent=None):
         super().__init__(parent)
         self._line_area = LineNumberArea(self)
+        self._comments_collapsed = False
+        self._text_before_fold: str = ""
+        self._lint_selections: list = []
+        self._lint_tooltips: dict = {}  # block_number -> message
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
         self.cursorPositionChanged.connect(self.highlight_current_line)
         self.update_line_number_area_width(0)
         self.highlight_current_line()
+        try:
+            from ui.ini_highlighter import IniHighlighter
+            self._highlighter = IniHighlighter(self.document(), dark=True)
+        except Exception:
+            self._highlighter = None
+        self.setMouseTracking(True)
+
+    def set_editor_font_size(self, pt: int):
+        """用控件级样式设置字号（覆盖全局 QSS 时也生效）。"""
+        pt = max(9, min(28, int(pt)))
+        self._font_pt = pt
+        self.setStyleSheet(
+            "QPlainTextEdit {"
+            "  background: #0a0a0c; color: #d4d4d4;"
+            "  border: 1px solid #3a3a48; border-radius: 6px;"
+            f"  font-family: Consolas, 'Cascadia Mono', 'Courier New', monospace;"
+            f"  font-size: {pt}pt;"
+            "  selection-background-color: #5b4b8a;"
+            "  padding: 4px;"
+            "}"
+        )
+        f = self.font()
+        f.setFamily("Consolas")
+        f.setPointSize(pt)
+        self.setFont(f)
+        self.update_line_number_area_width(0)
+        self.viewport().update()
 
     def line_number_area_width(self) -> int:
         digits = max(1, len(str(max(1, self.blockCount()))))
-        # 左右留白，避免数字贴边或盖住正文
-        return 16 + self.fontMetrics().horizontalAdvance("9") * digits
+        return 10 + self.fontMetrics().horizontalAdvance("9") * digits
 
     def update_line_number_area_width(self, _=0):
         w = self.line_number_area_width()
@@ -82,37 +127,93 @@ class CodeEditor(QPlainTextEdit):
         self.update_line_number_area_width(0)
 
     def setPlainText(self, text: str):
+        self._comments_collapsed = False
+        self._text_before_fold = ""
         super().setPlainText(text)
-        # setPlainText 后立刻按新行数调整边距，避免首屏行号盖住代码
         self.update_line_number_area_width(0)
-        # 再延迟一帧，等布局完成（首次显示时 contentsRect 可能尚未稳定）
         QTimer.singleShot(0, lambda: self.update_line_number_area_width(0))
 
     def showEvent(self, event):
         super().showEvent(event)
         self.update_line_number_area_width(0)
 
+    @staticmethod
+    def _is_comment_line(text: str) -> bool:
+        s = (text or "").lstrip()
+        return bool(s) and s.startswith(";")
+
+    def fold_all_comments(self) -> int:
+        """
+        用「去掉注释行」的方式折叠，不调用 QTextBlock.setVisible，
+        避免破坏布局导致行号重复/错乱。展开时恢复原文。
+        """
+        if self._comments_collapsed:
+            return 0
+        full = self.toPlainText()
+        lines = full.splitlines(keepends=True)
+        kept = []
+        n = 0
+        for line in lines:
+            raw = line[:-1] if line.endswith("\n") else line
+            if raw.endswith("\r"):
+                raw = raw[:-1]
+            if self._is_comment_line(raw):
+                n += 1
+                continue
+            kept.append(line)
+        if n == 0:
+            return 0
+        self._text_before_fold = full
+        self._comments_collapsed = True
+        # 保持光标尽量不乱：直接替换正文
+        cur = self.textCursor().position()
+        self.blockSignals(True)
+        super().setPlainText("".join(kept))
+        self.blockSignals(False)
+        self.update_line_number_area_width(0)
+        # 提示：折叠中编辑会在展开时被原文覆盖风险——折叠仅作阅读
+        return n
+
+    def expand_all_folds(self) -> int:
+        if not self._comments_collapsed or not self._text_before_fold:
+            self._comments_collapsed = False
+            self._text_before_fold = ""
+            return 0
+        text = self._text_before_fold
+        self._comments_collapsed = False
+        self._text_before_fold = ""
+        self.blockSignals(True)
+        super().setPlainText(text)
+        self.blockSignals(False)
+        self.update_line_number_area_width(0)
+        return text.count("\n") + 1
+
     def line_number_area_paint_event(self, event):
+        """标准 QPlainTextEdit 行号绘制：严格用 block.blockNumber()。"""
         painter = QPainter(self._line_area)
         painter.fillRect(event.rect(), QColor("#1a1a1e"))
+
         block = self.firstVisibleBlock()
-        block_number = block.blockNumber()
         top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
         bottom = top + int(self.blockBoundingRect(block).height())
         height = self.fontMetrics().height()
+
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
+                number = block.blockNumber() + 1
                 painter.setPen(QColor("#6a6a75"))
                 painter.drawText(
-                    0, top, self._line_area.width() - 6,
-                    height,
+                    0, top, self._line_area.width() - 4, height,
                     Qt.AlignRight | Qt.AlignVCenter,
-                    str(block_number + 1),
+                    str(number),
                 )
             block = block.next()
             top = bottom
             bottom = top + int(self.blockBoundingRect(block).height())
-            block_number += 1
+
+    def line_number_area_mouse_press(self, event: QMouseEvent):
+        # 不再用行号区点选折叠，避免误触
+        pass
 
     def highlight_current_line(self):
         from PySide6.QtWidgets import QTextEdit
@@ -121,7 +222,95 @@ class CodeEditor(QPlainTextEdit):
         selection.format.setProperty(QTextFormat.FullWidthSelection, True)
         selection.cursor = self.textCursor()
         selection.cursor.clearSelection()
-        self.setExtraSelections([selection])
+        # 保留校验波浪线，叠在当前行高亮之上
+        extras = [selection]
+        extras.extend(getattr(self, "_lint_selections", []) or [])
+        self.setExtraSelections(extras)
+
+    def clear_lint_marks(self):
+        self._lint_selections = []
+        self._lint_tooltips = {}
+        self.highlight_current_line()
+
+    def apply_lint_marks(self, issues: list):
+        """
+        issues: LintIssue 或 dict，需有 key / message / severity。
+        按文档中「key=」行画红色波浪下划线；悬停行号区域或行上显示原因。
+        """
+        from PySide6.QtWidgets import QTextEdit
+        from PySide6.QtGui import QTextCharFormat
+
+        self._lint_selections = []
+        self._lint_tooltips = {}
+        if not issues:
+            self.highlight_current_line()
+            return
+
+        # key(lower) -> messages
+        by_key: dict = {}
+        for iss in issues:
+            if hasattr(iss, "key"):
+                k = (iss.key or "").strip()
+                msg = iss.message or ""
+                sev = getattr(iss, "severity", "warning") or "warning"
+            else:
+                k = str(iss.get("key") or "").strip()
+                msg = str(iss.get("message") or "")
+                sev = str(iss.get("severity") or "warning")
+            if not k:
+                continue
+            by_key.setdefault(k.lower(), []).append((sev, msg))
+
+        doc = self.document()
+        block = doc.begin()
+        while block.isValid():
+            text = block.text().strip()
+            if text and not text.startswith(";") and not text.startswith("[") and "=" in text:
+                key = text.split("=", 1)[0].strip()
+                msgs = by_key.get(key.lower())
+                if msgs:
+                    cursor = QTextCursor(block)
+                    cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+                    sel = QTextEdit.ExtraSelection()
+                    fmt = QTextCharFormat()
+                    is_err = any(s == "error" for s, _ in msgs)
+                    if is_err:
+                        fmt.setUnderlineColor(QColor("#f87171"))
+                        fmt.setBackground(QColor(127, 29, 29, 90))
+                    else:
+                        fmt.setUnderlineColor(QColor("#fb923c"))
+                        fmt.setBackground(QColor(120, 53, 15, 80))
+                    # WaveUnderline 在部分主题下不明显，再加 SpellCheck 风格兜底
+                    try:
+                        fmt.setUnderlineStyle(QTextCharFormat.WaveUnderline)
+                    except Exception:
+                        fmt.setUnderlineStyle(QTextCharFormat.SpellCheckUnderline)
+                    sel.format = fmt
+                    sel.cursor = cursor
+                    self._lint_selections.append(sel)
+                    tip = "\n".join(m for _, m in msgs)
+                    self._lint_tooltips[block.blockNumber()] = tip
+            block = block.next()
+        self.highlight_current_line()
+
+    def event(self, event):
+        # 悬停显示校验原因
+        from PySide6.QtCore import QEvent
+        if event.type() == QEvent.Type.ToolTip:
+            try:
+                from PySide6.QtGui import QCursor
+                pos = self.viewport().mapFromGlobal(QCursor.pos())
+                cursor = self.cursorForPosition(pos)
+                bn = cursor.blockNumber()
+                tip = (self._lint_tooltips or {}).get(bn)
+                if tip:
+                    from PySide6.QtWidgets import QToolTip
+                    QToolTip.showText(QCursor.pos(), tip, self)
+                    return True
+            except Exception:
+                pass
+        return super().event(event)
+
 
 from ui.debug_window import DebugWindow
 
@@ -263,10 +452,19 @@ class NewUnitDialog(QDialog):
         layout.addRow("注册名", self.id_edit)
 
         self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("可选，写入 Name=")
-        layout.addRow("显示名 Name", self.name_edit)
+        self.name_edit.setPlaceholderText("可选，写入 Name=（编辑器/内部名）")
+        layout.addRow("内部名 Name=", self.name_edit)
 
-        # 单位代码写入文件（不限制）
+        self.csf_zh_edit = QLineEdit()
+        self.csf_zh_edit.setPlaceholderText("游戏界面中文 → CSF 键 Name:注册名")
+        layout.addRow("CSF 中文名", self.csf_zh_edit)
+        self.write_csf = QCheckBox("保存时写入 CSF（UIName=Name:ID）")
+        self.write_csf.setChecked(True)
+        self.write_csf.setToolTip(
+            "写入 CSF：Name:ID = 中文名；与 Name= 内部名无关。不填中文则跳过。"
+        )
+        layout.addRow(self.write_csf)
+
         self.body_combo = QComboBox()
         self._all_files = list(project.list_ini_files())
         if project.work_mode == "single" and project.single_path:
@@ -276,7 +474,7 @@ class NewUnitDialog(QDialog):
         for f in self._all_files:
             self.body_combo.addItem(self._label(f), str(f))
         if self.body_combo.count() == 0:
-            self.body_combo.addItem("（稍后手动选择…）", "")
+            self.body_combo.addItem("（稍后选择）", "")
         layout.addRow("写入单位代码到", self.body_combo)
 
         self.also_register = QCheckBox("同时写入注册表")
@@ -382,8 +580,939 @@ class NewUnitDialog(QDialog):
             "also_register": self.also_register.isChecked() and bool(reg),
             "path": body,           # 单位代码
             "register_path": reg,   # 注册表文件（可与 body 不同）
+            "write_csf": bool(getattr(self, "write_csf", None) and self.write_csf.isChecked()),
+            "csf_text": (getattr(self, "csf_zh_edit", None).text().strip()
+                         if getattr(self, "csf_zh_edit", None) else ""),
         }
 
+
+
+
+class CloneUnitDialog(QDialog):
+    """B1 克隆单位向导：模板 → 新 ID、可选复制 art、注册表、CSF、重名校验。"""
+
+    def __init__(self, project: Project, parent=None, default_src: str = ""):
+        super().__init__(parent)
+        self.project = project
+        self.setWindowTitle("克隆单位")
+        self.setMinimumWidth(520)
+        layout = QFormLayout(self)
+
+        self.src_edit = QLineEdit()
+        self.src_edit.setPlaceholderText("模板注册名，例如 GACNST / E1")
+        if default_src:
+            self.src_edit.setText(default_src)
+        layout.addRow("模板 ID", self.src_edit)
+
+        self.src_info = QLabel("")
+        self.src_info.setStyleSheet("color:#b0b8c4; font-size:12px;")
+        self.src_info.setWordWrap(True)
+        layout.addRow("", self.src_info)
+
+        self.id_edit = QLineEdit()
+        self.id_edit.setPlaceholderText("新注册名（勿重复、勿空格）")
+        layout.addRow("新注册名", self.id_edit)
+
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("可选：覆盖 Name=；空则沿用模板")
+        layout.addRow("内部名 Name=", self.name_edit)
+
+        self.csf_zh_edit = QLineEdit()
+        self.csf_zh_edit.setPlaceholderText("游戏界面中文 → CSF 键 Name:新ID")
+        layout.addRow("CSF 中文名", self.csf_zh_edit)
+        self.write_csf = QCheckBox("保存时写入 CSF（UIName=Name:ID）")
+        self.write_csf.setChecked(True)
+        self.write_csf.setToolTip("写入 CSF：Name:ID = 中文名；与 Name= 无关。不填中文则跳过。")
+        layout.addRow(self.write_csf)
+
+        self.type_combo = QComboBox()
+        for k in list(NEW_TEMPLATES.keys()) + [
+            "SuperWeaponTypes", "ProjectileTypes", "TaskForces", "ScriptTypes", "TeamTypes"
+        ]:
+            if self.type_combo.findData(k) < 0:
+                self.type_combo.addItem(TYPE_LABELS.get(k, k), k)
+        self.type_combo.currentIndexChanged.connect(self._refresh_register_files)
+        layout.addRow("注册表类型", self.type_combo)
+
+        self.body_combo = QComboBox()
+        self._all_files = list(project.list_ini_files())
+        if project.work_mode == "single" and project.single_path:
+            sp = project.single_path.resolve()
+            if sp not in [f.resolve() for f in self._all_files]:
+                self._all_files.insert(0, sp)
+        for f in self._all_files:
+            self.body_combo.addItem(self._label(f), str(f))
+        if self.body_combo.count() == 0:
+            self.body_combo.addItem("（与模板同文件）", "")
+        layout.addRow("写入 rules 代码到", self.body_combo)
+
+        self.copy_art = QCheckBox("同时克隆 Art 节（若模板有同名 art）")
+        self.copy_art.setChecked(True)
+        layout.addRow(self.copy_art)
+
+        self.also_register = QCheckBox("写入注册表（推荐 +=ID）")
+        self.also_register.setChecked(True)
+        self.also_register.toggled.connect(self._on_reg_toggled)
+        layout.addRow(self.also_register)
+
+        self.reg_combo = QComboBox()
+        layout.addRow("写入注册表到", self.reg_combo)
+        self.reg_hint = QLabel("")
+        self.reg_hint.setStyleSheet("color:#b0b8c4; font-size:12px;")
+        self.reg_hint.setWordWrap(True)
+        layout.addRow(self.reg_hint)
+
+        self.rewrite_identity = QCheckBox("改写 Image / UIName 中的模板 ID → 新 ID")
+        self.rewrite_identity.setChecked(True)
+        layout.addRow(self.rewrite_identity)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self._try_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+        self.src_edit.textChanged.connect(self._on_src_changed)
+        self._on_src_changed(self.src_edit.text())
+        self._on_reg_toggled(True)
+
+    def _label(self, f: Path) -> str:
+        try:
+            if self.project.project_dir:
+                return str(f.relative_to(self.project.project_dir))
+        except Exception:
+            pass
+        return f.name
+
+    def _guess_type_list(self, sid: str) -> str:
+        ini = self.project.rules or self.project.active_ini()
+        if not ini:
+            return "VehicleTypes"
+        try:
+            groups = self.project.classify_sections(ini)
+            for gname, ids in groups.items():
+                if any(u.lower() == sid.lower() for u in ids):
+                    if gname in TYPE_LABELS or gname.endswith("Types") or gname in (
+                        "Warheads", "Animations", "Projectiles"
+                    ):
+                        return gname
+        except Exception:
+            pass
+        return "VehicleTypes"
+
+    def _on_src_changed(self, _t: str = ""):
+        sid = self.src_edit.text().strip()
+        if not sid:
+            self.src_info.setText("输入模板 ID 后显示来源信息")
+            return
+        sec = self.project.get_section(sid)
+        if not sec:
+            self.src_info.setText(f"未在 rules 中找到 [{sid}]")
+            self.src_info.setStyleSheet("color:#f59e0b; font-size:12px;")
+            return
+        src = self.project.get_source_path_for_section(sid) or "?"
+        has_art = bool(self.project.art and self.project.art.get_section(sid))
+        tl = self._guess_type_list(sid)
+        if hasattr(self, "type_combo"):
+            idx = self.type_combo.findData(tl)
+            if idx >= 0:
+                self.type_combo.setCurrentIndex(idx)
+        if src and src != "?" and hasattr(self, "body_combo"):
+            sp = str(Path(src).resolve())
+            for i in range(self.body_combo.count()):
+                d = self.body_combo.itemData(i)
+                if d and Path(d).resolve() == Path(sp):
+                    self.body_combo.setCurrentIndex(i)
+                    break
+        self.src_info.setText(
+            f"模板 [{sid}] · 类型约 {tl} · 来源 {src}"
+            + (" · 有 Art" if has_art else " · 无 Art 节")
+        )
+        self.src_info.setStyleSheet("color:#86efac; font-size:12px;")
+        if hasattr(self, "copy_art"):
+            self.copy_art.setEnabled(has_art)
+            if not has_art:
+                self.copy_art.setChecked(False)
+        if hasattr(self, "type_combo"):
+            self._refresh_register_files()
+
+    def _files_with_type_list(self, type_list: str) -> list:
+        files = self.project.files_with_type_list(type_list)
+        if files:
+            return files
+        if self.project.single_ini and self.project.single_path:
+            if self.project.single_ini.get_section(type_list):
+                return [self.project.single_path]
+        return []
+
+    def _refresh_register_files(self):
+        type_list = self.type_combo.currentData() or "VehicleTypes"
+        self.reg_combo.clear()
+        files = self._files_with_type_list(type_list)
+        for f in files:
+            self.reg_combo.addItem(self._label(f), str(f))
+        if not files:
+            self.reg_combo.addItem("（没有文件含此注册表）", "")
+            self.reg_hint.setText(f"无文件包含 [{type_list}]，可取消注册或换类型")
+            self.reg_hint.setStyleSheet("color:#f59e0b; font-size:12px;")
+        else:
+            self.reg_hint.setText(f"含 [{type_list}] 的文件共 {len(files)} 个")
+            self.reg_hint.setStyleSheet("color:#b0b8c4; font-size:12px;")
+
+    def _on_reg_toggled(self, checked: bool):
+        self.reg_combo.setEnabled(checked)
+        self.reg_hint.setEnabled(checked)
+        if checked:
+            self._refresh_register_files()
+
+    def _try_accept(self):
+        src = self.src_edit.text().strip()
+        new_id = self.id_edit.text().strip()
+        if not src:
+            QMessageBox.warning(self, "克隆", "请填写模板 ID")
+            return
+        if not self.project.get_section(src):
+            QMessageBox.warning(self, "克隆", f"模板 [{src}] 不存在于 rules/当前工程")
+            return
+        if not new_id or any(c.isspace() for c in new_id):
+            QMessageBox.warning(self, "克隆", "请填写有效的新注册名（不能有空格）")
+            return
+        if new_id.lower() == src.lower():
+            QMessageBox.warning(self, "克隆", "新 ID 不能与模板相同")
+            return
+        if self.project.get_section(new_id):
+            QMessageBox.warning(self, "克隆", f"[{new_id}] 已存在于 rules，请换名")
+            return
+        if self.project.art and self.project.art.get_section(new_id) and self.copy_art.isChecked():
+            QMessageBox.warning(self, "克隆", f"Art 中已有 [{new_id}]，请换名或取消克隆 Art")
+            return
+        if self.also_register.isChecked() and not self.reg_combo.currentData():
+            QMessageBox.warning(self, "克隆", "已勾选写入注册表，但没有可选文件")
+            return
+        self.accept()
+
+    def result_data(self) -> Optional[dict]:
+        src = self.src_edit.text().strip()
+        new_id = self.id_edit.text().strip()
+        if not src or not new_id:
+            return None
+        reg = self.reg_combo.currentData() or "" if self.also_register.isChecked() else ""
+        return {
+            "src_id": src,
+            "id": new_id,
+            "type_list": self.type_combo.currentData(),
+            "name": self.name_edit.text().strip(),
+            "path": self.body_combo.currentData() or "",
+            "also_register": self.also_register.isChecked() and bool(reg),
+            "register_path": reg,
+            "copy_art": self.copy_art.isChecked(),
+            "rewrite_identity": self.rewrite_identity.isChecked(),
+            "write_csf": bool(self.write_csf.isChecked()),
+            "csf_text": self.csf_zh_edit.text().strip(),
+        }
+
+
+class _DepNodeItem(QGraphicsRectItem):
+    """依赖图节点：双击打开对应节。"""
+
+    KIND_COLORS = {
+        "unit": ("#3b82f6", "#1e3a5f"),
+        "weapon": ("#eab308", "#5c4d0e"),
+        "warhead": ("#ef4444", "#5c1a1a"),
+        "projectile": ("#22c55e", "#14532d"),
+        "animation": ("#a855f7", "#3b0764"),
+        "particle": ("#14b8a6", "#134e4a"),
+        "particle_system": ("#14b8a6", "#134e4a"),
+        "building": ("#f97316", "#7c2d12"),
+        "art": ("#06b6d4", "#164e63"),
+        "group": ("#94a3b8", "#1e293b"),
+    }
+
+    def __init__(self, node: dict, w: float = 188, h: float = 58):
+        super().__init__(0, 0, w, h)
+        self.node_id = node.get("id") or ""
+        self.kind = node.get("kind") or "unit"
+        self._exists = node.get("exists", True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
+        self.setZValue(2)
+        border, fill = self.KIND_COLORS.get(self.kind, ("#94a3b8", "#334155"))
+        if not node.get("exists", True):
+            border, fill = "#f59e0b", "#422006"
+        self.setBrush(QBrush(QColor(fill)))
+        self.setPen(QPen(QColor(border), 2.0))
+        self.setToolTip(self._tip(node))
+
+        # 分组节点：标题用中文角色，不用内部唯一 id
+        if self.kind == "group":
+            title = (node.get("role") or node.get("field") or self.node_id)
+            if "·" in str(self.node_id) and not node.get("role"):
+                title = self.node_id.split("·", 1)[0]
+        else:
+            title = self.node_id
+        if len(title) > 18:
+            title = title[:16] + "…"
+        kind_zh = {
+            "unit": "单位", "weapon": "武器", "warhead": "弹头",
+            "projectile": "抛射体", "animation": "动画",
+            "particle": "粒子", "particle_system": "粒子系统",
+            "building": "建筑", "art": "Art", "group": "分组",
+        }.get(self.kind, self.kind)
+        role = (node.get("role") or "").strip()
+        extra = (node.get("extra") or "").strip()
+        # 拆出中文名与状态标记
+        status = ""
+        cname = extra
+        for tag in ("（已展开过）", "（被引用方）", "（未展开）"):
+            if tag in cname:
+                status += tag
+                cname = cname.replace(tag, "").strip(" ·")
+        cname = cname.strip(" ·")
+        if cname and len(cname) > 16:
+            cname = cname[:14] + "…"
+        # 第二行：中文名优先，再角色/类型（小白可读）
+        parts = []
+        if cname:
+            parts.append(cname)
+        if role:
+            parts.append(role)
+        elif self.kind == "group":
+            pass
+        else:
+            parts.append(kind_zh)
+        line2 = " · ".join(parts) if parts else kind_zh
+        if status:
+            line2 += " " + status
+        if not node.get("exists", True):
+            line2 += " ⚠不存在"
+
+        t1 = QGraphicsSimpleTextItem(title, self)
+        t1.setBrush(QBrush(QColor("#f8fafc")))
+        f = t1.font()
+        f.setBold(True)
+        f.setPointSize(10)
+        t1.setFont(f)
+        t1.setPos(8, 6)
+
+        t2 = QGraphicsSimpleTextItem(line2, self)
+        t2.setBrush(QBrush(QColor("#cbd5e1")))
+        f2 = t2.font()
+        f2.setPointSize(9)
+        t2.setFont(f2)
+        t2.setPos(8, 26)
+
+    def _tip(self, node: dict) -> str:
+        status = "正常" if node.get("exists", True) else "问题：工程中无此对象（引用目标不存在）"
+        lines = [f"[{node.get('id')}] ({node.get('kind')})"]
+        if node.get("extra"):
+            lines.append(str(node.get("extra")))
+        lines.append(status)
+        if node.get("exists", True):
+            lines.append("双击打开")
+        return "\n".join(lines)
+
+    def set_highlight(self, on: bool):
+        if on:
+            self.setPen(QPen(QColor("#38bdf8"), 3.0))
+            self.setZValue(5)
+        else:
+            border, fill = self.KIND_COLORS.get(self.kind, ("#94a3b8", "#334155"))
+            if not getattr(self, "_exists", True):
+                border = "#f59e0b"
+            self.setPen(QPen(QColor(border), 2.0))
+            self.setZValue(2)
+
+    def mousePressEvent(self, event):
+        sc = self.scene()
+        if sc and hasattr(sc, "dep_select"):
+            sc.dep_select(self.node_id)
+        super().mousePressEvent(event)
+
+    def hoverEnterEvent(self, event):
+        sc = self.scene()
+        if sc and hasattr(sc, "dep_highlight"):
+            sc.dep_highlight(self.node_id, transient=True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        sc = self.scene()
+        if sc and hasattr(sc, "dep_restore_selection_highlight"):
+            sc.dep_restore_selection_highlight()
+        super().hoverLeaveEvent(event)
+
+
+
+
+class _DepEdgeItem(QGraphicsPathItem):
+    def __init__(self, x1, y1, x2, y2, label: str = "", src_id: str = "", dst_id: str = ""):
+        super().__init__()
+        self.src_id = (src_id or "").lower()
+        self.dst_id = (dst_id or "").lower()
+        self._normal = QPen(QColor("#64748b"), 1.6)
+        self._hi = QPen(QColor("#38bdf8"), 3.2)
+        self._dim = QPen(QColor("#334155"), 1.0)
+        path = QPainterPath()
+        path.moveTo(x1, y1)
+        # 上下布局：控制点在垂直中段，横向略弯
+        cy = (y1 + y2) / 2
+        path.cubicTo(x1, cy, x2, cy, x2, y2)
+        self.setPath(path)
+        self.setPen(self._normal)
+        self.setZValue(1)
+        self.setAcceptHoverEvents(True)
+        self._label_text = label or ""
+        self._label_item = None
+        # 连线不常驻写字（会糊成一团）；悬停高亮时再显示
+        if label:
+            self.setToolTip(label)
+            mid_x, mid_y = (x1 + x2) / 2, (y1 + y2) / 2 - 12
+            self._label_item = QGraphicsSimpleTextItem(label, self)
+            self._label_item.setBrush(QBrush(QColor("#e0f2fe")))
+            f = self._label_item.font()
+            f.setPointSize(12)
+            f.setBold(True)
+            self._label_item.setFont(f)
+            self._label_item.setPos(mid_x - len(label) * 4.5, mid_y - 4)
+            self._label_item.setVisible(False)
+
+
+    def set_highlight(self, mode: str):
+        """mode: normal | hi | dim"""
+        if mode == "hi":
+            self.setPen(self._hi)
+            self.setZValue(3)
+            if self._label_item:
+                self._label_item.setVisible(True)
+                self._label_item.setBrush(QBrush(QColor("#e0f2fe")))
+        elif mode == "dim":
+            self.setPen(self._dim)
+            self.setZValue(0)
+            if self._label_item:
+                self._label_item.setVisible(False)
+        else:
+            self.setPen(self._normal)
+            self.setZValue(1)
+            if self._label_item:
+                self._label_item.setVisible(False)
+
+    def hoverEnterEvent(self, event):
+        sc = self.scene()
+        if sc and hasattr(sc, "dep_highlight"):
+            sc.dep_highlight(self.src_id, self.dst_id, transient=True)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        sc = self.scene()
+        if sc and hasattr(sc, "dep_restore_selection_highlight"):
+            sc.dep_restore_selection_highlight()
+        super().hoverLeaveEvent(event)
+
+
+class _DepGraphScene(QGraphicsScene):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.node_items = {}  # id_lower -> _DepNodeItem
+        self.edge_items = []
+        self._selected_id: str = ""  # 点击选中后常亮
+
+    def dep_select(self, node_id: str):
+        """点击节点：固定高亮其相关连线，直到点其它节点或空白。"""
+        self._selected_id = (node_id or "").lower()
+        if self._selected_id:
+            self.dep_highlight(self._selected_id, transient=False)
+        else:
+            self.dep_clear_highlight()
+
+    def dep_highlight(self, *ids, transient: bool = False):
+        """
+        高亮 focus 相关边/节点。
+        transient=True：悬停预览；离开后会回到选中态。
+        """
+        focus = {str(i).lower() for i in ids if i}
+        if not focus and self._selected_id and not transient:
+            focus = {self._selected_id}
+        related = set(focus)
+        for e in self.edge_items:
+            if e.src_id in focus or e.dst_id in focus:
+                related.add(e.src_id)
+                related.add(e.dst_id)
+        for e in self.edge_items:
+            if e.src_id in related and e.dst_id in related and (
+                e.src_id in focus or e.dst_id in focus
+            ):
+                e.set_highlight("hi")
+            else:
+                e.set_highlight("dim")
+        for k, item in self.node_items.items():
+            item.set_highlight(k in related)
+
+    def dep_restore_selection_highlight(self):
+        """悬停离开：若有选中则恢复常亮，否则全部恢复默认。"""
+        if self._selected_id:
+            self.dep_highlight(self._selected_id, transient=False)
+        else:
+            self.dep_clear_highlight()
+
+    def dep_clear_highlight(self):
+        self._selected_id = ""
+        for e in self.edge_items:
+            e.set_highlight("normal")
+        for item in self.node_items.values():
+            item.set_highlight(False)
+
+    def mousePressEvent(self, event):
+        # 点空白处取消常亮
+        from PySide6.QtGui import QTransform
+        item = self.itemAt(event.scenePos(), QTransform())
+        # 点到线上的标签也算线，只有真空白才清
+        if item is None:
+            self.dep_clear_highlight()
+        super().mousePressEvent(event)
+
+
+class DependencyGraphView(QGraphicsView):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRenderHints(
+            QPainter.Antialiasing | QPainter.TextAntialiasing | QPainter.SmoothPixmapTransform
+        )
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.setBackgroundBrush(QBrush(QColor("#0f1218")))
+        self._win = None
+        self._scene = _DepGraphScene(self)
+        self.setScene(self._scene)
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(factor, factor)
+
+    def mouseDoubleClickEvent(self, event):
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        item = self.itemAt(pos)
+        while item is not None and not isinstance(item, _DepNodeItem):
+            item = item.parentItem()
+        if isinstance(item, _DepNodeItem) and self._win and item.node_id:
+            if getattr(item, "kind", "") == "group":
+                return
+            self._win.open_section_tab(item.node_id)
+            w = self.window()
+            if isinstance(w, QDialog):
+                w.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+    def load_graph(self, root_id: str, nodes: list, edges: list, positions: dict):
+        sc = self._scene
+        sc.clear()
+        sc.node_items = {}
+        sc.edge_items = []
+        nw, nh = 188.0, 58.0
+        node_pos = {}
+        for n in nodes:
+            k = n["id"].lower()
+            x, y = positions.get(k, (0, 0))
+            node_pos[k] = (x, y)
+        for e in edges:
+            s, d = e["src"].lower(), e["dst"].lower()
+            if s not in node_pos or d not in node_pos:
+                continue
+            x1, y1 = node_pos[s]
+            x2, y2 = node_pos[d]
+            fld = e.get("field") or ""
+            try:
+                from core.dependency_view import field_role_zh
+                lab = field_role_zh(fld) or fld
+            except Exception:
+                lab = fld
+            # 上下布局：父节点底边中点 → 子节点顶边中点
+            edge = _DepEdgeItem(
+                x1 + nw / 2, y1 + nh, x2 + nw / 2, y2,
+                lab, src_id=s, dst_id=d,
+            )
+            sc.addItem(edge)
+            sc.edge_items.append(edge)
+        for n in nodes:
+            k = n["id"].lower()
+            x, y = node_pos.get(k, (0, 0))
+            item = _DepNodeItem(n, nw, nh)
+            item.setPos(x, y)
+            sc.addItem(item)
+            sc.node_items[k] = item
+        sc.setSceneRect(sc.itemsBoundingRect().adjusted(-40, -40, 40, 40))
+        self.fitInView(sc.sceneRect(), Qt.KeepAspectRatio)
+
+
+
+class DependencyTreeDialog(QDialog):
+    """C1：依赖关系图 — 上下布局、分组、过滤、简洁模式。"""
+
+    def __init__(self, win: "MainWindow", root_id: str, tree: dict = None, lines: list = None):
+        super().__init__(win)
+        self.win = win
+        self.root_id = root_id
+        self.setWindowTitle(f"依赖关系图 · [{root_id}]")
+        self.resize(1100, 720)
+        self.setStyleSheet("""
+            QDialog { background: #1a1d24; color: #e8eaed; }
+            QLabel { color: #e8eaed; }
+            QCheckBox { color: #e8eaed; spacing: 6px; }
+            QPlainTextEdit {
+                background: #252830; color: #f1f3f5; border: 1px solid #3d4450;
+                border-radius: 4px; font-size: 12px;
+            }
+            QPushButton {
+                background: #2f3542; color: #f1f3f5; border: 1px solid #4b5563;
+                border-radius: 4px; padding: 6px 12px;
+            }
+            QPushButton:hover { background: #3d4450; }
+        """)
+        lay = QVBoxLayout(self)
+
+        # 过滤条
+        filt = QHBoxLayout()
+        self.chk_concise = QCheckBox("简洁模式")
+        self.chk_concise.setChecked(True)
+        self.chk_concise.setToolTip("武器只到抛射体/弹头；爆炸动画只显示分组不展开每一项")
+        self.chk_weapons = QCheckBox("武器")
+        self.chk_weapons.setChecked(True)
+        self.chk_prereq = QCheckBox("建造前提")
+        self.chk_prereq.setChecked(True)
+        self.chk_art = QCheckBox("Art/图像")
+        self.chk_art.setChecked(True)
+        self.chk_anims = QCheckBox("动画/粒子")
+        self.chk_anims.setChecked(True)
+        self.chk_expand_anims = QCheckBox("展开动画明细")
+        self.chk_expand_anims.setChecked(False)
+        self.chk_expand_anims.setToolTip("勾选后把「爆炸动画 N 项」拆成每个紫节点（可能很宽）")
+        self.chk_spawns = QCheckBox("子机/生成")
+        self.chk_spawns.setChecked(True)
+        self.chk_reverse = QCheckBox("反向：谁引用了我")
+        self.chk_reverse.setChecked(False)
+        self.chk_reverse.setToolTip(
+            "向上追查：哪些单位/武器的字段指向当前 ID（改共享弹头/武器前建议看）"
+        )
+        for c in (
+            self.chk_concise, self.chk_weapons, self.chk_prereq, self.chk_art,
+            self.chk_anims, self.chk_expand_anims, self.chk_spawns, self.chk_reverse,
+        ):
+            filt.addWidget(c)
+            c.toggled.connect(self._rebuild)
+        filt.addStretch(1)
+        lay.addLayout(filt)
+
+        lay.addWidget(QLabel(
+            "正向=向下依赖 · 反向=谁在用我 · 悬停显关系 · 双击打开"
+        ))
+
+        self.view = DependencyGraphView()
+        self.view._win = win
+        lay.addWidget(self.view, 3)
+
+        self.text = QPlainTextEdit()
+        self.text.setReadOnly(True)
+        self.text.setMaximumHeight(120)
+        lay.addWidget(QLabel("文本大纲（可复制）"))
+        lay.addWidget(self.text)
+
+        row = QHBoxLayout()
+        b_fit = QPushButton("适应窗口")
+        b_fit.clicked.connect(self._fit)
+        b_copy = QPushButton("复制文本")
+        b_copy.clicked.connect(lambda: QApplication.clipboard().setText(self.text.toPlainText()))
+        b_close = QPushButton("关闭")
+        b_close.clicked.connect(self.accept)
+        row.addWidget(b_fit)
+        row.addWidget(b_copy)
+        row.addStretch(1)
+        row.addWidget(b_close)
+        lay.addLayout(row)
+
+        self._rebuild()
+
+    def _options(self) -> dict:
+        return dict(
+            show_weapons=self.chk_weapons.isChecked(),
+            show_prereq=self.chk_prereq.isChecked(),
+            show_art=self.chk_art.isChecked(),
+            show_anims=self.chk_anims.isChecked(),
+            expand_anims=self.chk_expand_anims.isChecked(),
+            show_spawns=self.chk_spawns.isChecked(),
+            concise=self.chk_concise.isChecked(),
+        )
+
+    def _rebuild(self):
+        from core.dependency_view import (
+            build_dependency_tree, build_reverse_tree, build_reverse_index,
+            tree_to_lines, collect_graph, layout_layers,
+        )
+        prefer_ini = None
+        prefer = (getattr(self.win, "current_prefer", None) or "").strip().lower()
+        if prefer == "art" and self.win.project.art:
+            prefer_ini = self.win.project.art
+        elif prefer == "ai" and self.win.project.ai:
+            prefer_ini = self.win.project.ai
+        try:
+            if self.chk_reverse.isChecked():
+                cache = getattr(self.win, "_dep_reverse_index", None)
+                cache_key = id(prefer_ini or self.win.project.rules)
+                if not cache or cache.get("key") != cache_key:
+                    idx = build_reverse_index(self.win.project, prefer=prefer_ini)
+                    self.win._dep_reverse_index = {"key": cache_key, "index": idx}
+                else:
+                    idx = cache["index"]
+                tree = build_reverse_tree(
+                    self.win.project, self.root_id, prefer=prefer_ini, index=idx
+                )
+            else:
+                tree = build_dependency_tree(
+                    self.win.project, self.root_id, prefer=prefer_ini, **self._options()
+                )
+            lines = tree_to_lines(tree)
+            nodes, edges = collect_graph(tree)
+            positions = layout_layers(nodes, edges, self.root_id)
+        except Exception as e:
+            self.text.setPlainText(f"分析失败: {e}")
+            return
+        self.view.load_graph(self.root_id, nodes, edges, positions)
+        self.text.setPlainText("\n".join(lines))
+        self._fit()
+
+    def _fit(self):
+        sc = self.view.scene()
+        if not sc:
+            return
+        rect = sc.sceneRect()
+        self.view.fitInView(rect, Qt.KeepAspectRatio)
+        # 防止节点极少时被放得过大、极多时过小到无法点
+        tr = self.view.transform()
+        scale = tr.m11()
+        if scale > 1.4:
+            self.view.setTransform(tr.scale(1.4 / scale, 1.4 / scale))
+        elif scale < 0.35:
+            self.view.setTransform(tr.scale(0.35 / scale, 0.35 / scale))
+
+
+
+class SessionChangesDialog(QDialog):
+    """B2：本会话改过的 section 列表，可打开 / 导出。"""
+
+    def __init__(self, win: "MainWindow", rows: list):
+        super().__init__(win)
+        self.win = win
+        self.rows = list(rows or [])
+        self.setWindowTitle("会话改动集")
+        self.resize(720, 420)
+        self.setStyleSheet("""
+            QDialog { background: #1a1d24; color: #e8eaed; }
+            QLabel { color: #e8eaed; }
+            QListWidget {
+                background: #252830; color: #f1f3f5; border: 1px solid #3d4450;
+                border-radius: 4px; font-size: 13px;
+            }
+            QListWidget::item { padding: 6px 8px; }
+            QListWidget::item:selected { background: #3b82f6; }
+            QPushButton {
+                background: #2f3542; color: #f1f3f5; border: 1px solid #4b5563;
+                border-radius: 4px; padding: 6px 12px;
+            }
+            QPushButton:hover { background: #3d4450; }
+        """)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(
+            f"本会话共 {len(self.rows)} 项改动（含未保存草稿与新增/克隆）。"
+            "导出仅生成节片段，不会改动工程文件。"
+        ))
+        self.list = QListWidget()
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        for r in self.rows:
+            sid = r.get("section_id") or r.get("key")
+            prefer = r.get("prefer") or "rules"
+            kind = r.get("kind") or "edit"
+            if r.get("is_new"):
+                kind = r.get("kind") or "new"
+            saved = "已保存" if r.get("saved") else "未保存"
+            ts = r.get("last_at") or r.get("first_at") or ""
+            label = f"[{sid}]  ·  {prefer}  ·  {kind}  ·  {saved}  ·  {ts}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, r.get("key"))
+            self.list.addItem(item)
+        self.list.itemDoubleClicked.connect(self._open_current)
+        lay.addWidget(self.list, 1)
+
+        row = QHBoxLayout()
+        b_open = QPushButton("打开选中")
+        b_open.clicked.connect(self._open_current)
+        b_exp_sel = QPushButton("导出选中…")
+        b_exp_sel.clicked.connect(self._export_selected)
+        b_exp_all = QPushButton("导出全部…")
+        b_exp_all.clicked.connect(self._export_all)
+        b_close = QPushButton("关闭")
+        b_close.clicked.connect(self.accept)
+        row.addWidget(b_open)
+        row.addWidget(b_exp_sel)
+        row.addWidget(b_exp_all)
+        row.addStretch(1)
+        row.addWidget(b_close)
+        lay.addLayout(row)
+
+    def _selected_keys(self) -> list:
+        keys = []
+        for item in self.list.selectedItems():
+            k = item.data(Qt.UserRole)
+            if k:
+                keys.append(k)
+        return keys
+
+    def _open_current(self):
+        keys = self._selected_keys()
+        if not keys:
+            cur = self.list.currentItem()
+            if cur:
+                keys = [cur.data(Qt.UserRole)]
+        if not keys:
+            return
+        key = keys[0]
+        prefer = ""
+        sid = key
+        if isinstance(key, str) and key.startswith("art::"):
+            sid, prefer = key[5:], "art"
+        elif isinstance(key, str) and key.startswith("ai::"):
+            sid, prefer = key[4:], "ai"
+        self.win.open_section_tab(sid, prefer=prefer)
+        self.accept()
+
+    def _export_selected(self):
+        keys = self._selected_keys()
+        if not keys:
+            QMessageBox.information(self, "导出", "请先选中要导出的项")
+            return
+        if self.win.export_session_changes(keys):
+            self.accept()
+
+    def _export_all(self):
+        if self.win.export_session_changes(None):
+            self.accept()
+
+
+class SectionOriginsDialog(QDialog):
+    """B3：同节多文件来源对照 — 查看各拆分文件中的原始片段与合并键来源。"""
+
+    def __init__(self, parent, project: Project, section_id: str, prefer: str = ""):
+        super().__init__(parent)
+        self.project = project
+        self.section_id = section_id
+        self.setWindowTitle(f"多文件来源 · [{section_id}]")
+        self.resize(900, 560)
+        self.setStyleSheet("""
+            QDialog { background: #1a1d24; color: #e8eaed; }
+            QLabel { color: #e8eaed; }
+            QListWidget, QPlainTextEdit, QTableWidget {
+                background: #252830; color: #f1f3f5; border: 1px solid #3d4450;
+                border-radius: 4px; font-size: 13px;
+            }
+            QListWidget::item:selected { background: #3b82f6; }
+            QHeaderView::section { background: #2f3542; color: #e8eaed; padding: 4px; }
+            QPushButton {
+                background: #2f3542; color: #f1f3f5; border: 1px solid #4b5563;
+                border-radius: 4px; padding: 6px 12px;
+            }
+            QPushButton:hover { background: #3d4450; }
+        """)
+
+        prefer_ini = None
+        if prefer == "art" and project.art:
+            prefer_ini = project.art
+        elif prefer == "ai" and project.ai:
+            prefer_ini = project.ai
+        self.data = project.analyze_section_origins(section_id, prefer=prefer_ini)
+
+        root = QVBoxLayout(self)
+        n = len(self.data.get("files") or [])
+        summary = QLabel(
+            f"[{section_id}] 出现在 {n} 个文件中"
+            + ("（后加载覆盖先加载，与 Ares 合并方向一致）" if n > 1 else "（仅单文件，无覆盖）")
+        )
+        summary.setWordWrap(True)
+        root.addWidget(summary)
+
+        split = QSplitter(Qt.Horizontal)
+
+        # 左：文件列表
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(QLabel("文件（加载顺序，上=先/底，下=后/覆盖）"))
+        self.file_list = QListWidget()
+        for fr in self.data.get("files") or []:
+            item = QListWidgetItem(f"{fr['order']+1}. {fr['name']}  ({fr['key_count']} 键)")
+            item.setData(Qt.UserRole, fr)
+            self.file_list.addItem(item)
+        self.file_list.currentRowChanged.connect(self._on_file_changed)
+        ll.addWidget(self.file_list, 1)
+        split.addWidget(left)
+
+        # 中：该文件原始节
+        mid = QWidget()
+        ml = QVBoxLayout(mid)
+        ml.setContentsMargins(0, 0, 0, 0)
+        ml.addWidget(QLabel("该文件中的原始 [节]（只读）"))
+        self.raw_view = QPlainTextEdit()
+        self.raw_view.setReadOnly(True)
+        self.raw_view.setLineWrapMode(QPlainTextEdit.NoWrap)
+        font = self.raw_view.font()
+        font.setFamily("Consolas")
+        font.setPointSize(11)
+        self.raw_view.setFont(font)
+        ml.addWidget(self.raw_view, 1)
+        split.addWidget(mid)
+
+        # 右：合并后键来源
+        right = QWidget()
+        rl = QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addWidget(QLabel("合并后生效的键 → 来源文件"))
+        from PySide6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
+        self.key_table = QTableWidget(0, 3)
+        self.key_table.setHorizontalHeaderLabels(["键", "值", "来源"])
+        self.key_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.key_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.key_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.key_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.key_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        keys = self.data.get("keys") or []
+        self.key_table.setRowCount(len(keys))
+        for i, row in enumerate(keys):
+            self.key_table.setItem(i, 0, QTableWidgetItem(str(row.get("key", ""))))
+            self.key_table.setItem(i, 1, QTableWidgetItem(str(row.get("value", ""))))
+            self.key_table.setItem(i, 2, QTableWidgetItem(str(row.get("source_name") or "—")))
+        rl.addWidget(self.key_table, 1)
+        split.addWidget(right)
+
+        split.setStretchFactor(0, 2)
+        split.setStretchFactor(1, 3)
+        split.setStretchFactor(2, 3)
+        root.addWidget(split, 1)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject)
+        bb.accepted.connect(self.accept)
+        close_btn = bb.button(QDialogButtonBox.Close)
+        if close_btn:
+            close_btn.clicked.connect(self.accept)
+        root.addWidget(bb)
+
+        if self.file_list.count():
+            self.file_list.setCurrentRow(0)
+
+    def _on_file_changed(self, row: int):
+        if row < 0:
+            self.raw_view.setPlainText("")
+            return
+        item = self.file_list.item(row)
+        fr = item.data(Qt.UserRole) or {}
+        raw = fr.get("raw") or f"; 文件中无 [{self.section_id}]"
+        self.raw_view.setPlainText(raw)
 
 
 class PropPanel(QWidget):
@@ -404,9 +1533,11 @@ class PropPanel(QWidget):
         self.title.setWordWrap(True)
         outer.addWidget(self.title)
 
-        self.hint = QLabel("此处只读。改数值请用中间代码区，或「打开调试」做热重载试调。")
-        self.hint.setStyleSheet("color:#b0b8c4; font-size:13px;")
+        # 光标行提示：默认隐藏，避免占一大块；需要时在首选项打开
+        self.hint = QLabel("")
+        self.hint.setObjectName("propHint")
         self.hint.setWordWrap(True)
+        self.hint.hide()
         outer.addWidget(self.hint)
 
         self.scroll = QScrollArea()
@@ -421,6 +1552,16 @@ class PropPanel(QWidget):
         self.scroll.setWidget(self.inner)
         outer.addWidget(self.scroll, 1)
 
+    def set_hint_font_size(self, pt: int):
+        pt = max(11, min(22, int(pt)))
+        self.hint.setStyleSheet(
+            "QLabel#propHint {"
+            f"  color:#e2e8f0; font-size:{pt}px;"
+            "  background:#1e293b; border:1px solid #334155; border-radius:4px;"
+            "  padding:6px 8px;"
+            "}"
+        )
+
     def clear(self):
         while self.form.count():
             item = self.form.takeAt(0)
@@ -428,6 +1569,8 @@ class PropPanel(QWidget):
             if w:
                 w.deleteLater()
         self.title.setText("")
+        self.hint.hide()
+        self.hint.clear()
 
     def set_section(self, section_id: str, display: str, sec, schema: dict, src_name: str = "", on_jump_editor=None, on_jump_tree=None):
         self.clear()
@@ -657,6 +1800,47 @@ class ProjectSearchDialog(QDialog):
         self.win.statusBar().showMessage(f"已跳转 {h.section_id}.{h.key}", 5000)
 
 
+class SectionDiffDialog(QDialog):
+    """A3：当前节键级 Diff 列表。"""
+
+    def __init__(self, parent, title: str, changes: list, summary: str):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(640, 420)
+        self.setStyleSheet("""
+            QDialog { background: #1a1d24; color: #e8eaed; }
+            QLabel { color: #e8eaed; font-size: 13px; }
+            QListWidget {
+                background: #252830; border: 1px solid #3d4450; border-radius: 4px;
+                font-size: 13px; font-family: Consolas, "Courier New", monospace;
+            }
+            QListWidget::item { padding: 5px 8px; }
+            QListWidget::item:selected { background: #3b82f6; }
+            QPushButton {
+                background: #2f3542; color: #f1f3f5; border: 1px solid #4b5563;
+                border-radius: 4px; padding: 6px 14px;
+            }
+        """)
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel(summary if changes else "无键级差异（正文可能仅有空行/注释不同）"))
+        lst = QListWidget()
+        colors = {
+            "added": QColor("#81c784"),
+            "removed": QColor("#e57373"),
+            "changed": QColor("#ffb74d"),
+        }
+        for c in changes:
+            item = QListWidgetItem(c.label())
+            item.setForeground(colors.get(c.kind, QColor("#e8eaed")))
+            lst.addItem(item)
+        if not changes:
+            lst.addItem(QListWidgetItem("（无差异）"))
+        lay.addWidget(lst, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok)
+        bb.accepted.connect(self.accept)
+        lay.addWidget(bb)
+
+
 class LintDialog(QDialog):
     # 按严重级别着色（样式表不强制 item 前景色，否则会盖掉 setForeground）
     _SEV_COLOR = {
@@ -841,12 +2025,31 @@ class MainWindow(QMainWindow):
         self.current_prefer: str = ""
         self.current_group: str = ""  # 树分组，消歧同名 section
         self._mem_sections: Dict[str, str] = {}
+        # 新增/克隆：仅内存，点「保存」才落盘。key=section id 或 art::id
+        self._pending_new: Dict[str, dict] = {}
+        # A3：会话内「刚打开该节时」的正文基线（mem key -> text）
+        self._section_baseline: Dict[str, str] = {}
+        # 打开该节时的键集合（小写），增量删除主要靠它，不依赖正文是否被污染
+        self._section_baseline_keys: Dict[str, set] = {}
+        # 打开该节时的 += 值集合（小写）
+        self._section_baseline_plus: Dict[str, set] = {}
+        # B2：本会话改过的节（mem key -> meta）
+        self._session_changes: Dict[str, dict] = {}
+        # 多文件合并节：用户为「无来源新键」指定的写入文件 section_id -> path str
+        self._merge_newkey_target: Dict[str, str] = {}
         self._dirty = False
         self._loading_section = False
         self._file_map: Dict[str, Path] = {}
         self._filter_timer = QTimer(self)
         self._filter_timer.setSingleShot(True)
         self._filter_timer.timeout.connect(self.refresh_tree)
+        self._live_lint_timer = QTimer(self)
+        self._live_lint_timer.setSingleShot(True)
+        self._live_lint_timer.timeout.connect(self._run_live_lint)
+        # 过滤时单组最多直接铺开的子项数（超出仍可展开加载）
+        self._tree_filter_fill_cap = 120
+        # 无过滤时超过此数只放占位（原 40）
+        self._tree_lazy_threshold = 40
 
         # 工具扩展点：name -> callable
         self.tool_registry: Dict[str, callable] = {}
@@ -856,6 +2059,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_body()
         self._apply_style()
+        self._apply_ui_prefs()
         self._register_builtin_tools()
         self._update_chrome()
         self.statusBar().showMessage("文件 → 打开游戏文件夹 / 打开单文件")
@@ -1087,10 +2291,40 @@ class MainWindow(QMainWindow):
         act_lint_all = QAction("校验整个工程", self)
         act_lint_all.triggered.connect(self.lint_whole_project)
         m_edit.addAction(act_lint_all)
+        m_edit.addSeparator()
+        act_diff_disk = QAction("当前节 Diff（相对磁盘）…", self)
+        act_diff_disk.setShortcut(QKeySequence("Ctrl+Shift+D"))
+        act_diff_disk.triggered.connect(lambda: self.show_section_diff("disk"))
+        m_edit.addAction(act_diff_disk)
+        act_diff_open = QAction("当前节 Diff（相对打开时）…", self)
+        act_diff_open.triggered.connect(lambda: self.show_section_diff("baseline"))
+        m_edit.addAction(act_diff_open)
+        act_origins = QAction("同节多文件来源…", self)
+        act_origins.setShortcut(QKeySequence("Ctrl+Shift+U"))
+        act_origins.setToolTip("查看当前节在各拆分文件中的原文与键来源（Ctrl+Shift+U）")
+        act_origins.triggered.connect(self.show_section_origins)
+        m_edit.addAction(act_origins)
+        act_session = QAction("会话改动集…", self)
+        act_session.setShortcut(QKeySequence("Ctrl+Shift+M"))
+        act_session.triggered.connect(self.show_session_changes)
+        m_edit.addAction(act_session)
+        act_dep = QAction("依赖关系视图…", self)
+        act_dep.setShortcut(QKeySequence("Ctrl+Shift+G"))
+        act_dep.setToolTip("依赖关系图（Ctrl+Shift+G）；原 Ctrl+Shift+D 已用于 Diff")
+        act_dep.triggered.connect(self.show_dependency_tree)
+        m_edit.addAction(act_dep)
+        m_edit.addSeparator()
         act_rep = QAction("替换…", self)
         act_rep.setShortcut(QKeySequence("Ctrl+H"))
         act_rep.triggered.connect(self.show_replace_dialog)
         m_edit.addAction(act_rep)
+        m_edit.addSeparator()
+        act_fold_c = QAction("折叠全部注释", self)
+        act_fold_c.triggered.connect(self.fold_comment_blocks)
+        m_edit.addAction(act_fold_c)
+        act_expand_f = QAction("展开全部折叠", self)
+        act_expand_f.triggered.connect(self.expand_all_folds)
+        m_edit.addAction(act_expand_f)
         m_edit.addSeparator()
         self.act_word_wrap = QAction("自动换行", self)
         self.act_word_wrap.setCheckable(True)
@@ -1102,6 +2336,10 @@ class MainWindow(QMainWindow):
         act_new.setShortcut(QKeySequence("Ctrl+N"))
         act_new.triggered.connect(self.on_add_new)
         m_edit.addAction(act_new)
+        act_clone = QAction("克隆单位…", self)
+        act_clone.setShortcut(QKeySequence("Ctrl+Shift+N"))
+        act_clone.triggered.connect(self.on_clone_unit)
+        m_edit.addAction(act_clone)
         act_dbg = QAction("打开单位调试…", self)
         act_dbg.setShortcut(QKeySequence("Ctrl+D"))
         act_dbg.triggered.connect(self.open_debug_window)
@@ -1123,6 +2361,13 @@ class MainWindow(QMainWindow):
         m_mode.addAction(self.act_merged)
         m_mode.addAction(self.act_single)
         self.mode_group.triggered.connect(self.on_mode_action)
+        m_view.addSeparator()
+        self.act_prop_panel = QAction("属性说明面板", self)
+        self.act_prop_panel.setCheckable(True)
+        self.act_prop_panel.setChecked(True)
+        self.act_prop_panel.setShortcut("Ctrl+Shift+P")
+        self.act_prop_panel.triggered.connect(self._toggle_prop_panel)
+        m_view.addAction(self.act_prop_panel)
         m_view.addSeparator()
         act_refresh = QAction("刷新对象树", self)
         act_refresh.setShortcut(QKeySequence("F5"))
@@ -1170,6 +2415,7 @@ class MainWindow(QMainWindow):
             ("打开文件", self.open_loose_file),
             ("保存全部", self.save_all),
             ("+ 新增", self.on_add_new),
+            ("克隆", self.on_clone_unit),
             ("全工程搜索", self.show_project_search),
         ]:
             a = QAction(text, self)
@@ -1244,12 +2490,23 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         self.tabs.setTabsClosable(True)
+        self.tabs.setMovable(True)
+        self.tabs.setElideMode(Qt.ElideRight)
+        # 标签多时出现左右滚动按钮，而不是挤成一条
+        self.tabs.tabBar().setUsesScrollButtons(True)
+        self.tabs.tabBar().setExpanding(False)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self.on_tab_changed)
         top_mid.addWidget(self.tabs, 1)
-        b_prev, b_next = QPushButton("上一个"), QPushButton("下一个")
-        b_prev.clicked.connect(self.prev_tab)
-        b_next.clicked.connect(self.next_tab)
+        # 下拉快速跳转到已打开的节（打开很多时比来回点标签方便）
+        self.tab_picker = QComboBox()
+        self.tab_picker.setMinimumWidth(220)
+        self.tab_picker.setMaximumWidth(360)
+        self.tab_picker.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.tab_picker.setMinimumContentsLength(18)
+        self.tab_picker.setToolTip("已打开的单位（含中文名）— 下拉切换")
+        self.tab_picker.activated.connect(self._on_tab_picker_activated)
+        top_mid.addWidget(self.tab_picker)
         b_dbg = QPushButton("调试")
         b_dbg.setToolTip("Ctrl+D · 单单位调试")
         b_dbg.clicked.connect(self.open_debug_window)
@@ -1260,8 +2517,6 @@ class MainWindow(QMainWindow):
         b_del = QPushButton("删除")
         b_del.setToolTip("删除当前 section（需确认）")
         b_del.clicked.connect(self.delete_current_section)
-        top_mid.addWidget(b_prev)
-        top_mid.addWidget(b_next)
         top_mid.addWidget(b_dbg)
         top_mid.addWidget(b_save)
         top_mid.addWidget(b_del)
@@ -1275,13 +2530,51 @@ class MainWindow(QMainWindow):
 
         self.source_label = QLabel("")
         self.source_label.setStyleSheet("color:#7dd3fc; font-size:12px;")
+        self.source_label.setWordWrap(True)
         ml.addWidget(self.source_label)
+
+        # 仅多文件合并节显示：无来源的新键写到哪个文件
+        self.merge_target_row = QWidget()
+        _mtr = QHBoxLayout(self.merge_target_row)
+        _mtr.setContentsMargins(0, 0, 0, 0)
+        _mtr.setSpacing(8)
+        self.merge_target_hint = QLabel("无来源的新键写入：")
+        self.merge_target_hint.setStyleSheet("color:#94a3b8; font-size:12px;")
+        self.merge_target_combo = QComboBox()
+        self.merge_target_combo.setMinimumWidth(280)
+        self.merge_target_combo.setToolTip(
+            "仅影响「还没有来源文件」的新键；已有键仍按各自来源拆回。\n"
+            "单文件节不会显示此项。"
+        )
+        self.merge_target_combo.currentIndexChanged.connect(self._on_merge_target_changed)
+        _mtr.addWidget(self.merge_target_hint)
+        _mtr.addWidget(self.merge_target_combo, 1)
+        ml.addWidget(self.merge_target_row)
+        self.merge_target_row.hide()
 
         self.code = CodeEditor()
         self.code.setTabStopDistance(32)
         self.code.cursorPositionChanged.connect(self.on_code_cursor)
         self.code.textChanged.connect(self._on_code_edited)
         ml.addWidget(self.code, 1)
+
+        # 未选节时的空状态（打开工程后引导）
+        self.empty_hint = QLabel()
+        self.empty_hint.setObjectName("emptyHint")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setWordWrap(True)
+        self.empty_hint.setStyleSheet(
+            "QLabel#emptyHint { color:#94a3b8; font-size:14px; padding:24px; "
+            "background:#1a1d24; border:1px dashed #3d4450; border-radius:8px; }"
+        )
+        self.empty_hint.setText(
+            "工程已加载。\n\n"
+            "在左侧对象树中选择单位或注册表开始编辑。\n"
+            "常用：全工程搜索 · 依赖关系 · 本会话改动 · 新增/克隆\n\n"
+            "修改后标签会显示 ●，标题栏也会标记；Ctrl+S 保存当前。"
+        )
+        self.empty_hint.hide()
+        ml.addWidget(self.empty_hint, 1)
         # 自动换行（编辑菜单，默认开，写入 settings）
         st = self.project.config.setdefault("settings", {})
         wrap = st.get("code_word_wrap", True)
@@ -1294,6 +2587,8 @@ class MainWindow(QMainWindow):
         self.prop.setMinimumWidth(300)
         self.prop.setMaximumWidth(420)
         split.addWidget(self.prop)
+        self._main_split = split
+        self._prop_panel_sizes = None  # 隐藏前记住分割比例
 
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -1342,10 +2637,11 @@ class MainWindow(QMainWindow):
             QPlainTextEdit {
                 background: #0a0a0c; color: #d4d4d4;
                 border: 1px solid #3a3a48; border-radius: 6px;
-                font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px;
+                font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
                 selection-background-color: #5b4b8a;
                 padding: 4px;
             }
+            /* 字号由 CodeEditor.set_editor_font_size 控制，勿在此写死 font-size */
             QLineEdit {
                 background: #1e1e24; border: 1px solid #3a3a48; border-radius: 5px;
                 padding: 6px 8px; selection-background-color: #5b4b8a;
@@ -1447,11 +2743,12 @@ class MainWindow(QMainWindow):
             self.act_merged.setEnabled(True)
         d = self.project.project_dir
         prof = self.project.profile.get("display_name", self.project.profile_name)
+        dirty_mark = " ●" if getattr(self, "_dirty", False) else ""
         if d:
-            self.setWindowTitle(f"{APP_TITLE}  —  {prof}  —  {mode}  —  {d}")
+            self.setWindowTitle(f"{APP_TITLE}{dirty_mark}  —  {prof}  —  {mode}  —  {d}")
             self.dir_label.setText(f"  [{prof}]  {d}")
         elif self.project.single_path:
-            self.setWindowTitle(f"{APP_TITLE}  —  {mode}")
+            self.setWindowTitle(f"{APP_TITLE}{dirty_mark}  —  {mode}")
             self.dir_label.setText(f"  {self.project.single_path}")
         else:
             self.setWindowTitle(APP_TITLE)
@@ -1478,8 +2775,46 @@ class MainWindow(QMainWindow):
 
     def _on_code_edited(self):
         if not self._loading_section:
-            self._dirty = True
+            self._set_dirty(True)
             self._store_current_to_mem()
+            self._touch_session_change()
+            # 实时校验波浪线（防抖）
+            if getattr(self, "_live_lint_timer", None):
+                self._live_lint_timer.start(450)
+
+    def _set_dirty(self, dirty: bool):
+        """统一脏标记：当前标签加点、标题栏 *、状态栏提示。"""
+        self._dirty = bool(dirty)
+        try:
+            i = self.tabs.currentIndex()
+            if i >= 0:
+                title = self.tabs.tabText(i)
+                base = title[2:] if title.startswith("● ") else title
+                # 去掉可能的旧 *
+                if base.startswith("*"):
+                    base = base[1:].lstrip()
+                new_t = (f"● {base}" if dirty else base)
+                if new_t != title:
+                    self.tabs.setTabText(i, new_t)
+                    self._sync_tab_picker()
+        except Exception:
+            pass
+        try:
+            self._update_chrome()
+        except Exception:
+            pass
+        try:
+            if dirty and self.current_section_id:
+                self.statusBar().showMessage(
+                    f"未保存：[{self.current_section_id}] — Ctrl+S 写回磁盘", 0
+                )
+            elif not dirty:
+                # 不抢加载完成等其它状态栏信息时仅短提示
+                cur = self.statusBar().currentMessage() or ""
+                if cur.startswith("未保存"):
+                    self.statusBar().clearMessage()
+        except Exception:
+            pass
 
     def _toggle_view_mode(self):
         """右上角紫色按钮：合并 ↔ 单文件"""
@@ -1536,6 +2871,8 @@ class MainWindow(QMainWindow):
         self.code.setPlainText("")
         self.prop.clear()
         self.source_label.setText("")
+        if getattr(self, "merge_target_row", None):
+            self.merge_target_row.hide()
         self._update_chrome()
         self.refresh_tree()
 
@@ -1578,7 +2915,12 @@ class MainWindow(QMainWindow):
             path = self.project.project_dir
             self.statusBar().showMessage(f"正在用配置 [{name}] 重新加载…")
             QApplication.processEvents()
-            if not self.project.open_directory(path):
+
+            def _prog(msg: str) -> None:
+                self.statusBar().showMessage(msg)
+                QApplication.processEvents()
+
+            if not self.project.open_directory(path, progress=_prog):
                 QMessageBox.warning(self, "配置", "用新配置加载失败，请检查该 profile 的 rules_files 等路径")
             self._display_cache.clear()
             self.tabs.clear()
@@ -1649,12 +2991,37 @@ class MainWindow(QMainWindow):
         chk_assist = QCheckBox("调试默认开启辅助模式（引用字段可下拉，仍可手输）")
         chk_assist.setChecked(bool(st.get("debug_assist_mode", True)))
         root.addWidget(chk_assist)
+        font_row = QHBoxLayout()
+        font_row.addWidget(QLabel("代码区字号"))
+        spin_font = QSpinBox()
+        spin_font.setRange(9, 28)
+        try:
+            spin_font.setValue(int(st.get("editor_font_size", 13)))
+        except (TypeError, ValueError):
+            spin_font.setValue(13)
+        font_row.addWidget(spin_font)
+        font_row.addWidget(QLabel("属性说明字号"))
+        spin_prop = QSpinBox()
+        spin_prop.setRange(11, 22)
+        try:
+            spin_prop.setValue(int(st.get("prop_hint_font_size", 14)))
+        except (TypeError, ValueError):
+            spin_prop.setValue(14)
+        font_row.addWidget(spin_prop)
+        font_row.addStretch(1)
+        root.addLayout(font_row)
+        chk_prop_panel = QCheckBox("显示右侧属性说明区（关闭后中间编辑区更宽；也可在「视图」菜单切换）")
+        chk_prop_panel.setChecked(bool(st.get("show_prop_panel", True)))
+        root.addWidget(chk_prop_panel)
 
         add_sep()
         add_sec("校验")
         chk_lint = QCheckBox("保存时自动校验（单节 / 保存全部）")
         chk_lint.setChecked(bool(st.get("auto_lint_on_save", True)))
         root.addWidget(chk_lint)
+        chk_live = QCheckBox("编辑时在问题行显示波浪线（引用缺失、非法数值等）")
+        chk_live.setChecked(bool(st.get("live_lint", True)))
+        root.addWidget(chk_live)
         root.addWidget(QLabel("不校验的注册表（勾选 = 跳过无效注册检查）"))
         default_skip = ["Animations"]
         cur_skip = st.get("lint_skip_type_lists")
@@ -1684,6 +3051,23 @@ class MainWindow(QMainWindow):
             skip_cbs.append((nm, cb))
         skip_scroll.setWidget(skip_inner)
         root.addWidget(skip_scroll)
+
+        add_sep()
+        add_sec("保存写入方式")
+        root.addWidget(QLabel(
+            "全量：按键来源把该节在各文件中整段写回（更稳妥，默认）。\n"
+            "增量：只写相对打开时有变化的键（适合单个单位/武器等小节）。\n"
+            "InfantryTypes 等类型注册表始终全量（多文件+序号++=，增量易漏）。"
+        ))
+        from PySide6.QtWidgets import QComboBox as _QComboBox
+        combo_write = _QComboBox()
+        combo_write.addItem("全量写入（推荐）", "full")
+        combo_write.addItem("增量写入（注册表仍全量）", "incremental")
+        cur_mode = str(st.get("save_write_mode") or "full").lower()
+        idx = combo_write.findData("incremental" if cur_mode in ("incremental", "delta", "patch") else "full")
+        if idx >= 0:
+            combo_write.setCurrentIndex(idx)
+        root.addWidget(combo_write)
 
         add_sep()
         add_sec("自动备份")
@@ -1726,16 +3110,52 @@ class MainWindow(QMainWindow):
             return
         st["debug_assist_mode"] = chk_assist.isChecked()
         st["auto_lint_on_save"] = chk_lint.isChecked()
+        st["live_lint"] = chk_live.isChecked()
+        st["show_prop_panel"] = chk_prop_panel.isChecked()
+        st["editor_font_size"] = int(spin_font.value())
+        st["prop_hint_font_size"] = int(spin_prop.value())
         st["lint_skip_type_lists"] = [nm for nm, cb in skip_cbs if cb.isChecked()]
         st["backup_keep"] = int(spin_keep.value())
+        st["save_write_mode"] = combo_write.currentData() or "full"
         hr["target_ini"] = edit_hotfix.text().strip() or "hotfix.ini"
         self.project.save_config()
+        self._apply_ui_prefs()
         QMessageBox.information(self, "首选项", "已保存。")
 
     def reload_config(self):
         self.project.load_config()
         self._rebuild_profile_menu()
         QMessageBox.information(self, "配置", "已重新读取 config.json（未自动重载工程，可再开一次工程目录）")
+
+    def _reset_editor_session_state(self):
+        """打开工程/单文件时清空会话态，强制从磁盘重载，避免草稿/基线残留。"""
+        self._mem_sections.clear()
+        self._section_baseline.clear()
+        self._section_baseline_keys.clear()
+        self._section_baseline_plus.clear()
+        self._session_changes.clear()
+        self._pending_new.clear()
+        self._merge_newkey_target.clear()
+        self.current_section_id = None
+        self.current_prefer = ""
+        self.current_group = ""
+        self._dirty = False
+        if hasattr(self, "_dep_reverse_index"):
+            self._dep_reverse_index = None
+        try:
+            self.code.blockSignals(True)
+            self.code.setPlainText("")
+            self.code.blockSignals(False)
+        except Exception:
+            pass
+        if getattr(self, "merge_target_row", None):
+            self.merge_target_row.hide()
+        if getattr(self, "source_label", None):
+            self.source_label.setText("")
+        try:
+            self.prop.clear()
+        except Exception:
+            pass
 
     def open_project(self, path: str | None = None):
         if not path:
@@ -1750,9 +3170,13 @@ class MainWindow(QMainWindow):
             return
         if not self._confirm_discard_if_dirty():
             return
-        self.statusBar().showMessage("正在加载…")
-        QApplication.processEvents()
-        if not self.project.open_directory(path):
+
+        def _prog(msg: str) -> None:
+            self.statusBar().showMessage(msg)
+            QApplication.processEvents()
+
+        _prog("正在加载…")
+        if not self.project.open_directory(path, progress=_prog):
             QMessageBox.critical(self, "错误", "未找到 rules 或配置中的 ini")
             self.statusBar().showMessage("加载失败")
             return
@@ -1762,6 +3186,8 @@ class MainWindow(QMainWindow):
             self.project.save_config()
         except Exception:
             pass
+        # 必须清会话：否则仍显示上一轮内存草稿，像「没真正重载」
+        self._reset_editor_session_state()
         self._display_cache.clear()
         self._load_display_cache_file()
         self.tabs.clear()
@@ -1771,11 +3197,17 @@ class MainWindow(QMainWindow):
         self.project.set_merged_mode()
         self._dirty = False
         self._update_chrome()
+        _prog("建立对象树…")
         self.refresh_tree()
         self.statusBar().showMessage(
             f"{self.project.get_loaded_files_summary()}  |  CSF {len(self.project.csf.strings)} 条"
+            f"  |  在左侧选择单位或注册表开始编辑"
         )
-        QTimer.singleShot(50, self._warm_display_cache)
+        self._show_editor_pane(False)
+        # P0-3：默认不全量预热显示名（大工程会卡）；设置 warm_display_names_on_open=true 才开
+        st_warm = self.project.config.get("settings") or {}
+        if st_warm.get("warm_display_names_on_open", False):
+            QTimer.singleShot(50, self._warm_display_cache)
 
     def open_loose_file(self):
         """不依赖工程：直接打开一个 ini 进入单文件模式"""
@@ -1794,6 +3226,7 @@ class MainWindow(QMainWindow):
             return
         # 加入允许列表显示
         self.project._add_allowed(path)
+        self._reset_editor_session_state()
         self._refresh_file_combo()
         # 选中该项
         for i in range(self.file_combo.count()):
@@ -1973,6 +3406,7 @@ class MainWindow(QMainWindow):
             pass
 
     def schedule_display_cache_rebuild(self):
+        """显式重建显示名缓存（不依赖 warm_on_open 设置）。"""
         self._display_cache.clear()
         QTimer.singleShot(100, self._warm_display_cache)
 
@@ -2045,6 +3479,23 @@ class MainWindow(QMainWindow):
                     exact = child
         return exact or soft
 
+    def _tree_id_matches(self, uid: str, filt: str) -> bool:
+        """过滤匹配：优先 ID；显示名仅用已有缓存，避免过滤时全量 CSF 查询。"""
+        if not filt:
+            return True
+        if filt in uid.lower():
+            return True
+        cached = self._display_cache.get(uid)
+        if cached and filt in cached.lower():
+            return True
+        return False
+
+    def _should_fill_children(self, count: int, filt: str) -> bool:
+        """无过滤：≤阈值才直接填；有过滤：≤ filter_cap 才直接填。"""
+        if filt:
+            return count <= self._tree_filter_fill_cap
+        return count <= self._tree_lazy_threshold
+
     def refresh_tree(self):
         """对象树：分类节点先建好；子节点展开时再填充（避免一次插入上千项卡死）"""
         self.tree.setUpdatesEnabled(False)
@@ -2056,11 +3507,6 @@ class MainWindow(QMainWindow):
             if not ini:
                 QTreeWidgetItem(self.tree, ["（无数据）"])
                 return
-
-            def match(uid: str) -> bool:
-                if not filt:
-                    return True
-                return filt in uid.lower() or filt in self._disp(uid).lower()
 
             groups = self.project.classify_sections(ini)
             type_map = {
@@ -2083,7 +3529,7 @@ class MainWindow(QMainWindow):
                 parent_for_groups = None
 
             for group_name, ids in groups.items():
-                items = [u for u in ids if match(u)]
+                items = [u for u in ids if self._tree_id_matches(u, filt)] if filt else list(ids)
                 if filt and not items:
                     continue
                 cn = type_map.get(group_name, group_name)
@@ -2095,7 +3541,7 @@ class MainWindow(QMainWindow):
                     label = f"{cn} · {group_name}"
                 else:
                     label = cn
-                count = len(items) if filt else len(ids)
+                count = len(items)
                 label += f" ({count})"
                 info = (self.flag_schema.get("_type_lists") or {}).get(group_name) or {}
                 desc = info.get("desc_zh") or ""
@@ -2107,31 +3553,38 @@ class MainWindow(QMainWindow):
                 else:
                     node = QTreeWidgetItem(self.tree, [label])
 
-                # 存 ids 供懒加载；分组名用于同名 section 消歧
-                node.setData(0, Qt.UserRole + 1, items if filt else list(ids))
+                # 存完整匹配列表供懒加载；分组名用于同名 section 消歧
+                node.setData(0, Qt.UserRole + 1, items)
                 node.setData(0, Qt.UserRole + 3, group_name)
-                if filt or count <= 40:
-                    self._fill_tree_children(node, items if filt else ids, group=group_name)
+                if self._should_fill_children(count, filt):
+                    self._fill_tree_children(node, items, group=group_name)
                     if filt:
                         node.setExpanded(True)
                 else:
-                    ph = QTreeWidgetItem(node, ["（展开以加载…）"])
+                    tip = "（展开以加载…）" if not filt else f"（展开以加载 {count} 项…）"
+                    ph = QTreeWidgetItem(node, [tip])
                     ph.setData(0, Qt.UserRole, None)
+                    if filt:
+                        node.setExpanded(False)
 
             if self.project.work_mode == "merged" and self.project.art:
                 art_root = QTreeWidgetItem(self.tree, ["Art"])
                 art_root.setData(0, Qt.UserRole + 2, "art")
                 art_ids = [s for s in self.project.art.section_order if not s.startswith("#")]
                 if filt:
-                    art_ids = [s for s in art_ids if match(s)]
+                    art_ids = [s for s in art_ids if self._tree_id_matches(s, filt)]
                 art_root.setData(0, Qt.UserRole + 1, art_ids)
-                if filt or len(art_ids) <= 40:
+                art_root.setText(0, f"Art ({len(art_ids)})")
+                if self._should_fill_children(len(art_ids), filt):
                     self._fill_tree_children(art_root, art_ids, prefer="art")
+                    if filt and art_ids:
+                        art_root.setExpanded(True)
                 else:
-                    ph = QTreeWidgetItem(art_root, ["（展开以加载…）"])
+                    tip = "（展开以加载…）" if not filt else f"（展开以加载 {len(art_ids)} 项…）"
+                    ph = QTreeWidgetItem(art_root, [tip])
                     ph.setData(0, Qt.UserRole, None)
 
-            # AI：配置里的 ai_files 已加载，但合并树以前只画 rules/art
+            # AI：配置里的 ai_files 已加载
             if self.project.work_mode == "merged" and self.project.ai:
                 ai_root = QTreeWidgetItem(self.tree, ["AI"])
                 ai_root.setData(0, Qt.UserRole + 2, "ai")
@@ -2145,27 +3598,29 @@ class MainWindow(QMainWindow):
                 }
                 any_child = False
                 for gname, ids in ai_groups.items():
-                    items = [u for u in ids if match(u)]
+                    items = [u for u in ids if self._tree_id_matches(u, filt)] if filt else list(ids)
                     if filt and not items:
                         continue
                     label = ai_type_labels.get(gname, gname)
-                    count = len(items) if filt else len(ids)
+                    count = len(items)
                     node = QTreeWidgetItem(ai_root, [f"{label} ({count})"])
                     node.setData(0, Qt.UserRole + 2, "ai")
                     node.setData(0, Qt.UserRole + 3, gname)
-                    show_ids = items if filt else ids
-                    node.setData(0, Qt.UserRole + 1, show_ids)
-                    if filt or len(show_ids) <= 40:
-                        self._fill_tree_children(node, show_ids, prefer="ai", group=gname)
+                    node.setData(0, Qt.UserRole + 1, items)
+                    if self._should_fill_children(count, filt):
+                        self._fill_tree_children(node, items, prefer="ai", group=gname)
+                        if filt:
+                            node.setExpanded(True)
                     else:
-                        ph = QTreeWidgetItem(node, ["（展开以加载…）"])
+                        tip = "（展开以加载…）" if not filt else f"（展开以加载 {count} 项…）"
+                        ph = QTreeWidgetItem(node, [tip])
                         ph.setData(0, Qt.UserRole, None)
                     any_child = True
                 if not any_child and not filt:
                     # 兜底：平铺全部 AI section
                     ai_ids = [s for s in self.project.ai.section_order if not s.startswith("#")]
                     ai_root.setData(0, Qt.UserRole + 1, ai_ids)
-                    if len(ai_ids) <= 40:
+                    if self._should_fill_children(len(ai_ids), ""):
                         self._fill_tree_children(ai_root, ai_ids, prefer="ai")
                     else:
                         ph = QTreeWidgetItem(ai_root, ["（展开以加载…）"])
@@ -2219,6 +3674,33 @@ class MainWindow(QMainWindow):
             group = item.data(0, Qt.UserRole + 3) or ""
             self.open_section_tab(str(sid), prefer=prefer, group=str(group) if group else "")
 
+    def _tab_title_base(self, title: str) -> str:
+        """去掉脏标记 ● / * 后的标签标题。"""
+        t = (title or "").strip()
+        if t.startswith("● "):
+            t = t[2:]
+        if t.startswith("*"):
+            t = t[1:].lstrip()
+        return t
+
+    def _show_editor_pane(self, show_code: bool):
+        """有选中节时显示代码区；否则显示空状态引导。"""
+        try:
+            if show_code:
+                self.code.show()
+                self.source_label.show()
+                if getattr(self, "empty_hint", None):
+                    self.empty_hint.hide()
+            else:
+                self.code.hide()
+                self.source_label.hide()
+                if getattr(self, "merge_target_row", None):
+                    self.merge_target_row.hide()
+                if getattr(self, "empty_hint", None):
+                    self.empty_hint.show()
+        except Exception:
+            pass
+
     def open_section_tab(self, section_id: str, prefer: str = "", group: str = ""):
         """同一 (section_id, prefer) 只保留一个标签，重复点击只切换不新建。"""
         prefer = self._norm_prefer(prefer)
@@ -2233,7 +3715,7 @@ class MainWindow(QMainWindow):
 
         # 1) 按标题 + prefer 精确找
         for i in range(self.tabs.count()):
-            title = self.tabs.tabText(i)
+            title = self._tab_title_base(self.tabs.tabText(i))
             # 兼容旧标签无带多余空格
             base = title.split(" · ")[0].strip() if " · " in title else title.strip()
             old_pref, _ = self._parse_tab_meta(self.tabs.tabToolTip(i) or "")
@@ -2265,12 +3747,18 @@ class MainWindow(QMainWindow):
         idx = self.tabs.addTab(QWidget(), tab_title)
         self.tabs.setTabToolTip(idx, meta)
         self.tabs.setCurrentIndex(idx)
+        self._sync_tab_picker()
         self.show_section(section_id, prefer=prefer, group=group)
 
     def close_tab(self, index: int):
-        title = self.tabs.tabText(index)
+        title = self._tab_title_base(self.tabs.tabText(index))
         sid = title.split(" · ")[0] if " · " in title else title
         self.tabs.removeTab(index)
+        self._sync_tab_picker()
+        if self.tabs.count() == 0:
+            self.current_section_id = None
+            self._set_dirty(False)
+            self._show_editor_pane(False)
         if self.current_section_id == sid:
             if self.tabs.count():
                 self.on_tab_changed(self.tabs.currentIndex())
@@ -2279,9 +3767,12 @@ class MainWindow(QMainWindow):
                 self.code.setPlainText("")
                 self.prop.clear()
                 self.source_label.setText("")
+        if getattr(self, "merge_target_row", None):
+            self.merge_target_row.hide()
 
     def on_tab_changed(self, index: int):
         self._store_current_to_mem()
+        self._sync_tab_picker()
         if index >= 0:
             title = self.tabs.tabText(index)
             prefer, group = self._parse_tab_meta(self.tabs.tabToolTip(index) or "")
@@ -2299,6 +3790,52 @@ class MainWindow(QMainWindow):
         if n:
             self.tabs.setCurrentIndex((self.tabs.currentIndex() + 1) % n)
 
+    def _sync_tab_picker(self):
+        """同步「已打开」下拉与标签页（显示 ID + 中文名）。"""
+        if not hasattr(self, "tab_picker"):
+            return
+        self.tab_picker.blockSignals(True)
+        self.tab_picker.clear()
+        cur = self.tabs.currentIndex()
+        for i in range(self.tabs.count()):
+            title = self._tab_title_base(self.tabs.tabText(i))
+            # 标签可能是 "GACNST" 或 "GACNST · Art"
+            sid = title.split(" · ")[0] if " · " in title else title
+            try:
+                disp = self._disp(sid)
+            except Exception:
+                disp = sid
+            # _disp 可能已是 "ID  -  中文"
+            if disp and disp != sid and not disp.startswith(sid):
+                label = f"{sid}  -  {disp}"
+            else:
+                label = disp or sid
+            if " · " in title:
+                # 保留 Art/AI 后缀
+                suffix = title.split(" · ", 1)[1]
+                if suffix and suffix not in label:
+                    label = f"{label} · {suffix}"
+            self.tab_picker.addItem(label, i)
+        if self.tabs.count():
+            self.tab_picker.setCurrentIndex(max(0, cur))
+            self.tab_picker.setEnabled(True)
+        else:
+            self.tab_picker.setEnabled(False)
+        self.tab_picker.blockSignals(False)
+
+    def _on_tab_picker_activated(self, index: int):
+        if index < 0:
+            return
+        tab_i = self.tab_picker.itemData(index)
+        if tab_i is None:
+            tab_i = index
+        try:
+            tab_i = int(tab_i)
+        except Exception:
+            return
+        if 0 <= tab_i < self.tabs.count():
+            self.tabs.setCurrentIndex(tab_i)
+
     def show_section(self, section_id: str, prefer: str = "", group: str = ""):
         self.current_section_id = section_id
         self.current_prefer = prefer or ""
@@ -2309,12 +3846,38 @@ class MainWindow(QMainWindow):
         elif prefer == "ai" and self.project.ai:
             prefer_ini = self.project.ai
         key = self._mem_key(section_id, prefer)
+        disk_body = self.project.get_section_text(section_id, prefer=prefer_ini)
         if key and key in self._mem_sections:
             body = self._mem_sections[key]
             from_mem = True
         else:
-            body = self.project.get_section_text(section_id, prefer=prefer_ini)
+            body = disk_body
             from_mem = False
+        # 增量基线：第一次打开时锁定正文 + 普通键 + += 值
+        if key and key not in self._section_baseline:
+            base = body if not from_mem else disk_body
+            self._section_baseline[key] = base if base.endswith("\n") else base + "\n"
+            keys_set = set()
+            plus_set = set()
+            try:
+                for item in self.project._parse_section_kv_lines(section_id, base):
+                    k0 = item[0]
+                    if k0 in ("+", "+=", "++"):
+                        if item[1]:
+                            plus_set.add(str(item[1]).strip().lower())
+                    else:
+                        keys_set.add(str(k0).lower())
+                origins = self.project._collect_key_origins(
+                    section_id,
+                    self.project.get_section(section_id, prefer=prefer_ini),
+                    prefer_ini=prefer_ini,
+                )
+                keys_set |= set((origins[0] or {}).keys())
+                plus_set |= set((origins[1] or {}).keys())
+            except Exception:
+                pass
+            self._section_baseline_keys[key] = keys_set
+            self._section_baseline_plus[key] = plus_set
         self._loading_section = True
         self.code.blockSignals(True)
         self.code.setPlainText(body if body.endswith("\n") else body + "\n")
@@ -2323,7 +3886,10 @@ class MainWindow(QMainWindow):
         if hasattr(self.code, "update_line_number_area_width"):
             self.code.update_line_number_area_width(0)
         # 内存中有未保存稿则保持 dirty
-        self._dirty = from_mem and (key in self._mem_sections)
+        self._set_dirty(bool(from_mem and key and key in self._mem_sections))
+        self._show_editor_pane(True)
+        if getattr(self, "_live_lint_timer", None):
+            self._live_lint_timer.start(200)
 
         if prefer == "art" and self.project.art:
             sec = self.project.art.get_section(section_id)
@@ -2340,13 +3906,52 @@ class MainWindow(QMainWindow):
             src = self.project.get_source_path_for_section(section_id)
             sec = self.project.get_section(section_id, prefer=prefer_ini or self.project.active_ini())
 
-        if self.project.work_mode == "single":
-            self.source_label.setText(f"写入目标（当前文件）: {src}")
-        else:
-            tag = " [Art]" if prefer == "art" else (" [AI]" if prefer == "ai" else "")
-            self.source_label.setText(
-                f"写入目标{tag}: {src}" if src else "写入目标: 未知 — 保存时将请你选择文件"
+        multi_hint = ""
+        multi_files = []
+        try:
+            origins = self.project.analyze_section_origins(
+                section_id, prefer=prefer_ini or self.project.active_ini()
             )
+            multi_files = origins.get("files") or []
+            nfiles = len(multi_files)
+            if nfiles > 1:
+                names = []
+                for fr in multi_files[:5]:
+                    names.append(fr.get("name") or Path(fr.get("path") or "").name)
+                more = f" 等{nfiles}个" if nfiles > 5 else ""
+                multi_hint = (
+                    f"  · 合并自 {nfiles} 个文件：{' / '.join(names)}{more}"
+                    f"（已有键按来源拆回；Ctrl+Shift+U 查看明细）"
+                )
+            elif nfiles == 1:
+                multi_hint = "  · 单文件"
+        except Exception:
+            pass
+
+        # 下拉：仅多文件合并时显示
+        self._fill_merge_target_combo(section_id, multi_files, src)
+
+        if self.project.work_mode == "single":
+            self.source_label.setText(f"当前文件：{src}")
+        else:
+            tag = "（Art）" if prefer == "art" else ("（AI）" if prefer == "ai" else "")
+            if len(multi_files) > 1:
+                names = []
+                for fr in multi_files[:4]:
+                    names.append(fr.get("name") or Path(fr.get("path") or "").name)
+                more = f" 等 {len(multi_files)} 个" if len(multi_files) > 4 else ""
+                default_name = Path(src).name if src else "（未定）"
+                base = (
+                    f"合并了 {len(multi_files)} 个文件{tag}：{' / '.join(names)}{more}\n"
+                    f"已有条目保存时写回各自原来的文件；"
+                    f"新加的条目写入下方所选文件（当前：{default_name}）。"
+                    f"明细：Ctrl+Shift+U"
+                )
+            elif src:
+                base = f"保存到{tag}：{src}"
+            else:
+                base = "尚未确定保存文件 — 保存时会请你选择"
+            self.source_label.setText(base)
         self.prop.set_section(
             section_id, self._disp(section_id), sec, self.flag_schema,
             src_name=str(src) if src else "",
@@ -2355,14 +3960,34 @@ class MainWindow(QMainWindow):
         )
 
     def on_code_cursor(self):
+        """光标在「键=值」行时显示顶部说明；否则隐藏（不占位）。"""
+        if not getattr(self, "prop", None) or not self.prop.isVisible():
+            return
         cur = self.code.textCursor()
         cur.select(QTextCursor.LineUnderCursor)
         line = cur.selectedText().strip()
         if "=" in line and not line.startswith(";") and not line.startswith("["):
             key = line.split("=", 1)[0].strip()
+            val = line.split("=", 1)[1].split(";")[0].strip() if "=" in line else ""
             desc = (self.flag_schema.get(key) or {}).get("desc_zh") or ""
+            if not desc:
+                desc = (self.flag_schema.get(key) or {}).get("desc_en") or ""
+            lint_tip = ""
+            try:
+                lint_tip = (self.code._lint_tooltips or {}).get(self.code.textCursor().blockNumber()) or ""
+            except Exception:
+                pass
             if desc:
-                self.prop.hint.setText(f"{key}: {desc}")
+                text = f"{key} = {val}\n{desc}"
+            else:
+                text = f"{key} = {val}\n（暂无词典说明）"
+            if lint_tip:
+                text += f"\n⚠ {lint_tip}"
+            self.prop.hint.setText(text)
+            self.prop.hint.show()
+        else:
+            self.prop.hint.hide()
+            self.prop.hint.clear()
 
     def jump_to_editor_key(self, key: str):
         """按属性键在代码编辑器中定位（按文档块遍历，避免行号/换行错位）。"""
@@ -2493,30 +4118,140 @@ class MainWindow(QMainWindow):
             dlg.edit.setText(self.current_section_id)
         dlg.exec()
 
-    def lint_current_section(self):
+    def _collect_current_lint_issues(self):
+        """对当前编辑器正文跑校验，返回 LintIssue 列表（始终以代码区为准）。"""
         from core.linter import lint_section
+        from core.save_util import normalize_section_body
+        from core.ini_parser import INISection
+
+        if not self.current_section_id:
+            return []
+        prefer = self.current_prefer or ""
+        source = prefer if prefer in ("art", "ai") else "rules"
+        body = (self.code.toPlainText() or "").strip()
+        if not body:
+            return []
+
+        # 始终从编辑器解析，不依赖磁盘节是否存在
+        tmp = INISection(self.current_section_id)
+        norm = normalize_section_body(self.current_section_id, body)
+        for line in norm.splitlines():
+            line = line.strip()
+            if not line or line.startswith(";") or line.startswith("["):
+                continue
+            if "=" in line:
+                k, _, v = line.partition("=")
+                tmp.set(k.strip(), v.strip().split(";")[0].strip())
+        return lint_section(
+            self.project, self.current_section_id, tmp, source=source
+        ) or []
+
+    def _run_live_lint(self):
+        st = self.project.config.get("settings") or {}
+        if not bool(st.get("live_lint", True)):
+            try:
+                self.code.clear_lint_marks()
+            except Exception:
+                pass
+            return
+        if not self.current_section_id or self._loading_section:
+            return
+        try:
+            issues = self._collect_current_lint_issues()
+            self.code.apply_lint_marks(issues)
+            if issues:
+                n_err = sum(1 for i in issues if getattr(i, "severity", "") == "error")
+                n_warn = len(issues) - n_err
+                parts = []
+                if n_err:
+                    parts.append(f"{n_err} 错误")
+                if n_warn:
+                    parts.append(f"{n_warn} 警告")
+                self.statusBar().showMessage(
+                    "校验：" + "、".join(parts) + "（问题行有底色+下划线，悬停查看）",
+                    6000,
+                )
+            else:
+                # 有脏编辑时清掉「校验：」残留
+                msg = self.statusBar().currentMessage() or ""
+                if msg.startswith("校验："):
+                    self.statusBar().clearMessage()
+        except Exception as e:
+            try:
+                self.statusBar().showMessage(f"实时校验异常: {e}", 8000)
+            except Exception:
+                pass
+
+    def _set_prop_panel_visible(self, visible: bool):
+        """显示/隐藏整个右侧属性说明区。"""
+        if not getattr(self, "prop", None):
+            return
+        visible = bool(visible)
+        split = getattr(self, "_main_split", None)
+        if visible:
+            self.prop.show()
+            if split and self._prop_panel_sizes:
+                try:
+                    split.setSizes(self._prop_panel_sizes)
+                except Exception:
+                    pass
+        else:
+            if split:
+                try:
+                    self._prop_panel_sizes = split.sizes()
+                except Exception:
+                    pass
+            self.prop.hide()
+        if getattr(self, "act_prop_panel", None):
+            self.act_prop_panel.blockSignals(True)
+            self.act_prop_panel.setChecked(visible)
+            self.act_prop_panel.blockSignals(False)
+        st = self.project.config.setdefault("settings", {})
+        st["show_prop_panel"] = visible
+        try:
+            self.project.save_config()
+        except Exception:
+            pass
+
+    def _toggle_prop_panel(self, checked: bool = None):
+        if checked is None:
+            checked = not self.prop.isVisible()
+        self._set_prop_panel_visible(bool(checked))
+
+    def _apply_ui_prefs(self):
+        st = self.project.config.get("settings") or {}
+        try:
+            self.code.set_editor_font_size(int(st.get("editor_font_size", 13)))
+        except Exception:
+            pass
+        try:
+            self.prop.set_hint_font_size(int(st.get("prop_hint_font_size", 14)))
+        except Exception:
+            pass
+        try:
+            # 不重复写 config：只同步可见性与菜单勾选
+            vis = bool(st.get("show_prop_panel", True))
+            if getattr(self, "prop", None):
+                if vis:
+                    self.prop.show()
+                else:
+                    self.prop.hide()
+            if getattr(self, "act_prop_panel", None):
+                self.act_prop_panel.blockSignals(True)
+                self.act_prop_panel.setChecked(vis)
+                self.act_prop_panel.blockSignals(False)
+        except Exception:
+            pass
+
+    def lint_current_section(self):
         if not self.current_section_id:
             QMessageBox.information(self, "校验", "请先选择一个 section")
             return
-        prefer = self.current_prefer or ""
-        prefer_ini = None
-        if prefer == "art" and self.project.art:
-            prefer_ini = self.project.art
-        elif prefer == "ai" and self.project.ai:
-            prefer_ini = self.project.ai
-        sec = self.project.get_section(self.current_section_id, prefer=prefer_ini)
-        # 用编辑器正文覆盖内存键值再校验更准：简单解析 key=
-        if sec and self.code.toPlainText().strip():
-            from core.save_util import normalize_section_body
-            body = normalize_section_body(self.current_section_id, self.code.toPlainText())
-            for line in body.splitlines():
-                line = line.strip()
-                if not line or line.startswith(";") or line.startswith("["):
-                    continue
-                if "=" in line:
-                    k, _, v = line.partition("=")
-                    sec.set(k.strip(), v.strip())
-        issues = lint_section(self.project, self.current_section_id, sec, source=prefer or "rules")
+        issues = self._collect_current_lint_issues()
+        try:
+            self.code.apply_lint_marks(issues)
+        except Exception:
+            pass
         if not issues:
             QMessageBox.information(self, "校验", "当前节未发现明显问题")
             return
@@ -2578,6 +4313,260 @@ class MainWindow(QMainWindow):
         dlg = LintDialog(self, issues, "保存全部前校验（工程）— 发现错误")
         return dlg.exec() == QDialog.Accepted
 
+    def fold_comment_blocks(self):
+        if not hasattr(self.code, "fold_all_comments"):
+            return
+        n = self.code.fold_all_comments()
+        if n:
+            self.statusBar().showMessage(
+                f"已临时隐藏 {n} 行注释（仅便于阅读；展开后恢复原文，折叠期间请勿当正式编辑）", 6000
+            )
+        else:
+            self.statusBar().showMessage("当前节没有以 ; 开头的注释行", 4000)
+
+    def expand_all_folds(self):
+        if not hasattr(self.code, "expand_all_folds"):
+            return
+        n = self.code.expand_all_folds()
+        if n:
+            self.statusBar().showMessage(f"已展开/恢复（处理 {n} 处）", 4000)
+        else:
+            self.statusBar().showMessage("当前没有折叠中的内容", 3000)
+
+
+    def _touch_session_change(self, mem_key: str = None, *, is_new: bool = False, kind: str = "edit"):
+        """B2：记录本会话对该节的改动。"""
+        from datetime import datetime
+        key = mem_key or self._mem_key()
+        if not key:
+            return
+        sid = self.current_section_id or ""
+        prefer = (self.current_prefer or "").strip().lower()
+        if str(key).startswith("art::"):
+            sid, prefer = key[5:], "art"
+        elif str(key).startswith("ai::"):
+            sid, prefer = key[4:], "ai"
+        elif not sid:
+            sid = key
+        now = datetime.now().strftime("%H:%M:%S")
+        rec = self._session_changes.get(key) or {
+            "key": key,
+            "section_id": sid,
+            "prefer": prefer,
+            "first_at": now,
+            "saved": False,
+            "kind": kind,
+        }
+        rec["last_at"] = now
+        rec["section_id"] = sid or rec.get("section_id")
+        rec["prefer"] = prefer if prefer is not None else (rec.get("prefer") or "")
+        if is_new:
+            rec["kind"] = kind if kind != "edit" else "new"
+            rec["is_new"] = True
+        if key in (self._mem_sections or {}):
+            rec["has_draft"] = True
+        self._session_changes[key] = rec
+
+    def _mark_session_saved(self, mem_key: str = None):
+        key = mem_key or self._mem_key()
+        if not key:
+            return
+        rec = self._session_changes.get(key)
+        if not rec:
+            self._touch_session_change(key)
+            rec = self._session_changes.get(key)
+        if rec:
+            from datetime import datetime
+            rec["saved"] = True
+            rec["saved_at"] = datetime.now().strftime("%H:%M:%S")
+            rec["has_draft"] = key in (self._mem_sections or {})
+
+    def _session_change_rows(self) -> list:
+        rows = []
+        seen = set()
+        for key, rec in (self._session_changes or {}).items():
+            rows.append(dict(rec))
+            seen.add(key)
+        for key, body in (self._mem_sections or {}).items():
+            if key in seen:
+                continue
+            sid, prefer = key, ""
+            if str(key).startswith("art::"):
+                sid, prefer = key[5:], "art"
+            elif str(key).startswith("ai::"):
+                sid, prefer = key[4:], "ai"
+            rows.append({
+                "key": key,
+                "section_id": sid,
+                "prefer": prefer,
+                "first_at": "—",
+                "last_at": "—",
+                "saved": False,
+                "kind": "draft",
+                "has_draft": True,
+            })
+        for sid, pend in (self._pending_new or {}).items():
+            key = sid
+            if key in seen:
+                for r in rows:
+                    if r["key"] == key:
+                        r["kind"] = pend.get("kind") or "new"
+                        r["is_new"] = True
+                continue
+            rows.append({
+                "key": key,
+                "section_id": sid,
+                "prefer": "",
+                "first_at": "—",
+                "last_at": "—",
+                "saved": False,
+                "kind": pend.get("kind") or "new",
+                "is_new": True,
+                "has_draft": key in (self._mem_sections or {}),
+            })
+        rows.sort(key=lambda r: (str(r.get("last_at") or ""), str(r.get("section_id") or "")))
+        return rows
+
+    def show_dependency_tree(self):
+        """C1：当前节依赖关系图。"""
+        sid = self.current_section_id
+        if not sid:
+            QMessageBox.information(self, "依赖关系", "请先选择一个 section")
+            return
+        dlg = DependencyTreeDialog(self, sid)
+        dlg.exec()
+
+    def show_session_changes(self):
+
+        """B2：本会话改动集 — 列表 / 打开 / 导出变更片段。"""
+        self._store_current_to_mem()
+        rows = self._session_change_rows()
+        dlg = SessionChangesDialog(self, rows)
+        dlg.exec()
+
+    def export_session_changes(self, keys: list = None) -> bool:
+        """导出选中（或全部）会话改动为目录：每节一个片段 + manifest。"""
+        self._store_current_to_mem()
+        rows = self._session_change_rows()
+        if keys is not None:
+            keyset = set(keys)
+            rows = [r for r in rows if r.get("key") in keyset]
+        if not rows:
+            QMessageBox.information(self, "导出改动集", "没有可导出的改动")
+            return False
+        from datetime import datetime
+        default_name = "changeset_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = self.project.project_dir or Path.home()
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "选择导出目录（将在其下创建改动集文件夹）", str(base)
+        )
+        if not out_dir:
+            return False
+        dest = Path(out_dir) / default_name
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            QMessageBox.critical(self, "导出失败", str(e))
+            return False
+
+        manifest = [
+            "# AutoReloader session changeset",
+            f"# time: {datetime.now().isoformat(timespec='seconds')}",
+            f"# project: {self.project.project_dir or ''}",
+            f"# count: {len(rows)}",
+            "",
+        ]
+        written = 0
+        for r in rows:
+            key = r.get("key") or ""
+            sid = r.get("section_id") or key
+            prefer = (r.get("prefer") or "").strip().lower()
+            body = (self._mem_sections or {}).get(key)
+            if body is None and sid == self.current_section_id:
+                cur_pref = (self.current_prefer or "").strip().lower()
+                if cur_pref == prefer or (not prefer and not cur_pref):
+                    body = self.code.toPlainText()
+            if body is None:
+                prefer_ini = None
+                if prefer == "art":
+                    prefer_ini = self.project.art
+                elif prefer == "ai":
+                    prefer_ini = self.project.ai
+                body = self.project.get_section_text(sid, prefer=prefer_ini)
+            if not body:
+                continue
+            from core.save_util import normalize_section_body
+            try:
+                body = normalize_section_body(sid, body)
+            except Exception:
+                pass
+            tag = prefer or "rules"
+            safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in str(sid))[:80]
+            fname = f"{safe}__{tag}.ini"
+            fpath = dest / fname
+            n = 1
+            while fpath.exists():
+                fpath = dest / f"{safe}__{tag}_{n}.ini"
+                n += 1
+            try:
+                fpath.write_text(body if body.endswith("\n") else body + "\n", encoding="utf-8")
+            except Exception as e:
+                manifest.append(f"# FAIL {sid}: {e}")
+                continue
+            written += 1
+            status = "saved" if r.get("saved") else "unsaved"
+            kind = r.get("kind") or "edit"
+            manifest.append(
+                f"{fname}\t[{sid}]\t{tag}\t{kind}\t{status}\t{r.get('last_at') or ''}"
+            )
+
+        (dest / "manifest.txt").write_text("\n".join(manifest) + "\n", encoding="utf-8")
+        QMessageBox.information(
+            self, "导出完成",
+            f"已导出 {written} 个节片段到:\n{dest}\n\n见 manifest.txt 索引。",
+        )
+        self.statusBar().showMessage(f"改动集已导出 → {dest}", 8000)
+        return True
+
+    def show_section_origins(self):
+        """B3：查看当前节在各拆分文件中的原始内容与键来源。"""
+        sid = self.current_section_id
+        if not sid:
+            QMessageBox.information(self, "多文件来源", "请先选择一个 section")
+            return
+        prefer = (self.current_prefer or "").strip().lower()
+        dlg = SectionOriginsDialog(self, self.project, sid, prefer=prefer)
+        dlg.exec()
+
+    def show_section_diff(self, mode: str = "disk"):
+
+        """A3：当前编辑器正文 vs 磁盘 / vs 打开时基线。"""
+        from core.section_diff import diff_kv, summarize_changes
+
+        sid = self.current_section_id
+        if not sid:
+            QMessageBox.information(self, "Diff", "请先选择一个 section")
+            return
+        prefer = self.current_prefer or ""
+        prefer_ini = None
+        if prefer == "art" and self.project.art:
+            prefer_ini = self.project.art
+        elif prefer == "ai" and self.project.ai:
+            prefer_ini = self.project.ai
+        current = self.code.toPlainText()
+        key = self._mem_key(sid, prefer)
+        if mode == "baseline":
+            base = self._section_baseline.get(key or "", "")
+            title = f"Diff · [{sid}] 相对打开时"
+            if not base:
+                QMessageBox.information(self, "Diff", "尚无打开时基线（重新点选该节后即可）")
+                return
+        else:
+            base = self.project.get_section_text(sid, prefer=prefer_ini)
+            title = f"Diff · [{sid}] 相对磁盘"
+        changes = diff_kv(base, current)
+        dlg = SectionDiffDialog(self, title, changes, summarize_changes(changes))
+        dlg.exec()
 
     def show_find_dialog(self):
         from PySide6.QtWidgets import QInputDialog
@@ -2620,30 +4609,171 @@ class MainWindow(QMainWindow):
 
 
     def _format_save_plan(self, plan: dict) -> str:
+        """精简确认文案：默认只列将写入的文件；跳过的收成一行。"""
         files = plan.get("files") or []
-        lines = ["将按键来源写入以下文件（确定后才会落盘）：", ""]
+        mode = plan.get("write_mode") or "full"
+        mode_zh = "增量" if mode == "incremental" else "全量"
+        writes = []
+        skips = []
         for item in files:
             p = item.get("path") or ""
             n = int(item.get("count") or 0)
             name = Path(p).name if p else "?"
-            if n == 0:
-                lines.append("  • %s  — 清空本文件中该节的键" % name)
+            if item.get("skip") or (n == 0 and not item.get("deletes") and not item.get("incremental")):
+                skips.append(name)
             else:
-                lines.append("  • %s  — %d 条键" % (name, n))
-            lines.append("      %s" % p)
+                n_del = len(item.get("deletes") or [])
+                if n_del and n:
+                    writes.append(f"  • {name}  — 写入约 {n} 项（含删除 {n_del}）")
+                elif n_del:
+                    writes.append(f"  • {name}  — 删除 {n_del} 项")
+                else:
+                    writes.append(f"  • {name}  — 约 {n} 项")
+                if p:
+                    writes.append(f"      {p}")
+        lines = [
+            f"写入方式：{mode_zh}（按各条原来所在文件写回，确定后才落盘）",
+            "",
+        ]
+        if writes:
+            lines.append("将写入：")
+            lines.extend(writes)
+        else:
+            lines.append("没有需要写入的文件。")
+        if skips:
+            lines.append("")
+            lines.append("未改动而跳过：%s" % "、".join(skips[:8]) + ("…" if len(skips) > 8 else ""))
         lines.append("")
-        lines.append("是否继续保存？")
+        lines.append("是否继续？")
         return chr(10).join(lines)
 
+    def _confirm_danger(self, title: str, text: str, detail: str = "") -> bool:
+        """统一危险操作确认：默认「否」。"""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle(title)
+        box.setText(text)
+        if detail:
+            box.setInformativeText(detail)
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        return box.exec() == QMessageBox.Yes
+
     def _confirm_save_plan(self, plan: dict, title: str = "确认保存") -> bool:
-        ret = QMessageBox.question(
-            self,
-            title,
-            self._format_save_plan(plan),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        return ret == QMessageBox.Yes
+        return self._confirm_danger(title, self._format_save_plan(plan))
+
+    def _guard_save_body(self) -> str | None:
+        """
+        取可安全写盘的正文。
+        注释折叠阅读模式下禁止保存，避免把去掉注释的文本写回工程。
+        """
+        if getattr(self.code, "_comments_collapsed", False):
+            QMessageBox.warning(
+                self,
+                "无法保存",
+                "当前处于「折叠注释」阅读模式。\n\n"
+                "请先：编辑 → 展开全部折叠，再保存。\n"
+                "否则可能把注释从工程文件里抹掉。",
+            )
+            return None
+        return self.code.toPlainText()
+
+    def _fill_merge_target_combo(self, section_id: str, multi_files: list, default_src):
+        """多文件合并节：填充「无来源新键写入」下拉；单文件则隐藏。"""
+        combo = getattr(self, "merge_target_combo", None)
+        row = getattr(self, "merge_target_row", None)
+        if combo is None or row is None:
+            return
+        combo.blockSignals(True)
+        combo.clear()
+        if len(multi_files or []) <= 1 or self.project.work_mode == "single":
+            row.hide()
+            combo.blockSignals(False)
+            return
+        paths = []
+        for fr in multi_files:
+            p = fr.get("path") or ""
+            if not p:
+                continue
+            try:
+                rp = str(Path(p).resolve())
+            except Exception:
+                rp = str(p)
+            if rp not in paths:
+                paths.append(rp)
+            name = fr.get("name") or Path(p).name
+            combo.addItem(name, rp)
+        # 若默认 src 不在列表里也加上
+        if default_src:
+            try:
+                ds = str(Path(default_src).resolve())
+            except Exception:
+                ds = str(default_src)
+            if ds not in paths and Path(ds).is_file():
+                combo.addItem(Path(ds).name + "（默认）", ds)
+                paths.append(ds)
+        # 恢复用户上次选择
+        remembered = self._merge_newkey_target.get(section_id.lower())
+        pick = remembered
+        if not pick and default_src:
+            try:
+                pick = str(Path(default_src).resolve())
+            except Exception:
+                pick = str(default_src)
+        if pick:
+            for i in range(combo.count()):
+                if (combo.itemData(i) or "") == pick:
+                    combo.setCurrentIndex(i)
+                    break
+        row.show()
+        combo.blockSignals(False)
+        # 同步当前选择到记忆
+        cur = combo.currentData()
+        if cur and section_id:
+            self._merge_newkey_target[section_id.lower()] = str(cur)
+
+    def _on_merge_target_changed(self, _idx: int = 0):
+        sid = self.current_section_id
+        if not sid:
+            return
+        cur = self.merge_target_combo.currentData()
+        if cur:
+            self._merge_newkey_target[sid.lower()] = str(cur)
+
+    def _merge_newkey_path(self, section_id: str) -> Path | None:
+        """多文件节上用户为无来源新键指定的文件。"""
+        if not section_id:
+            return None
+        row = getattr(self, "merge_target_row", None)
+        if row is None or not row.isVisible():
+            # 仍可用记忆
+            p = self._merge_newkey_target.get(section_id.lower())
+            return Path(p) if p else None
+        cur = self.merge_target_combo.currentData()
+        if cur:
+            return Path(str(cur))
+        p = self._merge_newkey_target.get(section_id.lower())
+        return Path(p) if p else None
+
+    def _resolve_save_path(self, section_id: str, prefer: str = "") -> Path | None:
+        """按当前标签（rules/art/ai）解析写入路径（已有节主来源；新键下拉另传 new_key_default）。"""
+        prefer = (prefer or "").strip().lower()
+        path = None
+        if prefer == "art" and self.project.art:
+            sec = self.project.art.get_section(section_id)
+            if sec and sec.source_file:
+                path = self.project._resolve_name(sec.source_file)
+            if path is None:
+                path = self.project.get_source_path_for_section(section_id, prefer="art")
+        elif prefer == "ai" and self.project.ai:
+            sec = self.project.ai.get_section(section_id)
+            if sec and sec.source_file:
+                path = self.project._resolve_name(sec.source_file)
+            if path is None:
+                path = self.project.get_source_path_for_section(section_id, prefer="ai")
+        else:
+            path = self.project.get_source_path_for_section(section_id, prefer="")
+        return Path(path) if path else None
 
     def _save_section_with_confirm(
         self,
@@ -2652,6 +4782,7 @@ class MainWindow(QMainWindow):
         path: Path,
         is_new: bool = False,
         peers=None,
+        prefer: str = "",
     ) -> dict:
         """先出计划确认，再 confirmed 写盘。"""
         peers = peers or []
@@ -2660,11 +4791,60 @@ class MainWindow(QMainWindow):
             backup_root = Path(path).parent / "backups"
             return self._save_with_backup_root(section_id, body, path, is_new, peers, backup_root)
 
+        st = self.project.config.get("settings") or {}
+        write_mode = str(st.get("save_write_mode") or "full")
+        baseline = None
+        baseline_keys = None
+        baseline_plus = None
+        if write_mode.lower() in ("incremental", "delta", "patch"):
+            k = self._mem_key(section_id)
+            baseline = self._section_baseline.get(k) if k else None
+            baseline_keys = self._section_baseline_keys.get(k) if k else None
+            baseline_plus = self._section_baseline_plus.get(k) if k else None
+        new_key_default = self._merge_newkey_path(section_id)
         plan = self.project.plan_section_write(
-            section_id, body, target_path=Path(path), is_new=is_new
+            section_id,
+            body,
+            target_path=Path(path),
+            is_new=is_new,
+            prefer=prefer or None,
+            write_mode=write_mode,
+            baseline_text=baseline,
+            new_key_default=new_key_default,
+            baseline_keys=baseline_keys,
+            baseline_plus=baseline_plus,
         )
         if not plan.get("ok"):
             return plan
+        writable = [
+            f for f in (plan.get("files") or [])
+            if not f.get("skip") and (
+                int(f.get("count") or 0) > 0
+                or f.get("deletes")
+                or f.get("incremental")
+            )
+        ]
+        if not writable and not is_new:
+            # 诊断：帮助确认是「真没改」还是「+=/基线」问题
+            try:
+                cur_p = self.project._parse_section_kv_lines(section_id, body)
+                ck = sum(1 for it in cur_p if it[0] not in ("+", "+=", "++"))
+                cp = sum(1 for it in cur_p if it[0] in ("+", "+=", "++"))
+            except Exception:
+                ck = cp = -1
+            bk = len(baseline_keys or [])
+            bp = len(baseline_plus or [])
+            mode_zh = "增量" if write_mode.lower() in ("incremental", "delta", "patch") else "全量"
+            QMessageBox.information(
+                self,
+                "无需保存",
+                f"没有检测到需要写入的变更（模式：{mode_zh}）。\n\n"
+                f"打开时：普通键 {bk} 个，+= {bp} 条\n"
+                f"当前：普通键 {ck} 个，+= {cp} 条\n\n"
+                "说明：若你先加了 += 又删掉且从未成功保存，相对打开时确实无净变更。\n"
+                "改已有「键=值」或保留新的 += 后再保存。",
+            )
+            return {"ok": False, "cancelled": True, "message": "无需写入"}
         if not self._confirm_save_plan(plan, title="确认保存 [%s]" % section_id):
             return {"ok": False, "cancelled": True, "message": "已取消保存"}
         return self.project.save_section_text(
@@ -2674,6 +4854,12 @@ class MainWindow(QMainWindow):
             is_new=is_new,
             peer_ids=peers,
             confirmed=True,
+            prefer=prefer or None,
+            write_mode=write_mode,
+            baseline_text=baseline,
+            new_key_default=new_key_default,
+            baseline_keys=baseline_keys,
+            baseline_plus=baseline_plus,
         )
 
     def save_all(self):
@@ -2698,37 +4884,39 @@ class MainWindow(QMainWindow):
         old_code = self.code.toPlainText()
         old_sid = self.current_section_id
         old_prefer = self.current_prefer
+        if getattr(self.code, "_comments_collapsed", False):
+            QMessageBox.warning(
+                self, "无法保存全部",
+                "当前编辑区处于「折叠注释」阅读模式。\n请先展开全部折叠后再保存全部。",
+            )
+            return
         for key in sorted(keys):
             if key.startswith("art::"):
                 sid, prefer = key[5:], "art"
+            elif key.startswith("ai::"):
+                sid, prefer = key[4:], "ai"
             else:
                 sid, prefer = key, ""
             body = self._mem_sections.get(key)
-            if body is None and sid == old_sid:
+            if body is None and sid == old_sid and prefer == (old_prefer or ""):
                 body = old_code
             if not body:
                 continue
             # 切到该 section 的上下文写盘
             self.current_section_id = sid
             self.current_prefer = prefer
-            path = None
-            if prefer == "art" and self.project.art:
-                sec = self.project.art.get_section(sid)
-                if sec and sec.source_file:
-                    path = self.project._resolve_name(sec.source_file)
-            if path is None:
-                path = self.project.get_source_path_for_section(sid)
+            path = self._resolve_save_path(sid, prefer=prefer)
             if path is None or not Path(path).is_file():
-                fail.append(f"{sid}: 无来源文件")
+                fail.append(f"{sid} ({prefer or 'rules'}): 无来源文件")
                 continue
             peers = self._peers_for(sid)
-            backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
             result = self._save_section_with_confirm(
-                sid, body, Path(path), is_new=False, peers=peers
+                sid, body, Path(path), is_new=False, peers=peers, prefer=prefer
             )
             if result.get("ok"):
                 ok_n += 1
                 self._mem_sections[key] = body
+                self._mark_session_saved(key)
             elif result.get("cancelled"):
                 fail.append(f"{sid}: 用户取消")
                 break
@@ -2752,12 +4940,22 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "提示", "请先选择一个 section")
             return
         section_id = self.current_section_id
+        prefer = (self.current_prefer or "").strip().lower()
+        body = self._guard_save_body()
+        if body is None:
+            return
         if not self._lint_before_save(section_id):
             return
-        body = self.code.toPlainText()
-        path = self.project.get_source_path_for_section(section_id)
-        is_new = False
-        if path is None or not Path(path).is_file():
+
+        pending = (self._pending_new or {}).get(section_id) if prefer not in ("art", "ai") else None
+        is_new = bool(pending and pending.get("is_new"))
+
+        if pending and pending.get("path") and prefer not in ("art", "ai"):
+            path = Path(pending["path"])
+        else:
+            path = self._resolve_save_path(section_id, prefer=prefer)
+
+        if path is None or (not Path(path).is_file() and not is_new):
             path_str, _ = QFileDialog.getOpenFileName(
                 self, "选择要写入的 INI 文件",
                 str(self.project.project_dir or Path.home()),
@@ -2767,15 +4965,82 @@ class MainWindow(QMainWindow):
                 return
             path = Path(path_str)
             is_new = True
+
+        path = Path(path)
+        # 文件在、节不在 → 按新增追加，避免“未找到原块又乱插”
+        if not is_new and path.is_file():
+            from core.save_util import read_text, find_section_span
+            try:
+                text, _ = read_text(path)
+                if find_section_span(text, section_id) is None:
+                    is_new = True
+            except Exception:
+                pass
+
         peers = self._peers_for(section_id)
         result = self._save_section_with_confirm(
-            section_id, body, Path(path), is_new=is_new, peers=peers
+            section_id, body, path, is_new=is_new, peers=peers, prefer=prefer
         )
         if result.get("ok"):
-            self._dirty = False
+            extra_msgs = []
+            if pending and prefer not in ("art", "ai"):
+                if pending.get("also_register") and pending.get("register_path"):
+                    reg = self._append_to_type_list(
+                        Path(pending["register_path"]),
+                        pending.get("type_list") or "VehicleTypes",
+                        section_id,
+                    )
+                    extra_msgs.append("注册表: " + (reg.get("message") or ""))
+                    if not reg.get("ok"):
+                        QMessageBox.warning(self, "注册表写入失败", reg.get("message", ""))
+                if pending.get("write_csf"):
+                    zh = (pending.get("csf_text") or "").strip()
+                    if not zh:
+                        extra_msgs.append("CSF: 已勾选但未填「CSF 中文名」，已跳过")
+                    else:
+                        csf_res = self._write_csf_uiname(section_id, zh)
+                        extra_msgs.append("CSF: " + (csf_res.get("message") or ""))
+                        if not csf_res.get("ok"):
+                            QMessageBox.warning(self, "CSF 写入失败", csf_res.get("message", ""))
+                art_body = pending.get("art_body")
+                art_path = pending.get("art_path")
+                if art_body and art_path:
+                    from core.save_util import save_section_to_file
+                    backup_root = (
+                        (self.project.project_dir / "backups")
+                        if self.project.project_dir
+                        else (Path(art_path).parent / "backups")
+                    )
+                    ar = save_section_to_file(
+                        Path(art_path), section_id, art_body,
+                        backup_root=backup_root, is_new=True, peer_section_names=[],
+                    )
+                    if ar.get("ok"):
+                        extra_msgs.append(f"Art: {art_path}")
+                    else:
+                        extra_msgs.append("Art 失败: " + (ar.get("message") or ""))
+                self._pending_new.pop(section_id, None)
+
+            self._set_dirty(False)
             k = self._mem_key(section_id)
             if k:
                 self._mem_sections[k] = body
+                nb = body if body.endswith("\n") else body + "\n"
+                self._section_baseline[k] = nb
+                try:
+                    ks = set()
+                    ps = set()
+                    for item in self.project._parse_section_kv_lines(section_id, nb):
+                        if item[0] in ("+", "+=", "++"):
+                            if item[1]:
+                                ps.add(str(item[1]).strip().lower())
+                        else:
+                            ks.add(str(item[0]).lower())
+                    self._section_baseline_keys[k] = ks
+                    self._section_baseline_plus[k] = ps
+                except Exception:
+                    pass
+                self._mark_session_saved(k)
             files = result.get("files") or []
             if files:
                 parts = ["已写入 %d 个文件:" % len(files)]
@@ -2786,12 +5051,15 @@ class MainWindow(QMainWindow):
                 summary = chr(10).join(parts)
             else:
                 summary = result.get("message", "已写入磁盘")
+            if extra_msgs:
+                summary = summary + "\n" + "\n".join(extra_msgs)
             QMessageBox.information(self, "保存成功", summary)
             self.statusBar().showMessage("已保存 %s" % section_id, 8000)
         elif result.get("cancelled"):
             self.statusBar().showMessage("已取消保存", 3000)
         else:
             QMessageBox.critical(self, "保存失败", result.get("message", "失败"))
+
 
     def _save_with_backup_root(self, section_id, body, path, is_new, peers, backup_root):
         from core.save_util import save_section_to_file
@@ -2925,6 +5193,7 @@ class MainWindow(QMainWindow):
         win.show()
 
     def on_add_new(self):
+        """新增：只写入内存与对象树，不落盘；用户点保存才写文件。"""
         if not self.project.project_dir and not self.project.single_path:
             QMessageBox.information(self, "新增", "请先打开工程或单文件")
             return
@@ -2940,7 +5209,8 @@ class MainWindow(QMainWindow):
         path_str = data["path"]
         if not path_str:
             path_str, _ = QFileDialog.getSaveFileName(
-                self, "选择写入单位代码的 INI", str(self.project.project_dir or Path.home()), "INI (*.ini)"
+                self, "选择计划写入的 INI（仍不会立即写盘）",
+                str(self.project.project_dir or Path.home()), "INI (*.ini)",
             )
             if not path_str:
                 return
@@ -2956,109 +5226,334 @@ class MainWindow(QMainWindow):
                     lines.append(ln)
             body = "\n".join(lines) + "\n"
 
-        peers = []
-        ini = self.project.active_ini()
-        if ini:
-            peers = ini.get_list(type_list)
-
-        backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-        from core.save_util import save_section_to_file
-        result = save_section_to_file(
-            path, sid, body, backup_root=backup_root, is_new=True, peer_section_names=peers
-        )
-        if not result.get("ok"):
-            QMessageBox.critical(self, "新增失败", result.get("message", ""))
-            return
-
-        # 注册表：只写到含有该注册表的文件
-        reg_msg = ""
-        if data.get("also_register") and data.get("register_path"):
-            reg_result = self._append_to_type_list(Path(data["register_path"]), type_list, sid)
-            reg_msg = reg_result.get("message", "")
-            if not reg_result.get("ok"):
-                QMessageBox.warning(self, "注册表写入失败", reg_msg)
-        # 同步进工程内存，对象树立刻能看见
         self.project.inject_section_memory(
             sid, body, source_path=path,
             type_list=type_list if data.get("also_register") else None,
         )
-        # 编辑器内存草稿
         self._mem_sections[sid] = body
-        if self.project.work_mode == "single" and self.project.single_path:
-            self.project.open_single_file(self.project.single_path)
-            self.project.inject_section_memory(
-                sid, body, source_path=path,
-                type_list=type_list if data.get("also_register") else None,
-            )
+        self._pending_new[sid] = {
+            "id": sid,
+            "path": str(path),
+            "type_list": type_list,
+            "also_register": bool(data.get("also_register")),
+            "register_path": data.get("register_path") or "",
+            "is_new": True,
+            "kind": "new",
+            "write_csf": bool(data.get("write_csf")),
+            "csf_text": (data.get("csf_text") or "").strip(),
+        }
+        self._touch_session_change(sid, is_new=True, kind="new")
+        self._dirty = True
+        self.project.invalidate_classify_cache()
         self._display_cache.clear()
         self.refresh_tree()
         self.open_section_tab(sid)
         QMessageBox.information(
-            self, "新增成功",
-            f"代码: [{sid}] → {path}\n{result.get('message', '')}\n注册表: {reg_msg or '（未写入注册表）'}"
+            self, "已加入编辑器（未写盘）",
+            f"[{sid}] 已在内存中创建。\n"
+            f"计划写入: {path}\n"
+            f"注册表: {'是 → ' + (data.get('register_path') or '') if data.get('also_register') else '否'}\n\n"
+            f"请检查后点「保存当前」才会写入文件并备份。",
         )
 
-    def _append_to_type_list(self, path: Path, type_list: str, new_id: str) -> dict:
-        """在 [TypeList] 末尾追加注册。优先 +=ID（Ares）；失败回退数字序号。返回 {ok, message}"""
-        from core.save_util import read_text, backup_file
-        import re
-        path = Path(path)
-        if not path.is_file():
-            # 相对工程目录再试
-            if self.project.project_dir:
-                alt = self.project.project_dir / path
-                if alt.is_file():
-                    path = alt
-                else:
-                    return {"ok": False, "message": f"注册表文件不存在: {path}"}
+    def _rewrite_clone_body(self, src_id: str, new_id: str, body: str, *, name: str = "", rewrite_identity: bool = True) -> str:
+        """把模板节改成新 ID；可选改写 Image/UIName/Name 中的模板名。"""
+        from core.save_util import normalize_section_body
+        text = normalize_section_body(src_id, body)
+        lines = []
+        for ln in text.splitlines():
+            s = ln.strip()
+            if s.startswith("[") and s.endswith("]"):
+                lines.append(f"[{new_id}]")
+                continue
+            if name and s.lower().startswith("name="):
+                lines.append(f"Name={name}")
+                continue
+            if rewrite_identity and "=" in s and not s.startswith(";"):
+                k, _, v = s.partition("=")
+                kl = k.strip().lower()
+                val = v.strip()
+                if kl in ("image", "uiname", "name") and src_id.lower() in val.lower():
+                    # 简单替换 ID 片段（大小写不敏感）
+                    import re as _re
+                    val2 = _re.sub(_re.escape(src_id), new_id, val, flags=_re.IGNORECASE)
+                    lines.append(f"{k.strip()}={val2}")
+                    continue
+            lines.append(ln.rstrip())
+        out = "\n".join(lines)
+        if not out.endswith("\n"):
+            out += "\n"
+        return out
+
+    def on_clone_unit(self):
+        """B1 克隆：只进内存，点保存才写盘。"""
+        if not self.project.project_dir and not self.project.single_path:
+            QMessageBox.information(self, "克隆", "请先打开工程或单文件")
+            return
+        default_src = ""
+        if self.current_section_id and (self.current_prefer or "") not in ("art", "ai"):
+            default_src = self.current_section_id
+        dlg = CloneUnitDialog(self.project, self, default_src=default_src)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        data = dlg.result_data()
+        if not data:
+            return
+        src_id = data["src_id"]
+        sid = data["id"]
+        type_list = data["type_list"]
+        src_body = self.project.get_section_text(src_id)
+        body = self._rewrite_clone_body(
+            src_id, sid, src_body,
+            name=data.get("name") or "",
+            rewrite_identity=bool(data.get("rewrite_identity")),
+        )
+        path_str = data.get("path") or ""
+        if not path_str:
+            src_path = self.project.get_source_path_for_section(src_id)
+            path_str = str(src_path) if src_path else ""
+        if not path_str:
+            path_str, _ = QFileDialog.getSaveFileName(
+                self, "选择计划写入的 INI（不会立即写盘）",
+                str(self.project.project_dir or Path.home()), "INI (*.ini)",
+            )
+            if not path_str:
+                return
+        path = Path(path_str)
+
+        self.project.inject_section_memory(
+            sid, body, source_path=path,
+            type_list=type_list if data.get("also_register") else None,
+        )
+        self._mem_sections[sid] = body
+        pending = {
+            "id": sid,
+            "path": str(path),
+            "type_list": type_list,
+            "also_register": bool(data.get("also_register")),
+            "register_path": data.get("register_path") or "",
+            "is_new": True,
+            "kind": "clone",
+            "src_id": src_id,
+            "write_csf": bool(data.get("write_csf")),
+            "csf_text": (data.get("csf_text") or "").strip(),
+        }
+
+        art_note = "否"
+        if data.get("copy_art") and self.project.art and self.project.art.get_section(src_id):
+            art_body_src = self.project.get_section_text(src_id, prefer=self.project.art)
+            art_body = self._rewrite_clone_body(
+                src_id, sid, art_body_src,
+                name=data.get("name") or "",
+                rewrite_identity=bool(data.get("rewrite_identity")),
+            )
+            art_path = self.project.get_source_path_for_section(src_id, prefer="art")
+            if art_path and Path(art_path).is_file():
+                # art 也先只进内存
+                from core.ini_parser import INISection
+                from core.save_util import normalize_section_body
+                nb = normalize_section_body(sid, art_body)
+                sec = INISection(sid)
+                sec.source_file = Path(art_path).name
+                for line in nb.splitlines():
+                    s = line.strip()
+                    if not s or s.startswith(";") or (s.startswith("[") and "]" in s):
+                        continue
+                    if "=" in s:
+                        if ";" in s:
+                            s = s.split(";", 1)[0].strip()
+                        k, _, v = s.partition("=")
+                        if k.strip():
+                            sec.set(k.strip(), v.strip())
+                self.project.art.sections[sid] = sec
+                if sid not in self.project.art.section_order:
+                    self.project.art.section_order.append(sid)
+                self._mem_sections[f"art::{sid}"] = art_body if art_body.endswith("\n") else art_body + "\n"
+                pending["art_path"] = str(art_path)
+                pending["art_body"] = self._mem_sections[f"art::{sid}"]
+                art_note = f"内存中已克隆，计划 → {art_path}"
             else:
-                return {"ok": False, "message": f"注册表文件不存在: {path}"}
+                art_note = "模板无 Art 源文件"
+
+        self._pending_new[sid] = pending
+        self._touch_session_change(sid, is_new=True, kind="clone")
+        self._dirty = True
+        self.project.invalidate_classify_cache()
+        self._display_cache.clear()
+        self.refresh_tree()
+        self.open_section_tab(sid)
+        QMessageBox.information(
+            self, "已克隆到编辑器（未写盘）",
+            f"[{src_id}] → [{sid}]\n"
+            f"计划 rules: {path}\n"
+            f"注册表: {'是 → ' + (data.get('register_path') or '') if data.get('also_register') else '否'}\n"
+            f"Art: {art_note}\n\n"
+            f"请检查后点「保存当前」才会写入文件并备份。",
+        )
+
+    def _resolve_type_list_file(self, type_list: str, preferred: str = "") -> Path | None:
+        """解析真正含有 [type_list] 的文件；优先 preferred，否则用工程索引。"""
+        from core.save_util import read_text, find_section_span
+        candidates: list[Path] = []
+        if preferred:
+            p = Path(preferred)
+            if not p.is_file() and self.project.project_dir:
+                alt = self.project.project_dir / p
+                if alt.is_file():
+                    p = alt
+            if p.is_file():
+                candidates.append(p.resolve())
+        for f in self.project.files_with_type_list(type_list) or []:
+            rp = Path(f).resolve()
+            if rp not in candidates:
+                candidates.append(rp)
+        # 单文件模式
+        if self.project.single_path and self.project.single_path.is_file():
+            rp = self.project.single_path.resolve()
+            if rp not in candidates:
+                candidates.append(rp)
+        for path in candidates:
+            try:
+                text, _ = read_text(path)
+            except Exception:
+                continue
+            if find_section_span(text, type_list) is not None:
+                return path
+        return None
+
+    def _write_csf_uiname(self, section_id: str, display_text: str) -> dict:
+        """
+        写入游戏界面中文到 CSF（不是 Name= 内部名）。
+        标签大小写跟目标文件惯例；多文件时写优先级最高的 stringtable。
+        """
+        from core.csf_parser import upsert_label_to_file, resolve_csf_write_target
+        if not self.project.project_dir:
+            return {"ok": False, "message": "无工程目录，无法定位 CSF"}
+        patterns = list(self.project.profile.get("csf_files") or []) or [
+            "stringtable*.csf", "ra2md.csf", "ra2.csf"
+        ]
+        target = resolve_csf_write_target(self.project.project_dir, patterns)
+        if not target:
+            return {"ok": False, "message": "工程中未找到可写的 CSF（检查 profile.csf_files）"}
+        value = (display_text or "").strip()
+        if not value:
+            return {"ok": False, "message": "CSF 中文名为空，已跳过"}
+        backup_root = self.project.project_dir / "backups"
+        res = upsert_label_to_file(
+            target, "", value, backup_root=backup_root, section_id=section_id
+        )
+        if res.get("ok"):
+            label = res.get("label") or ""
+            try:
+                if label:
+                    self.project.csf.set(label, value)
+            except Exception:
+                pass
+            try:
+                self._display_cache[section_id.lower()] = value
+            except Exception:
+                pass
+        return res
+
+    def _append_to_type_list(self, path: Path, type_list: str, new_id: str) -> dict:
+
+        """
+        在已有 [TypeList] 末尾追加 + =ID。
+        - 节头允许行尾注释（与 find_section_span 一致）
+        - 若指定文件没有该节：自动改到工程里真正含有该节的文件
+        - 绝不擅自「新建」空的 [InfantryTypes] 污染无关 ini
+        """
+        from core.save_util import read_text, backup_file, find_section_span, encode_ini_bytes
+        import re
+
+        type_list = (type_list or "").strip()
+        new_id = (new_id or "").strip()
+        if not type_list or not new_id:
+            return {"ok": False, "message": "注册表类型或 ID 为空"}
+
+        preferred = str(path) if path else ""
+        resolved = self._resolve_type_list_file(type_list, preferred=preferred)
+        if resolved is None:
+            return {
+                "ok": False,
+                "message": (
+                    f"工程中找不到已有的 [{type_list}] 节，已中止注册（不会新建空注册表）。\n"
+                    f"请确认 rules/扩展 ini 里存在该注册表，或在克隆时改选正确的注册表文件。"
+                ),
+            }
+        path = resolved
+
         try:
             text, enc = read_text(path)
         except Exception as e:
             return {"ok": False, "message": f"读取注册表失败: {e}"}
 
-        m = re.search(rf"(?im)^\[{re.escape(type_list)}\]\s*\r?\n", text)
-        if not m:
-            backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-            try:
-                backup_file(path, backup_root)
-            except Exception:
-                pass
-            add = f"\n[{type_list}]\n+={new_id}\n"
-            try:
-                path.write_text(text + add, encoding=enc)
-            except Exception as e:
-                return {"ok": False, "message": f"写入失败: {e}"}
-            return {"ok": True, "message": f"已新建 [{type_list}] 并注册 +={new_id} → {path}"}
+        span = find_section_span(text, type_list)
+        if span is None:
+            return {"ok": False, "message": f"{path.name} 中未找到 [{type_list}]"}
 
-        start = m.end()
-        rest = text[start:]
-        next_sec = re.search(r"(?m)^\[", rest)
-        end = start + (next_sec.start() if next_sec else len(rest))
-        block = text[start:end]
+        start, end = span
+        # 块内从节头下一行到节尾
+        header_end = text.find("\n", start)
+        if header_end < 0:
+            header_end = end
+        else:
+            header_end += 1
+        block = text[header_end:end]
+
         # 已存在？
-        if re.search(rf"(?im)^[^=]+=\s*{re.escape(new_id)}\s*$", block):
-            return {"ok": True, "message": f"[{new_id}] 已在注册表中"}
-        if re.search(rf"(?im)^\+=\s*{re.escape(new_id)}\s*$", block):
-            return {"ok": True, "message": f"[{new_id}] 已在注册表中"}
+        if re.search(rf"(?im)^[^=]+=\s*{re.escape(new_id)}\s*(;.*)?$", block):
+            return {"ok": True, "message": f"[{new_id}] 已在 {path.name} 的 [{type_list}] 中"}
+        if re.search(rf"(?im)^\+=\s*{re.escape(new_id)}\s*(;.*)?$", block):
+            return {"ok": True, "message": f"[{new_id}] 已在 {path.name} 的 [{type_list}] 中"}
 
-        # 优先 += ；若文件全是数字键也可 +=
         insert_line = f"+={new_id}\n"
-        block_stripped = block.rstrip("\r\n") + "\n" + insert_line
-        if block.endswith("\n\n"):
-            block_stripped += "\n"
-        new_text = text[:start] + block_stripped + text[end:]
-        backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
+        # 保持节末至多一个空行
+        block_core = block.rstrip("\r\n") + "\n" + insert_line
+        # 若原节后还有内容且是下一节，由 find 的 end 已不含“节间空行之外”的误伤
+        new_text = text[:header_end] + block_core + text[end:]
+        # 节与下一节之间补一个空行
+        rest = text[end:]
+        if rest.lstrip().startswith("["):
+            # block_core 已以 \n 结尾，再加一个 \n 形成空行；吃掉 rest 原有前导空行
+            i = 0
+            while i < len(rest) and rest[i] in "\r\n":
+                i += 1
+            new_text = text[:header_end] + block_core + "\n" + rest[i:]
+
+        backup_root = (
+            (self.project.project_dir / "backups")
+            if self.project.project_dir
+            else (path.parent / "backups")
+        )
         try:
             backup_file(path, backup_root)
-        except Exception:
-            pass
+        except Exception as e:
+            return {"ok": False, "message": f"注册表备份失败，已中止: {e}"}
         try:
-            path.write_text(new_text, encoding=enc)
+            path.write_bytes(encode_ini_bytes(new_text, enc))
         except Exception as e:
             return {"ok": False, "message": f"写入注册表失败: {e}"}
-        return {"ok": True, "message": f"已注册 +={new_id} → {path.name} [{type_list}]"}
+
+        # 同步内存里的类型表，对象树能立刻看到
+        try:
+            ini = self.project.rules or self.project.active_ini()
+            if ini:
+                lst = ini.get_section(type_list)
+                if lst is not None and hasattr(lst, "set"):
+                    # 用唯一数字键或 += 形式注入内存
+                    lst.set("+", new_id, source_file=path.name)
+        except Exception:
+            pass
+
+        note = ""
+        if preferred and Path(preferred).resolve() != path.resolve():
+            note = f"（已自动改用真正含 [{type_list}] 的文件，而非 {Path(preferred).name}）"
+        return {
+            "ok": True,
+            "message": f"已注册 +={new_id} → {path.name} [{type_list}]{note}",
+            "path": str(path),
+        }
 
     def _quick_view(self, mode: str):
         """工具栏快捷切换合并/单文件视图"""
@@ -3123,13 +5618,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "删除", "无法确定源文件，取消删除")
             return
 
-        ret = QMessageBox.question(
-            self, "确认删除",
-            f"确定从文件中删除 [{sid}]？\n\n{src}\n\n会先自动备份。\n"
-            f"（若在注册表中也会尽量去掉对应项）",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
+        if not self._confirm_danger(
+            "确认删除",
+            f"确定删除节 [{sid}]？",
+            f"将从文件中移除该节（先自动备份）：\n{src}\n\n"
+            "若它还在类型注册表里，会尽量一并去掉对应项。",
+        ):
             return
 
         from core.save_util import read_text, backup_file
@@ -3190,8 +5684,11 @@ class MainWindow(QMainWindow):
         self.code.setPlainText("")
         self.prop.clear()
         self.source_label.setText("")
+        if getattr(self, "merge_target_row", None):
+            self.merge_target_row.hide()
         self._dirty = False
         self._display_cache.clear()
+        self.project.invalidate_classify_cache()
         self.refresh_tree()
         self.schedule_display_cache_rebuild()
         extra = ("\n注册表已清理: " + ", ".join(reg_notes)) if reg_notes else ""
@@ -3270,16 +5767,27 @@ class MainWindow(QMainWindow):
 
 
     def show_help(self):
-        text = (
-            f"<h3>{APP_TITLE}</h3>"
-            "<p><b>适用</b>：红警2 尤里的复仇 / 心灵终结 等基于 INI 的 Mod 工程。</p>"
-            "<p><b>打开</b>：工程目录（按 profile 读 rules/art/ai/csf）或单个 ini。</p>"
-            "<p><b>编辑</b>：对象树选择单位；中间改代码；右侧为属性说明（只读）。</p>"
-            "<p><b>保存</b>：保存当前 / 保存全部 → 写回来源文件（自动备份）。"
-            "编码为 <b>UTF-8（无 BOM）</b>，兼容游戏引擎与热重载。</p>"
-            "<p><b>调试</b>：可部署到 hotfix.ini，配合 AutoReloader 热重载。</p>"
-            "<p><b>配置</b>：菜单「配置」可选 Mental Omega / Yuri's Revenge 等 profile。</p>"
-        )
+        text = f"""<h3>{APP_TITLE}</h3>
+<p>面向 <b>红警 2 / 尤里的复仇 / 心灵终结</b> 等基于 INI 的 Mod 工程，
+用于浏览、编辑、保存规则文件，并可与 AutoReloader 热重载配合调试。</p>
+<hr>
+<p><b>打开工程</b>：选择游戏或 Mod 目录，按当前配置档读取 rules / art / ai 与字符串表。
+也支持只打开单个 ini。</p>
+<p><b>编辑</b>：左侧对象树选择单位或注册表；中间为代码区；右侧为字段说明（只读参考）。</p>
+<p><b>保存</b>：写回来源文件并自动备份。拆分在多份 ini 中的节会按键来源分别写回。
+可在「首选项」中选择全量或增量写入。文件编码为 <b>UTF-8（无 BOM）</b>。</p>
+<p><b>常用功能</b></p>
+<ul>
+<li>全工程搜索、当前节与磁盘/打开时对比</li>
+<li>新增 / 克隆单位（先改内存，确认保存后再写盘）</li>
+<li>依赖关系图（可查看引用与被引用）</li>
+<li>本会话改动列表与片段导出</li>
+<li>同节多文件来源查看（Ctrl+Shift+U）</li>
+</ul>
+<p><b>调试</b>：可将单单位部署到 hotfix.ini，配合注入组件在游戏中热重载。</p>
+<p><b>配置</b>：菜单「配置」切换 Mental Omega / Yuri's Revenge 等配置档；
+「首选项」可调整校验、备份与保存方式。</p>
+"""
         box = QMessageBox(self)
         box.setWindowTitle("使用说明")
         box.setTextFormat(Qt.RichText)
@@ -3291,12 +5799,17 @@ class MainWindow(QMainWindow):
         QMessageBox.about(
             self,
             "关于",
-            f"{APP_TITLE} ({APP_TITLE_EN})\n"
+            f"{APP_TITLE}\n"
+            f"{APP_TITLE_EN}\n"
             f"版本 {APP_VERSION}\n\n"
-            "AutoReloader 工具链 · 前端工程编辑器\n"
-            "开源仓库以 AutoReloader 为准。\n\n"
-            "保存格式：UTF-8 无 BOM\n"
-            "热重载：配合 AutoReloader.dll + 启动器",
+            "AutoReloader 工具链组件之一，用于 Mod 工程的 INI 浏览与编辑。\n"
+            "与热重载 DLL、启动器、战术工坊配合使用。\n\n"
+            "主要能力：\n"
+            "· 工程级合并视图与按来源写回\n"
+            "· 搜索、对比、依赖关系、会话改动\n"
+            "· 新增/克隆与 CSF 界面名写入\n\n"
+            "保存编码：UTF-8（无 BOM）\n"
+            "开源仓库：github.com/jiu-zui-90817/AutoReloader",
         )
 
     def closeEvent(self, event):

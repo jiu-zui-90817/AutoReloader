@@ -15,7 +15,12 @@ class INISection:
         self.name = name
         self.keys: OrderedDict[str, str] = OrderedDict()
         self.key_order: List[str] = []
+        # 节头之前的注释（属于「上一节与本节之间」，不应当进本节正文）
         self.comments_before: List[str] = []
+        # 某键正上方的注释行（节内分类注释等）
+        self.key_comments_before: Dict[str, List[str]] = {}
+        # 节尾、最后一个键之后的注释
+        self.comments_trailing: List[str] = []
         self.inline_comments: Dict[str, str] = {}
         self.source_file: str = ""
         self.key_sources: Dict[str, str] = {}  # 键 -> 来源文件（拆分注册表用）
@@ -26,7 +31,14 @@ class INISection:
                 return v
         return default
 
-    def set(self, key: str, value: str, inline_comment: str = "", source_file: str = ""):
+    def set(
+        self,
+        key: str,
+        value: str,
+        inline_comment: str = "",
+        source_file: str = "",
+        comments_before: Optional[List[str]] = None,
+    ):
         # Ares 列表追加：+=ID 或 + = ID → 每次新行，不能覆盖同一个 "+"
         ks = key.strip()
         if ks in ("+", "+=", "++"):
@@ -38,6 +50,8 @@ class INISection:
                 self.inline_comments[uniq] = inline_comment
             if source_file:
                 self.key_sources[uniq] = source_file
+            if comments_before:
+                self.key_comments_before[uniq] = list(comments_before)
             return
         found = None
         for k in self.keys:
@@ -50,6 +64,8 @@ class INISection:
                 self.inline_comments[found] = inline_comment
             if source_file:
                 self.key_sources[found] = source_file
+            if comments_before:
+                self.key_comments_before[found] = list(comments_before)
         else:
             self.keys[key] = value
             self.key_order.append(key)
@@ -57,6 +73,8 @@ class INISection:
                 self.inline_comments[key] = inline_comment
             if source_file:
                 self.key_sources[key] = source_file
+            if comments_before:
+                self.key_comments_before[key] = list(comments_before)
 
     def merge_from(self, other: "INISection"):
         for key in other.key_order:
@@ -66,33 +84,47 @@ class INISection:
                 other.keys[key],
                 other.inline_comments.get(key, ""),
                 source_file=src,
+                comments_before=other.key_comments_before.get(key),
             )
         if other.source_file:
             self.source_file = other.source_file
+        # 不合并 comments_before（节间注释，易串到别的节）
+        if other.comments_trailing:
+            self.comments_trailing = list(other.comments_trailing)
 
     def to_text(self) -> str:
-        # [ID] 必须在第一行，避免保存时再被 normalize 插一个头
+        # [ID] 必须在第一行；节间 comments_before 不写入本节，避免注释串台
         lines = [f"[{self.name}]"]
-        for c in self.comments_before:
-            if c is None:
-                continue
-            s = str(c).rstrip()
-            if not s:
-                continue
-            # 分类注释保留在 section 内
-            lines.append(s if s.lstrip().startswith(";") else f"; {s}")
+
+        def _emit_comment_lines(bucket: List[str]):
+            for c in bucket or []:
+                if c is None:
+                    continue
+                s = str(c).rstrip()
+                if not s:
+                    # 保留一个空行间隔
+                    if lines and lines[-1] != "":
+                        lines.append("")
+                    continue
+                lines.append(s if s.lstrip().startswith(";") else f"; {s}")
+
         for key in self.key_order:
+            _emit_comment_lines(self.key_comments_before.get(key) or [])
             val = self.keys.get(key, "")
             comment = self.inline_comments.get(key, "")
             out_key = "+=" if key.startswith("+@") else key
             if comment:
-                lines.append(f"{out_key}{val} ;{comment}" if out_key == "+=" else f"{out_key}={val} ;{comment}")
+                lines.append(
+                    f"{out_key}{val} ;{comment}"
+                    if out_key == "+="
+                    else f"{out_key}={val} ;{comment}"
+                )
             else:
-                # Ares 常见写法 +=ID 或 += ID
                 if out_key == "+=":
                     lines.append(f"+={val}")
                 else:
                     lines.append(f"{out_key}={val}")
+        _emit_comment_lines(self.comments_trailing)
         return "\n".join(lines)
 
 
@@ -138,10 +170,15 @@ class INIFile:
                     sec_name = raw_name
 
                 if current_section is not None:
+                    # 上一节尚未消耗的注释 → 节尾，绝不能挂到下一节
+                    if pending_comments:
+                        current_section.comments_trailing.extend(pending_comments)
+                        pending_comments = []
                     self._add_or_merge_section(current_section)
 
                 current_section = INISection(sec_name)
-                current_section.comments_before = pending_comments
+                # 仅「节与节之间」的注释记在 comments_before（不进入 to_text 正文）
+                current_section.comments_before = list(pending_comments)
                 current_section.source_file = source_name
                 pending_comments = []
                 continue
@@ -156,9 +193,13 @@ class INIFile:
 
                 # Ares: +=ID / + = ID / += ID
                 main_s = main.strip()
+                before = list(pending_comments) if pending_comments else None
+                pending_comments = []
                 if main_s.startswith("+=") or main_s.startswith("++="):
                     value = main_s.split("=", 1)[1].strip()
-                    current_section.set("+", value, comment, source_file=source_name)
+                    current_section.set(
+                        "+", value, comment, source_file=source_name, comments_before=before
+                    )
                     continue
 
                 key, _, value = main.partition("=")
@@ -166,7 +207,9 @@ class INIFile:
                 value = value.strip()
 
                 if key:
-                    current_section.set(key, value, comment, source_file=source_name)
+                    current_section.set(
+                        key, value, comment, source_file=source_name, comments_before=before
+                    )
                 continue
 
             if current_section is None:
@@ -175,6 +218,9 @@ class INIFile:
                 pending_comments.append(line)
 
         if current_section is not None:
+            if pending_comments:
+                current_section.comments_trailing.extend(pending_comments)
+                pending_comments = []
             self._add_or_merge_section(current_section)
 
     def _add_or_merge_section(self, section: INISection):

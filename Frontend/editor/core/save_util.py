@@ -126,15 +126,40 @@ def normalize_section_body(section_id: str, body: str) -> str:
     return text
 
 
+def detect_newline(text: str) -> str:
+    """沿用原文件换行风格，避免整文件被改成 \\n 后出现‘空行错乱’观感。"""
+    if "\r\n" in text:
+        return "\r\n"
+    if "\r" in text and "\n" not in text:
+        return "\r"
+    return "\n"
+
+
+def to_newlines(text: str, nl: str) -> str:
+    """把任意换行统一成目标 nl（先摊成 \\n 再替换）。"""
+    if not text:
+        return text
+    unified = text.replace("\r\n", "\n").replace("\r", "\n")
+    if nl == "\n":
+        return unified
+    return unified.replace("\n", nl)
+
+
 def find_section_span(text: str, section_name: str) -> Optional[Tuple[int, int]]:
+    """
+    定位第一个 [section_name] … 下一节之前。
+    节头允许行尾注释；兼容 CRLF。
+    """
+    # [Name] 或 [Name:xxx] ，同一行其余内容（注释）忽略
     pattern = re.compile(
-        rf"(?im)^\[{re.escape(section_name)}(?:\s*:[^\]]*)?\][^\n]*\r?\n?"
+        rf"(?im)^\[{re.escape(section_name)}(?:\s*:[^\]]*)?\][^\r\n]*(?:\r\n|\n|\r)?"
     )
     m = pattern.search(text)
     if not m:
         return None
     start = m.start()
-    rest = text[m.end():]
+    rest = text[m.end() :]
+    # 下一节：行首 [
     next_sec = re.search(r"(?m)^\[", rest)
     if next_sec:
         end = m.end() + next_sec.start()
@@ -143,32 +168,63 @@ def find_section_span(text: str, section_name: str) -> Optional[Tuple[int, int]]
     return start, end
 
 
+def _ensure_section_body(body: str, nl: str = "\n") -> str:
+    """节正文：统一换行 + 末尾恰好一个 nl（不含节后空行）。"""
+    unified = (body or "").replace("\r\n", "\n").replace("\r", "\n")
+    # 去掉末尾多余空行，保留内容
+    unified = unified.rstrip("\n") + "\n"
+    return to_newlines(unified, nl)
+
+
+def _join_section_and_rest(body: str, rest: str, nl: str = "\n") -> str:
+    """
+    节正文 + 后文。
+    若后文下一有效内容是 [Section]，中间恰好一个空行（即两个 nl）。
+    """
+    body = _ensure_section_body(body, nl=nl)
+    if not rest:
+        return body
+    i = 0
+    n = len(rest)
+    while i < n and rest[i] in "\r\n":
+        i += 1
+    rest_core = rest[i:]
+    if not rest_core:
+        return body
+    if rest_core.lstrip(" \t").startswith("["):
+        # body 已以 nl 结尾，再补一个 nl → 一个空行
+        return body + nl + rest_core
+    return body + rest_core
+
+
 def replace_section_in_text(text: str, section_name: str, new_body: str) -> Tuple[str, bool]:
     span = find_section_span(text, section_name)
-    body = new_body
-    if not body.endswith("\n"):
-        body += "\n"
     if span is None:
         return text, False
     start, end = span
-    return text[:start] + body + text[end:], True
+    nl = detect_newline(text)
+    body = _ensure_section_body(new_body, nl=nl)
+    return text[:start] + _join_section_and_rest(body, text[end:], nl=nl), True
 
 
 def append_section_after_peers(text: str, new_body: str, peer_names: List[str]) -> str:
-    body = new_body if new_body.endswith("\n") else new_body + "\n"
+    nl = detect_newline(text) if text else "\n"
+    body = _ensure_section_body(new_body, nl=nl)
     last_end = -1
     for name in peer_names:
         span = find_section_span(text, name)
         if span:
             last_end = span[1]
     if last_end >= 0:
-        insert = body
-        if last_end < len(text) and text[last_end:last_end+1] != "\n":
-            insert = "\n" + insert
-        return text[:last_end] + insert + text[last_end:]
-    if text and not text.endswith("\n"):
-        text += "\n"
-    return text + "\n" + body
+        return text[:last_end] + _join_section_and_rest(body, text[last_end:], nl=nl)
+    base = text or ""
+    if base and not base.endswith(("\n", "\r")):
+        base += nl
+    if base.strip():
+        # 文件末尾追加：与最后内容之间一个空行
+        core = base.rstrip("\r\n")
+        return core + nl + nl + body
+    return body
 
 
 def save_section_to_file(
@@ -205,6 +261,14 @@ def save_section_to_file(
         is_new = True
 
     if is_new:
+        # 新增前再确认文件中确实没有该节，避免拆分工程里重复 [Section]
+        if filepath.exists() and text:
+            if find_section_span(text, section_name) is not None:
+                result["message"] = (
+                    f"拒绝新增：{filepath.name} 中已存在 [{section_name}]，"
+                    f"请改为原地保存，避免重复节块"
+                )
+                return result
         text = append_section_after_peers(text, body, peer_section_names or [])
         action = "新增写入"
     else:
@@ -213,8 +277,12 @@ def save_section_to_file(
             text = text2
             action = "原地替换"
         else:
-            text = append_section_after_peers(text, body, peer_section_names or [])
-            action = "未找到原块，已按新增插入"
+            # 拆分工程中「未找到」时绝不能默默追加，否则易出现双份 [E1]
+            result["message"] = (
+                f"拒绝写入：在 {filepath.name} 中未找到 [{section_name}] 原块。"
+                f"未执行追加，以免产生重复节或写错文件。"
+            )
+            return result
 
     try:
         data = encode_ini_bytes(text, enc)
