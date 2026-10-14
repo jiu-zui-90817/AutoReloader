@@ -501,6 +501,36 @@ def lint_section(
         if k.lower() == "owner" and not str(v).strip():
             issues.append(LintIssue("warning", section_id, k, "Owner 为空", source))
 
+    # 常见布尔键：值应为 yes/no/true/false/1/0
+    _BOOL_OK = {"yes", "no", "true", "false", "1", "0"}
+    _BOOL_HINT_KEYS = {
+        "useownname", "trainable", "legalteleport", "deployer", "deployfire",
+        "opportunityfire", "crewed", "occupier", "isselectablecombatant",
+        "allowedtostartinmultiplayer", "immunetoveins", "immunetoemp",
+        "bombable", "crushable", "organic", "considerlikevehicle",
+        "defaulttoownercolor", "turret", "turretspins",
+    }
+    for k, v in sec.keys.items():
+        kl = k.lower()
+        if kl not in _BOOL_HINT_KEYS and not kl.startswith("immune"):
+            continue
+        s = str(v).strip().lower()
+        if not s:
+            continue
+        # 列表值跳过
+        if "," in s or ";" in s:
+            continue
+        if s not in _BOOL_OK:
+            issues.append(
+                LintIssue(
+                    "warning",
+                    section_id,
+                    k,
+                    f"布尔类字段取值异常: {v!r}（常见为 yes/no 或 true/false）",
+                    source,
+                )
+            )
+
     for k, v in sec.keys.items():
         if k.lower() != "techlevel":
             continue
@@ -733,59 +763,95 @@ def _lint_invalid_registrations(project, limit_left: int) -> List[LintIssue]:
     return issues
 
 
-def lint_project(project, limit: int = 400) -> List[LintIssue]:
-    """按源隔离校验；同名仅当在同一源族内重复出现才提示。"""
+def lint_project(project, limit: int = 2500) -> List[LintIssue]:
+    """
+    工程级校验（与实时/单节同一套 lint_section 规则）：
+      - 引用缺失、布尔拼写、TechLevel 等
+      - 无效注册表项、可能废弃节
+    类型注册表（InfantryTypes 等）不做逐键 lint，避免刷屏占满上限。
+    """
     issues: List[LintIssue] = []
-    # 各源独立索引，避免 rules 引用去对 art 的节「类型不对」
     cache_sets: Dict[str, TypeSets] = {}
     cache_ids: Dict[str, Dict[str, Set[str]]] = {}
-    # 同名：按源分别计数（rules 合并后同名只应一次；若真重复再 info）
     seen_in_source: Dict[str, Dict[str, int]] = {}
+    type_list_names = {k.lower() for k in TYPE_LIST_MAP}
 
+    # 内容节优先：先 rules 逻辑对象，再 art，再 ai
+    buckets: Dict[str, list] = {"rules": [], "art": [], "ai": [], "other": []}
     for src, name, sec in iter_sections(project):
-        scope_key = src
-        if scope_key not in cache_sets:
-            scope = _scope_for_source(src)
-            cache_sets[scope_key] = _build_type_sets(project, sources=scope)
-            cache_ids[scope_key] = _known_ids_scoped(project, sources=scope)
         seen_in_source.setdefault(src, {})
         seen_in_source[src][name.lower()] = seen_in_source[src].get(name.lower(), 0) + 1
+        if name.lower() in type_list_names:
+            continue  # 注册表 → 交给 _lint_invalid_registrations
+        key = src if src in buckets else "other"
+        buckets[key].append((src, name, sec))
 
-        for iss in lint_section(
-            project,
-            name,
-            sec,
-            source=src,
-            type_sets=cache_sets[scope_key],
-            id_index=cache_ids[scope_key],
-        ):
-            issues.append(iss)
-            if len(issues) >= limit:
-                return issues
-
-    # 仅「同一源内」同名多次才提示（正常 rules+art 同 ID 不再刷屏）
-    for src, counts in seen_in_source.items():
-        for nl, cnt in counts.items():
-            if cnt > 1:
-                issues.append(
-                    LintIssue(
-                        "info",
-                        nl,
-                        "",
-                        f"在 {src} 内同名节出现 {cnt} 次（可能重复定义）",
-                        src,
-                    )
-                )
+    truncated = False
+    for src_key in ("rules", "art", "ai", "other"):
+        for src, name, sec in buckets[src_key]:
+            if src not in cache_sets:
+                scope = _scope_for_source(src)
+                cache_sets[src] = _build_type_sets(project, sources=scope)
+                cache_ids[src] = _known_ids_scoped(project, sources=scope)
+            for iss in lint_section(
+                project,
+                name,
+                sec,
+                source=src,
+                type_sets=cache_sets[src],
+                id_index=cache_ids[src],
+            ):
+                issues.append(iss)
                 if len(issues) >= limit:
-                    return issues
+                    truncated = True
+                    break
+            if truncated:
+                break
+        if truncated:
+            break
 
-    # 无效注册：注册表有 ID 但无节体
-    left = limit - len(issues)
-    if left > 0:
-        issues.extend(_lint_invalid_registrations(project, min(left, 60)))
+    # 同一源内同名多次
+    if not truncated:
+        for src, counts in seen_in_source.items():
+            for nl, cnt in counts.items():
+                if cnt > 1:
+                    issues.append(
+                        LintIssue(
+                            "info",
+                            nl,
+                            "",
+                            f"在 {src} 内同名节出现 {cnt} 次（可能重复定义）",
+                            src,
+                        )
+                    )
+                    if len(issues) >= limit:
+                        truncated = True
+                        break
+            if truncated:
+                break
 
-    # 可能废弃：无任何键值引用到的 rules 对象
-    left = limit - len(issues)
-    if left > 0:
-        issues.extend(_lint_unused_sections(project, min(left, 80)))
+    # 无效注册 / 可能废弃：限额单独切，避免挤掉引用错误
+    if not truncated:
+        left = max(0, limit - len(issues))
+        if left > 0:
+            issues.extend(_lint_invalid_registrations(project, min(left, 120)))
+        left = max(0, limit - len(issues))
+        if left > 0:
+            issues.extend(_lint_unused_sections(project, min(left, 100)))
+
+    # 严重程度排序：error → warning → info
+    rank = {"error": 0, "warning": 1, "info": 2}
+    issues.sort(key=lambda i: (rank.get(i.severity, 9), (i.section_id or "").lower(), i.key or ""))
+
+    if truncated or len(issues) >= limit:
+        issues = issues[:limit]
+        issues.append(
+            LintIssue(
+                "info",
+                "",
+                "",
+                f"结果已截断至约 {limit} 条（优先显示错误/警告）。可缩小范围用「校验当前节」。",
+                "",
+            )
+        )
     return issues

@@ -27,30 +27,39 @@
 
 
 ---
+
 ## 界面预览
+
+> 正式截图请替换 `assets/screenshots/` 下同名文件后，本段图片会自动更新。
 
 ### INI 工程编辑器
 
-![编辑器主界面](assets/screenshots/editor_main.png)
+![编辑器主界面](assets/screenshots/01_editor_main.png)
 
-![编辑器调试与部署](assets/screenshots/editor_debug.png)
+![编辑器调试与部署](assets/screenshots/02_editor_debug.png)
 
 ### 战术工坊
 
-![工坊主界面](assets/screenshots/workshop_main.png)
----
+![工坊主界面](assets/screenshots/03_workshop_main.png)
 
+![工坊部署 hotfix](assets/screenshots/04_workshop_deploy.png)
+
+---
 
 ## 下载与安装（正式包）
 
-1. 从 [Releases](../../releases) 下载对应版本：
+1. 推荐从本仓库 [GitHub Releases](../../releases) 下载（或 [Actions](../../actions) 中的构建产物），以便与公开源码、工作流日志对应。  
+2. 选择对应版本：
    - **心灵终结 (MO)** 整合包  
    - **尤里的复仇 (YR)** 整合包  
-2. 解压到游戏根目录（或按包内说明放置）。  
-3. 典型内容包括：
-   - 启动器（`MO启动器.exe` / `YR启动器.exe`）与 `AutoReloader.dll`、`ReloaderConfig.ini`
-   - `INI工程编辑器/`、`战术工坊/`（或合并目录，以实际包为准）
-4. **必须用配套启动器启动游戏**（会请求管理员权限），不要直接双击原客户端后指望注入成功。
+3. 解压到游戏根目录（或按包内说明放置）。  
+4. 典型内容包括：
+   - 启动器（`MOLauncher.exe` / `YRLauncher.exe`）与 `AutoReloader.dll`、`ReloaderConfig.ini`
+   - `Tools/INIEditor.exe`、`Tools/Workshop.exe`（以包内 README 为准）
+   - 发布压缩包名：`AutoReloader-MO-*.zip` / `AutoReloader-YR-*.zip`
+5. **必须用配套启动器启动游戏**（会请求管理员权限），不要直接双击原客户端后指望注入成功。
+
+上述安装包由 **GitHub Actions** 自动构建；过程说明见上一节「构建与发布说明」。
 
 源码运行见下文「开发者」。
 
@@ -103,6 +112,25 @@ scripts/           发布打包脚本
 
 ---
 
+## 图标与截图
+
+| 文件 | 用途 |
+|------|------|
+| `assets/editor.ico` | 工程编辑器 |
+| `assets/workshop.ico` | 战术工坊 |
+| `assets/reloader.ico` | 工具链 / DLL 相关 |
+| `assets/launcher_mo.ico` / `launcher_yr.ico` | 启动器 |
+| `assets/screenshots/*.png` | 本 README 预览图 |
+
+当前仓库内为 **可用占位图标与截图框**。正式发布前建议：
+
+1. 用设计稿替换 `.ico`（保留多尺寸 16–256）。  
+2. 用真实窗口截图替换 `screenshots/` 四张图（建议 1280×720 或同比例）。  
+3. 不必改 README 里的路径。
+
+详见 `assets/README.md`。
+
+---
 
 ## 开发者
 
@@ -117,7 +145,8 @@ python Frontend/workshop/main.py
 ```
 
 属性说明唯一源：`shared/schemas/common_flags.json`。  
-CI：`.github/workflows/build-release.yml`（DLL + 启动器 + 前端打包）。
+发布包构建工作流：`.github/workflows/build-release.yml`（DLL + 启动器 + 编辑器/工坊）。
+**不会**在每次推送代码时自动构建。发布时：`git tag v1.x.x && git push origin v1.x.x`，或在 Actions 中手动运行「Build Release」并填写 tag；成功后会创建 GitHub Release 并上传 MO/YR 压缩包。
 
 ---
 

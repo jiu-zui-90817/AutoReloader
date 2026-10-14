@@ -76,12 +76,14 @@
   "Primary": {
     "type": "weapon",
     "desc_zh": "主武器（指向WeaponTypes里的ID）",
-    "desc_en": "Primary weapon"
+    "desc_en": "Primary weapon",
+    "engine": "vanilla"
   },
   "Secondary": {
     "type": "weapon",
     "desc_zh": "副武器",
-    "desc_en": "Secondary weapon"
+    "desc_en": "Secondary weapon",
+    "engine": "vanilla"
   },
   "ElitePrimary": {
     "type": "weapon",
@@ -91,12 +93,14 @@
   "Prerequisite": {
     "type": "list",
     "desc_zh": "建造前提（需要已拥有的建筑/科技）",
-    "desc_en": "Build prerequisites"
+    "desc_en": "Build prerequisites",
+    "engine": "vanilla"
   },
   "Owner": {
     "type": "list",
     "desc_zh": "可建造的所属方（国家列表）",
-    "desc_en": "Houses that can build this"
+    "desc_en": "Houses that can build this",
+    "engine": "vanilla"
   },
   "Strength": {
     "type": "int",
@@ -106,17 +110,20 @@
   "Armor": {
     "type": "string",
     "desc_zh": "护甲类型（none / light / medium / heavy / concrete / wood / plate 等）",
-    "desc_en": "Armor type"
+    "desc_en": "Armor type",
+    "engine": "vanilla"
   },
   "TechLevel": {
     "type": "int",
     "desc_zh": "科技等级（影响出现时机和AI建造）",
-    "desc_en": "Tech level"
+    "desc_en": "Tech level",
+    "engine": "vanilla"
   },
   "Cost": {
     "type": "int",
     "desc_zh": "造价",
-    "desc_en": "Cost"
+    "desc_en": "Cost",
+    "engine": "vanilla"
   },
   "Soylent": {
     "type": "int",
@@ -126,7 +133,8 @@
   "Points": {
     "type": "int",
     "desc_zh": "击毁得分",
-    "desc_en": "Points awarded when destroyed"
+    "desc_en": "Points awarded when destroyed",
+    "engine": "vanilla"
   },
   "Speed": {
     "type": "int",
@@ -136,7 +144,8 @@
   "Sight": {
     "type": "int",
     "desc_zh": "视野范围（格）",
-    "desc_en": "Sight range in cells"
+    "desc_en": "Sight range in cells",
+    "engine": "vanilla"
   },
   "ROT": {
     "type": "int",
@@ -196,7 +205,8 @@
   "VoiceSelect": {
     "type": "string",
     "desc_zh": "选中语音",
-    "desc_en": "Select voice"
+    "desc_en": "Select voice",
+    "engine": "vanilla"
   },
   "VoiceMove": {
     "type": "string",
@@ -211,7 +221,8 @@
   "DieSound": {
     "type": "string",
     "desc_zh": "死亡音效",
-    "desc_en": "Death sound"
+    "desc_en": "Death sound",
+    "engine": "vanilla"
   },
   "BuildLimit": {
     "type": "int",
@@ -221,17 +232,20 @@
   "Power": {
     "type": "int",
     "desc_zh": "电力消耗/产出（负数为消耗）",
-    "desc_en": "Power drain/production"
+    "desc_en": "Power drain/production",
+    "engine": "vanilla"
   },
   "Crewed": {
     "type": "bool",
     "desc_zh": "被摧毁时是否产生步兵",
-    "desc_en": "Produces survivors when destroyed"
+    "desc_en": "Produces survivors when destroyed",
+    "engine": "vanilla"
   },
   "Capturable": {
     "type": "bool",
     "desc_zh": "是否可被工程师占领",
-    "desc_en": "Can be captured"
+    "desc_en": "Can be captured",
+    "engine": "vanilla"
   },
   "UndeploysInto": {
     "type": "string",
@@ -261,7 +275,8 @@
   "DeathWeapon": {
     "type": "weapon",
     "desc_zh": "死亡时触发的武器",
-    "desc_en": "Death weapon"
+    "desc_en": "Death weapon",
+    "engine": "vanilla"
   },
   "Damage": {
     "type": "int",
@@ -356,7 +371,8 @@
   "OpportunityFire": {
     "type": "bool",
     "desc_zh": "移动中开火",
-    "desc_en": "Opportunity fire"
+    "desc_en": "Opportunity fire",
+    "engine": "vanilla"
   },
   "Passengers": {
     "type": "int",
@@ -376,7 +392,8 @@
   "Cloakable": {
     "type": "bool",
     "desc_zh": "可隐形",
-    "desc_en": "Cloakable"
+    "desc_en": "Cloakable",
+    "engine": "vanilla"
   },
   "Trainable": {
     "type": "bool",
@@ -517,5 +534,371 @@
     "type": "bool",
     "desc_zh": "可反击",
     "desc_en": "Can retaliate"
+  },
+  "ConstructionYard": {
+    "type": "bool",
+    "desc_zh": "是否为建造场（决定能否展开基地、放置建筑）",
+    "desc_en": "Is construction yard",
+    "engine": "vanilla"
+  },
+  "Adjacent": {
+    "type": "int",
+    "desc_zh": "邻接建造距离：新建筑可与该建筑相隔的最大格数",
+    "desc_en": "Max adjacency distance for placing buildings",
+    "engine": "vanilla"
+  },
+  "Factory": {
+    "type": "string",
+    "desc_zh": "生产类型：BuildingType / InfantryType / UnitType / AircraftType 等，决定从该建筑生产什么队列",
+    "desc_en": "Factory queue type",
+    "engine": "vanilla"
+  },
+  "BuildupTime": {
+    "type": "float",
+    "desc_zh": "建造完成所需时间（分钟）。Ares 可与全局 BuildupTime 配合，并允许动画帧更长",
+    "desc_en": "Build completion time (minutes)",
+    "engine": "ares"
+  },
+  "SellTime": {
+    "type": "float",
+    "desc_zh": "变卖/拆除动画时间（分钟）。默认与 BuildupTime 类似",
+    "desc_en": "Sell/undeploy time (minutes)",
+    "engine": "ares"
+  },
+  "AIBasePlanningSide": {
+    "type": "int",
+    "desc_zh": "AI 规划所属阵营侧（用于 AI 选址/布局，-1 等为特殊值）",
+    "desc_en": "AI base planning side index",
+    "engine": "vanilla"
+  },
+  "Explosion": {
+    "type": "string",
+    "desc_zh": "摧毁时播放的动画列表（逗号分隔）",
+    "desc_en": "Explosion animations on destroy",
+    "engine": "vanilla"
+  },
+  "DebrisAnims": {
+    "type": "string",
+    "desc_zh": "摧毁时额外飞出的碎片动画列表",
+    "desc_en": "Debris animations on destroy",
+    "engine": "vanilla"
+  },
+  "MaxDebris": {
+    "type": "int",
+    "desc_zh": "摧毁时产生的最大碎片数量",
+    "desc_en": "Maximum debris pieces",
+    "engine": "vanilla"
+  },
+  "MinDebris": {
+    "type": "int",
+    "desc_zh": "摧毁时产生的最小碎片数量",
+    "desc_en": "Minimum debris pieces",
+    "engine": "vanilla"
+  },
+  "DamageParticleSystems": {
+    "type": "string",
+    "desc_zh": "受损时冒出的粒子系统列表（火花/烟雾等）",
+    "desc_en": "Particle systems when damaged",
+    "engine": "vanilla"
+  },
+  "DamageSmokeOffset": {
+    "type": "string",
+    "desc_zh": "受损烟雾相对建筑的偏移（通常 X,Y,Z）",
+    "desc_en": "Damage smoke offset",
+    "engine": "vanilla"
+  },
+  "AIBuildThis": {
+    "type": "bool",
+    "desc_zh": "AI 是否会主动建造该建筑",
+    "desc_en": "AI will consider building this",
+    "engine": "vanilla"
+  },
+  "TogglePower": {
+    "type": "bool",
+    "desc_zh": "是否允许玩家手动开关电源（需全局 TogglePowerAllowed 等支持）",
+    "desc_en": "Allow manual power toggle",
+    "engine": "ares"
+  },
+  "Powered": {
+    "type": "bool",
+    "desc_zh": "是否需要电力才能工作（断电后功能受限）",
+    "desc_en": "Requires power to function",
+    "engine": "vanilla"
+  },
+  "ProtectWithWall": {
+    "type": "bool",
+    "desc_zh": "AI 是否倾向于用围墙保护该建筑",
+    "desc_en": "AI prefers to wall this in",
+    "engine": "vanilla"
+  },
+  "EligibleForAllyBuilding": {
+    "type": "bool",
+    "desc_zh": "是否可作为盟军/友军可放置的共建类建筑逻辑的一部分",
+    "desc_en": "Eligible for ally building rules",
+    "engine": "vanilla"
+  },
+  "Bounty": {
+    "type": "int",
+    "desc_zh": "击毁赏金。Ares 下常需 [General] BountyEnablers 等建筑启用赏金逻辑",
+    "desc_en": "Bounty credits when destroyed (Ares)",
+    "engine": "ares"
+  },
+  "DeploySound": {
+    "type": "string",
+    "desc_zh": "部署时音效",
+    "desc_en": "Deploy sound",
+    "engine": "vanilla"
+  },
+  "UndeploySound": {
+    "type": "string",
+    "desc_zh": "收起/解除部署时音效",
+    "desc_en": "Undeploy sound",
+    "engine": "vanilla"
+  },
+  "Insignia.Veteran": {
+    "type": "string",
+    "desc_zh": "老兵等级显示的徽记图像",
+    "desc_en": "Veteran insignia image",
+    "engine": "vanilla"
+  },
+  "Insignia.Elite": {
+    "type": "string",
+    "desc_zh": "精英等级显示的徽记图像",
+    "desc_en": "Elite insignia image",
+    "engine": "vanilla"
+  },
+  "HasRadialIndicator": {
+    "type": "bool",
+    "desc_zh": "是否显示径向指示器（范围圈）",
+    "desc_en": "Show radial indicator",
+    "engine": "vanilla"
+  },
+  "NumberOfDocks": {
+    "type": "int",
+    "desc_zh": "停靠位数量（如机场、船坞）",
+    "desc_en": "Number of docking slots",
+    "engine": "vanilla"
+  },
+  "UnitRepair": {
+    "type": "bool",
+    "desc_zh": "是否为维修设施",
+    "desc_en": "Repairs units",
+    "engine": "vanilla"
+  },
+  "TickTank": {
+    "type": "bool",
+    "desc_zh": "是否支持坦克部署类逻辑（如碉堡化）",
+    "desc_en": "Tick-tank / deploy bunker logic",
+    "engine": "vanilla"
+  },
+  "SecretLab": {
+    "type": "bool",
+    "desc_zh": "是否为秘密实验室类建筑",
+    "desc_en": "Secret lab building",
+    "engine": "vanilla"
+  },
+  "ClickRepairable": {
+    "type": "bool",
+    "desc_zh": "是否允许点击修理",
+    "desc_en": "Can be click-repaired",
+    "engine": "vanilla"
+  },
+  "Unsellable": {
+    "type": "bool",
+    "desc_zh": "是否禁止变卖",
+    "desc_en": "Cannot be sold",
+    "engine": "vanilla"
+  },
+  "WaterBound": {
+    "type": "bool",
+    "desc_zh": "是否只能建在水上",
+    "desc_en": "Must be placed on water",
+    "engine": "vanilla"
+  },
+  "LeaveRubble": {
+    "type": "bool",
+    "desc_zh": "摧毁后是否留下废墟",
+    "desc_en": "Leaves rubble when destroyed",
+    "engine": "vanilla"
+  },
+  "BaseNormal": {
+    "type": "bool",
+    "desc_zh": "是否计入基地正常建筑（影响基地扩张等）",
+    "desc_en": "Counts as normal base building",
+    "engine": "vanilla"
+  },
+  "Sensors": {
+    "type": "bool",
+    "desc_zh": "是否具备传感器（反隐等）",
+    "desc_en": "Has sensors",
+    "engine": "vanilla"
+  },
+  "SensorArray": {
+    "type": "bool",
+    "desc_zh": "是否为传感器阵列建筑",
+    "desc_en": "Sensor array building",
+    "engine": "vanilla"
+  },
+  "GapGenerator": {
+    "type": "bool",
+    "desc_zh": "是否产生迷雾/空白区",
+    "desc_en": "Gap generator",
+    "engine": "vanilla"
+  },
+  "PsychicDetectionRadius": {
+    "type": "int",
+    "desc_zh": "心灵探测半径",
+    "desc_en": "Psychic detection radius",
+    "engine": "vanilla"
+  },
+  "SuperWeapon": {
+    "type": "string",
+    "desc_zh": "绑定的超级武器 ID",
+    "desc_en": "Linked super weapon",
+    "engine": "vanilla"
+  },
+  "SuperWeapon2": {
+    "type": "string",
+    "desc_zh": "绑定的第二个超级武器 ID",
+    "desc_en": "Secondary super weapon",
+    "engine": "vanilla"
+  },
+  "IsBaseDefense": {
+    "type": "bool",
+    "desc_zh": "是否视为基地防御建筑（AI 等会特殊对待）",
+    "desc_en": "Counts as base defense",
+    "engine": "vanilla"
+  },
+  "BuildCat": {
+    "type": "string",
+    "desc_zh": "建造菜单分类（如 Combat/Resource/Power 等）",
+    "desc_en": "Build menu category",
+    "engine": "vanilla"
+  },
+  "PrerequisiteOverride": {
+    "type": "string",
+    "desc_zh": "覆盖前置条件",
+    "desc_en": "Prerequisite override",
+    "engine": "vanilla"
+  },
+  "Ammo": {
+    "type": "int",
+    "desc_zh": "弹药量（部分单位/建筑）",
+    "desc_en": "Ammo capacity",
+    "engine": "vanilla"
+  },
+  "Storage": {
+    "type": "int",
+    "desc_zh": "矿石/资源存储容量",
+    "desc_en": "Resource storage",
+    "engine": "vanilla"
+  },
+  "Refinery": {
+    "type": "bool",
+    "desc_zh": "是否为矿石精炼厂",
+    "desc_en": "Is refinery",
+    "engine": "vanilla"
+  },
+  "Dock": {
+    "type": "string",
+    "desc_zh": "可停靠的对象类型/逻辑",
+    "desc_en": "Docking target",
+    "engine": "vanilla"
+  },
+  "Helipad": {
+    "type": "bool",
+    "desc_zh": "是否为停机坪",
+    "desc_en": "Is helipad",
+    "engine": "vanilla"
+  },
+  "Hospital": {
+    "type": "bool",
+    "desc_zh": "是否为医院（治疗步兵）",
+    "desc_en": "Is hospital",
+    "engine": "vanilla"
+  },
+  "Armory": {
+    "type": "bool",
+    "desc_zh": "是否为军械库（升级步兵）",
+    "desc_en": "Is armory",
+    "engine": "vanilla"
+  },
+  "HoverAttack": {
+    "type": "bool",
+    "desc_zh": "是否可悬浮攻击",
+    "desc_en": "Hover attack",
+    "engine": "vanilla"
+  },
+  "DistributedFire": {
+    "type": "bool",
+    "desc_zh": "是否分散火力打多个目标",
+    "desc_en": "Distributed fire",
+    "engine": "vanilla"
+  },
+  "NaturalParticleSystem": {
+    "type": "string",
+    "desc_zh": "常态粒子系统",
+    "desc_en": "Idle particle system",
+    "engine": "vanilla"
+  },
+  "NaturalParticleLocation": {
+    "type": "string",
+    "desc_zh": "常态粒子位置偏移",
+    "desc_en": "Idle particle location",
+    "engine": "vanilla"
+  },
+  "RefinerySmokeParticleSystem": {
+    "type": "string",
+    "desc_zh": "精炼厂烟雾粒子",
+    "desc_en": "Refinery smoke particles",
+    "engine": "vanilla"
+  },
+  "RefinerySmokeOffsetOne": {
+    "type": "string",
+    "desc_zh": "精炼厂烟雾偏移1",
+    "desc_en": "Refinery smoke offset 1",
+    "engine": "vanilla"
+  },
+  "RefinerySmokeOffsetTwo": {
+    "type": "string",
+    "desc_zh": "精炼厂烟雾偏移2",
+    "desc_en": "Refinery smoke offset 2",
+    "engine": "vanilla"
+  },
+  "RefinerySmokeOffsetThree": {
+    "type": "string",
+    "desc_zh": "精炼厂烟雾偏移3",
+    "desc_en": "Refinery smoke offset 3",
+    "engine": "vanilla"
+  },
+  "RefinerySmokeOffsetFour": {
+    "type": "string",
+    "desc_zh": "精炼厂烟雾偏移4",
+    "desc_en": "Refinery smoke offset 4",
+    "engine": "vanilla"
+  },
+  "WorkingSound": {
+    "type": "string",
+    "desc_zh": "工作时循环音效",
+    "desc_en": "Working loop sound",
+    "engine": "vanilla"
+  },
+  "NotWorkingSound": {
+    "type": "string",
+    "desc_zh": "停止工作/断电时音效",
+    "desc_en": "Not working sound",
+    "engine": "vanilla"
+  },
+  "CreateSound": {
+    "type": "string",
+    "desc_zh": "建成时音效",
+    "desc_en": "Creation sound",
+    "engine": "vanilla"
+  },
+  "DamageSound": {
+    "type": "string",
+    "desc_zh": "受损音效",
+    "desc_en": "Damage sound",
+    "engine": "vanilla"
   }
 }
