@@ -185,30 +185,12 @@ jobs:
             if (-not $pluginsRel) { $pluginsRel = "PySide6/plugins" }
           }
           Write-Host "qt.conf Prefix=$prefix Plugins=$pluginsRel"
-          @"
-          [Paths]
-          Prefix = $prefix
-          Plugins = $pluginsRel
-          "@ | Set-Content -Encoding ASCII "$out/qt.conf"
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
           if (Test-Path "$out/_internal") {
-            @"
-            [Paths]
-            Prefix = .
-            Plugins = $pluginsRel
-            "@ | Set-Content -Encoding ASCII "$out/_internal/qt.conf"
+            Set-Content -Encoding ASCII -Path "$out/_internal/qt.conf" -Value "[Paths]`nPrefix = .`nPlugins = $pluginsRel`n"
           }
-          @"
-          @echo off
-          chcp 65001 >nul
-          cd /d "%~dp0"
-          echo ===== INIEditor =====
-          dir /b INIEditor.exe
-          dir /b _internal 2>nul
-          INIEditor.exe
-          echo EXIT=%ERRORLEVEL%
-          if exist INIEditor_boot.log type INIEditor_boot.log
-          pause
-          "@ | Set-Content -Encoding ASCII "$out/运行编辑器-看报错.bat"
+          $bat = "@echo off`r`nchcp 65001 >nul`r`ncd /d `"%~dp0`"`r`necho ===== INIEditor =====`r`ndir /b INIEditor.exe`r`ndir /b _internal 2>nul`r`nINIEditor.exe`r`necho EXIT=%ERRORLEVEL%`r`nif exist INIEditor_boot.log type INIEditor_boot.log`r`npause`r`n"
+          Set-Content -Encoding ASCII -Path "$out/运行编辑器-看报错.bat" -Value $bat
           Write-Host "Top-level files:" (Get-ChildItem $out -File | Select-Object -ExpandProperty Name)
       - uses: actions/upload-artifact@v4
         with:
@@ -296,17 +278,9 @@ jobs:
             if (-not $pluginsRel) { $pluginsRel = "PySide6/plugins" }
           }
           Write-Host "qt.conf Prefix=$prefix Plugins=$pluginsRel"
-          @"
-          [Paths]
-          Prefix = $prefix
-          Plugins = $pluginsRel
-          "@ | Set-Content -Encoding ASCII "$out/qt.conf"
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
           if (Test-Path "$out/_internal") {
-            @"
-            [Paths]
-            Prefix = .
-            Plugins = $pluginsRel
-            "@ | Set-Content -Encoding ASCII "$out/_internal/qt.conf"
+            Set-Content -Encoding ASCII -Path "$out/_internal/qt.conf" -Value "[Paths]`nPrefix = .`nPlugins = $pluginsRel`n"
           }
       - uses: actions/upload-artifact@v4
         with:
