@@ -175,14 +175,19 @@ jobs:
           $pluginsParent = $qwin.Directory.Parent.FullName
           $prefix = "."
           $pluginsRel = "PySide6/plugins"
-          if ($pluginsParent -match '[\\/]_internal([\\/]|$)') {
+          $norm = $pluginsParent.Replace([char]0x5C, '/')
+          $outNorm = $outFull.Replace([char]0x5C, '/')
+          $marker = "/_internal/"
+          $mi = $norm.ToLower().IndexOf($marker)
+          if ($mi -ge 0) {
             $prefix = "_internal"
-            $idx = $pluginsParent.ToLower().IndexOf('_internal')
-            $after = $pluginsParent.Substring($idx + '_internal'.Length).TrimStart('\\','/')
-            if ($after) { $pluginsRel = $after.Replace('\\','/') }
+            $after = $norm.Substring($mi + $marker.Length).TrimStart([char]0x2F)
+            if ($after.Length -gt 0) { $pluginsRel = $after }
           } else {
-            $pluginsRel = $pluginsParent.Replace($outFull, "").TrimStart('\\','/').Replace('\\','/')
-            if (-not $pluginsRel) { $pluginsRel = "PySide6/plugins" }
+            $rel = $norm
+            if ($rel.StartsWith($outNorm)) { $rel = $rel.Substring($outNorm.Length) }
+            $rel = $rel.TrimStart([char]0x2F)
+            if ($rel.Length -gt 0) { $pluginsRel = $rel }
           }
           Write-Host "qt.conf Prefix=$prefix Plugins=$pluginsRel"
           Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
@@ -268,14 +273,19 @@ jobs:
           $pluginsParent = $qwin.Directory.Parent.FullName
           $prefix = "."
           $pluginsRel = "PySide6/plugins"
-          if ($pluginsParent -match '[\\/]_internal([\\/]|$)') {
+          $norm = $pluginsParent.Replace([char]0x5C, '/')
+          $outNorm = $outFull.Replace([char]0x5C, '/')
+          $marker = "/_internal/"
+          $mi = $norm.ToLower().IndexOf($marker)
+          if ($mi -ge 0) {
             $prefix = "_internal"
-            $idx = $pluginsParent.ToLower().IndexOf('_internal')
-            $after = $pluginsParent.Substring($idx + '_internal'.Length).TrimStart('\\','/')
-            if ($after) { $pluginsRel = $after.Replace('\\','/') }
+            $after = $norm.Substring($mi + $marker.Length).TrimStart([char]0x2F)
+            if ($after.Length -gt 0) { $pluginsRel = $after }
           } else {
-            $pluginsRel = $pluginsParent.Replace($outFull, "").TrimStart('\\','/').Replace('\\','/')
-            if (-not $pluginsRel) { $pluginsRel = "PySide6/plugins" }
+            $rel = $norm
+            if ($rel.StartsWith($outNorm)) { $rel = $rel.Substring($outNorm.Length) }
+            $rel = $rel.TrimStart([char]0x2F)
+            if ($rel.Length -gt 0) { $pluginsRel = $rel }
           }
           Write-Host "qt.conf Prefix=$prefix Plugins=$pluginsRel"
           Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
