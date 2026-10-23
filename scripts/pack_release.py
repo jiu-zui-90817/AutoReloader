@@ -1,4 +1,8 @@
-"""CI 组装 MO/YR 完整发布目录。editor / workshop 各自独立 standalone，互不覆盖。"""
+"""CI 组装 MO/YR 完整发布目录。
+
+Tools/ 内编辑器与工坊共用一份 _internal（PySide6 / Python 运行时），
+避免两套完整依赖叠在一起。
+"""
 from __future__ import annotations
 
 import json
@@ -16,10 +20,7 @@ def _log(*args) -> None:
 
 def set_profile(path: Path, profile: str) -> None:
     data = json.loads(path.read_text(encoding="utf-8-sig"))
-    if "active_profile" in data:
-        data["active_profile"] = profile
-    elif "profiles" in data and profile in data.get("profiles", {}):
-        # workshop profiles.json 可能结构不同，尽量兼容
+    if "active_profile" in data or "profiles" in data:
         data["active_profile"] = profile
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -40,6 +41,47 @@ def _copy_tree(src: Path, dst: Path) -> int:
     return sum(1 for _ in dst.rglob("*") if _.is_file())
 
 
+def _merge_tree(src: Path, dst: Path) -> int:
+    """把 src 中 dst 尚不存在的文件补进去（不覆盖已有 DLL / 公共库）。"""
+    if not src.is_dir():
+        return 0
+    n = 0
+    for path in src.rglob("*"):
+        rel = path.relative_to(src)
+        target = dst / rel
+        if path.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target)
+        n += 1
+    return n
+
+
+def _ensure_exe(folder: Path, preferred: str, aliases: list[str]) -> Path:
+    target = folder / preferred
+    if target.is_file():
+        return target
+    for name in aliases:
+        c = folder / name
+        if c.is_file():
+            if c.resolve() != target.resolve():
+                shutil.copy2(c, target)
+            return target
+    found = next((p for p in folder.glob("*.exe")), None)
+    if found:
+        shutil.copy2(found, target)
+        return target
+    raise SystemExit(f"missing exe for {preferred} in {folder}")
+
+
+def _dir_size_mb(p: Path) -> float:
+    total = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+    return round(total / (1024 * 1024), 1)
+
+
 def pack(
     root_name: str,
     editor_profile: str,
@@ -48,6 +90,18 @@ def pack(
     launcher_dst: str,
     label: str,
 ) -> None:
+    """
+    Tools/ 布局（共用运行时）::
+
+        Tools/
+          INIEditor.exe
+          Workshop.exe
+          config.json
+          profiles.json
+          schemas/
+          qt.conf
+          _internal/     # 编辑器为底，工坊独有模块补入
+    """
     root = Path(root_name)
     if root.exists():
         shutil.rmtree(root)
@@ -63,9 +117,7 @@ def pack(
             launcher_src = c
             break
     if launcher_src is None:
-        for c in sorted(launchers.glob("*.exe")):
-            launcher_src = c
-            break
+        launcher_src = next(iter(sorted(launchers.glob("*.exe"))), None)
     if launcher_src is None:
         raise SystemExit("no launcher exe found")
     shutil.copy2(launcher_src, root / launcher_dst)
@@ -79,37 +131,81 @@ def pack(
 
     ed_bin = Path("bins/editor")
     ws_bin = Path("bins/workshop")
+    if not ed_bin.is_dir():
+        raise SystemExit("bins/editor missing")
+    if not ws_bin.is_dir():
+        raise SystemExit("bins/workshop missing")
 
-    # 各自独立复制，绝不互相覆盖
-    n_ed = _copy_tree(ed_bin, tools / "editor")
-    n_ws = _copy_tree(ws_bin, tools / "workshop")
-    _log("copied editor files", n_ed, "workshop files", n_ws)
+    # 1) 以编辑器整包为底（含 _internal）
+    n_ed = _copy_tree(ed_bin, tools)
+    _log("base from editor files", n_ed)
 
-    # 强制主程序名
-    ed_exe = tools / "editor" / "INIEditor.exe"
-    ws_exe = tools / "workshop" / "Workshop.exe"
-    if not ed_exe.is_file():
-        # 兜底找任意 exe 改名
-        found = next((p for p in (tools / "editor").glob("*.exe")), None)
-        if found:
-            found.rename(ed_exe)
+    # 2) 工坊 exe + 配置落到同一目录
+    ws_exe_src = None
+    for name in ("Workshop.exe", "main.exe"):
+        c = ws_bin / name
+        if c.is_file():
+            ws_exe_src = c
+            break
+    if ws_exe_src is None:
+        ws_exe_src = next(iter(ws_bin.glob("*.exe")), None)
+    if ws_exe_src is None:
+        raise SystemExit("Workshop.exe not found in bins/workshop")
+    shutil.copy2(ws_exe_src, tools / "Workshop.exe")
+
+    if (ws_bin / "profiles.json").is_file():
+        shutil.copy2(ws_bin / "profiles.json", tools / "profiles.json")
+    ws_schemas = ws_bin / "schemas"
+    if ws_schemas.is_dir():
+        (tools / "schemas").mkdir(parents=True, exist_ok=True)
+        for f in ws_schemas.glob("*"):
+            if f.is_file() and not (tools / "schemas" / f.name).exists():
+                shutil.copy2(f, tools / "schemas" / f.name)
+
+    # 3) 合并工坊 _internal 中编辑器没有的部分（app/fields/shared 等）
+    ed_internal = tools / "_internal"
+    ws_internal = ws_bin / "_internal"
+    if ws_internal.is_dir() and ed_internal.is_dir():
+        n_merge = _merge_tree(ws_internal, ed_internal)
+        _log("merged workshop-only files into _internal", n_merge)
+    elif ws_internal.is_dir() and not ed_internal.is_dir():
+        n_merge = _merge_tree(ws_internal, tools)
+        _log("merged workshop _internal into tools root", n_merge)
+    else:
+        for name in ("app", "fields", "shared"):
+            s = ws_bin / name
+            if s.exists() and not (tools / name).exists():
+                if s.is_dir():
+                    shutil.copytree(s, tools / name)
+                else:
+                    shutil.copy2(s, tools / name)
+                _log("copied workshop package", name)
+
+    if not ed_internal.is_dir():
+        n_extra = _merge_tree(ws_bin, tools)
+        _log("flat merge extras", n_extra)
+
+    ed_exe = _ensure_exe(tools, "INIEditor.exe", ["INI_Editor.exe", "main.exe"])
+    ws_exe = tools / "Workshop.exe"
     if not ws_exe.is_file():
-        found = next((p for p in (tools / "workshop").glob("*.exe")), None)
-        if found:
-            found.rename(ws_exe)
+        raise SystemExit("Workshop.exe missing after merge")
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
     must(ed_exe)
     must(ws_exe)
-    must(tools / "editor" / "config.json")
-    must(tools / "workshop" / "profiles.json")
-    must(tools / "editor" / "schemas" / "common_flags.json")
+    must(tools / "config.json")
+    if (tools / "profiles.json").is_file():
+        must(tools / "profiles.json")
+    if (tools / "schemas" / "common_flags.json").is_file():
+        must(tools / "schemas" / "common_flags.json")
 
-    # 设置 profile
-    set_profile(tools / "editor" / "config.json", editor_profile)
-    if (tools / "workshop" / "profiles.json").is_file():
-        set_profile(tools / "workshop" / "profiles.json", workshop_profile)
+    set_profile(tools / "config.json", editor_profile)
+    if (tools / "profiles.json").is_file():
+        set_profile(tools / "profiles.json", workshop_profile)
+
+    tools_mb = _dir_size_mb(tools)
+    _log(f"Tools/ total size: {tools_mb} MB (shared runtime)")
 
     readme = (
         f"AutoReloader full package — {label}\n\n"
@@ -117,25 +213,26 @@ def pack(
         f"  {launcher_dst}\n"
         f"  AutoReloader.dll\n"
         f"  ReloaderConfig.ini\n\n"
-        f"Tools\\editor\\     INI 工程编辑器（完整独立运行时）\n"
-        f"  INIEditor.exe\n"
-        f"Tools\\workshop\\   战术工坊（完整独立运行时）\n"
-        f"  Workshop.exe\n\n"
+        f"Tools\\  （编辑器 + 工坊共用 _internal 运行时）\n"
+        f"  INIEditor.exe     INI 工程编辑器\n"
+        f"  Workshop.exe      战术工坊\n"
+        f"  config.json / profiles.json / schemas /\n"
+        f"  _internal\\        请勿删除或挪走\n\n"
         f"Usage:\n"
-        f"  1. 把启动器 + DLL + ReloaderConfig.ini 放到游戏根目录\n"
+        f"  1. 启动器 + DLL + ReloaderConfig.ini 放到游戏根目录\n"
         f"  2. 用本包启动器（管理员）启动游戏\n"
-        f"  3. 运行 Tools\\editor\\INIEditor.exe 或 Tools\\workshop\\Workshop.exe\n"
-        f"  4. 不要只移动单个 exe，整个子目录必须保持完整\n"
-        f"  5. 如启动失败，查看同目录下的 INIEditor.err.txt / Workshop.err.txt\n"
+        f"  3. 运行 Tools\\INIEditor.exe 或 Tools\\Workshop.exe\n"
+        f"  4. 整个 Tools 目录必须保持完整，不要只拷某一个 exe\n"
+        f"  5. 启动失败可看 Tools\\INIEditor_boot.log\n"
     )
     (root / "README.txt").write_text(readme, encoding="utf-8")
-    _log("packed", root_name)
+    _log("packed", root_name, f"Tools={tools_mb}MB")
 
 
 def main() -> int:
     try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
     except Exception:
         pass
 
