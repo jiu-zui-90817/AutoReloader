@@ -1,7 +1,7 @@
 """CI 组装 MO/YR 完整发布目录。
 
 Tools/ 内编辑器与工坊共用一份 _internal（PySide6 / Python 运行时），
-避免两套完整依赖叠在一起。
+避免两套完整依赖叠在一起。用户可见程序名为中文。
 """
 from __future__ import annotations
 
@@ -94,13 +94,13 @@ def pack(
     Tools/ 布局（共用运行时）::
 
         Tools/
-          INIEditor.exe
-          Workshop.exe
+          INI工程编辑器.exe
+          战术工坊.exe
           config.json
           profiles.json
           schemas/
           qt.conf
-          _internal/     # 编辑器为底，工坊独有模块补入
+          _internal/
     """
     root = Path(root_name)
     if root.exists():
@@ -108,7 +108,6 @@ def pack(
     tools = root / "Tools"
     tools.mkdir(parents=True)
 
-    # 启动器
     launchers = Path("bins/launchers")
     launcher_src = None
     for name in launcher_src_names:
@@ -122,7 +121,6 @@ def pack(
         raise SystemExit("no launcher exe found")
     shutil.copy2(launcher_src, root / launcher_dst)
 
-    # 引擎
     shutil.copy2("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
     for src in (Path("bins/engine/ReloaderConfig.ini"), Path("Config/ReloaderConfig.ini")):
         if src.is_file():
@@ -136,13 +134,11 @@ def pack(
     if not ws_bin.is_dir():
         raise SystemExit("bins/workshop missing")
 
-    # 1) 以编辑器整包为底（含 _internal）
     n_ed = _copy_tree(ed_bin, tools)
     _log("base from editor files", n_ed)
 
-    # 2) 工坊 exe + 配置落到同一目录
     ws_exe_src = None
-    for name in ("Workshop.exe", "main.exe"):
+    for name in ("战术工坊.exe", "Workshop.exe", "main.exe"):
         c = ws_bin / name
         if c.is_file():
             ws_exe_src = c
@@ -150,8 +146,8 @@ def pack(
     if ws_exe_src is None:
         ws_exe_src = next(iter(ws_bin.glob("*.exe")), None)
     if ws_exe_src is None:
-        raise SystemExit("Workshop.exe not found in bins/workshop")
-    shutil.copy2(ws_exe_src, tools / "Workshop.exe")
+        raise SystemExit("Workshop exe not found in bins/workshop")
+    shutil.copy2(ws_exe_src, tools / "战术工坊.exe")
 
     if (ws_bin / "profiles.json").is_file():
         shutil.copy2(ws_bin / "profiles.json", tools / "profiles.json")
@@ -162,7 +158,6 @@ def pack(
             if f.is_file() and not (tools / "schemas" / f.name).exists():
                 shutil.copy2(f, tools / "schemas" / f.name)
 
-    # 3) 合并工坊 _internal 中编辑器没有的部分（app/fields/shared 等）
     ed_internal = tools / "_internal"
     ws_internal = ws_bin / "_internal"
     if ws_internal.is_dir() and ed_internal.is_dir():
@@ -185,10 +180,23 @@ def pack(
         n_extra = _merge_tree(ws_bin, tools)
         _log("flat merge extras", n_extra)
 
-    ed_exe = _ensure_exe(tools, "INIEditor.exe", ["INI_Editor.exe", "main.exe"])
-    ws_exe = tools / "Workshop.exe"
-    if not ws_exe.is_file():
-        raise SystemExit("Workshop.exe missing after merge")
+    ed_exe = _ensure_exe(
+        tools,
+        "INI工程编辑器.exe",
+        ["INIEditor.exe", "INI_Editor.exe", "main.exe"],
+    )
+    ws_exe = _ensure_exe(
+        tools,
+        "战术工坊.exe",
+        ["Workshop.exe", "main.exe"],
+    )
+    for leftover in ("INIEditor.exe", "Workshop.exe", "INI_Editor.exe"):
+        p = tools / leftover
+        if p.is_file() and p.resolve() not in (ed_exe.resolve(), ws_exe.resolve()):
+            try:
+                p.unlink()
+            except Exception:
+                pass
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
@@ -208,22 +216,23 @@ def pack(
     _log(f"Tools/ total size: {tools_mb} MB (shared runtime)")
 
     readme = (
-        f"AutoReloader full package — {label}\n\n"
-        f"Root:\n"
+        f"AutoReloader 完整包 — {label}\n\n"
+        f"根目录:\n"
         f"  {launcher_dst}\n"
         f"  AutoReloader.dll\n"
         f"  ReloaderConfig.ini\n\n"
-        f"Tools\\  （编辑器 + 工坊共用 _internal 运行时）\n"
-        f"  INIEditor.exe     INI 工程编辑器\n"
-        f"  Workshop.exe      战术工坊\n"
+        f"Tools\\  （编辑器 + 工坊共用 _internal）\n"
+        f"  INI工程编辑器.exe\n"
+        f"  战术工坊.exe\n"
         f"  config.json / profiles.json / schemas /\n"
-        f"  _internal\\        请勿删除或挪走\n\n"
-        f"Usage:\n"
+        f"  _internal\\        请勿删除\n\n"
+        f"说明:\n"
         f"  1. 启动器 + DLL + ReloaderConfig.ini 放到游戏根目录\n"
         f"  2. 用本包启动器（管理员）启动游戏\n"
-        f"  3. 运行 Tools\\INIEditor.exe 或 Tools\\Workshop.exe\n"
-        f"  4. 整个 Tools 目录必须保持完整，不要只拷某一个 exe\n"
-        f"  5. 启动失败可看 Tools\\INIEditor_boot.log\n"
+        f"  3. 运行 Tools 下的中文程序名即可\n"
+        f"  4. 请保持整个 Tools 目录完整\n"
+        f"  5. 启动失败看同目录 INIEditor_boot.log / INIEditor_crash.log\n"
+        f"  6. 正式版无黑控制台；错误会弹窗并写日志\n"
     )
     (root / "README.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name, f"Tools={tools_mb}MB")
