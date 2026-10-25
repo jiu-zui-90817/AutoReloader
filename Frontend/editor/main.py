@@ -63,7 +63,6 @@ def _exe_dir() -> Path:
         pass
     try:
         p = Path(sys.executable).resolve()
-        # Nuitka 可能把 executable 报到 python.exe
         if p.name.lower() in ("python.exe", "pythonw.exe", "python", "python3"):
             try:
                 a0 = Path(sys.argv[0]).resolve()
@@ -95,7 +94,6 @@ def _mark_frozen_if_nuitka() -> None:
             return
     except Exception:
         pass
-    # 旁路：exe 旁有 PySide6 插件目录也视为打包
     try:
         root = _exe_dir()
         if (root / "PySide6").is_dir() or (root / "_internal" / "PySide6").is_dir():
@@ -142,7 +140,6 @@ def _show_error(title: str, text: str) -> None:
 
 def _setup_qt_plugins(root: Path) -> None:
     """为 PyInstaller onedir / Nuitka standalone 设置 Qt 插件路径。"""
-    # PyInstaller 6+ 默认 _internal；我们也支持 contents-directory=.
     candidates = [
         root / "_internal" / "PySide6" / "plugins",
         root / "_internal" / "PySide6" / "qt-plugins",
@@ -163,7 +160,6 @@ def _setup_qt_plugins(root: Path) -> None:
             )
             _boot_log(f"QT_PLUGIN_PATH={pc}")
             return
-    # 没找到也记一笔，方便排查
     _boot_log("WARNING: no Qt plugins dir found under " + str(root))
 
 
@@ -190,7 +186,6 @@ def main() -> None:
     _setup_qt_plugins(root)
     if meipass:
         _setup_qt_plugins(Path(meipass))
-    # 强制走 windows 平台，避免某些环境下插件探测异常
     os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 
     try:
@@ -230,8 +225,24 @@ def main() -> None:
     try:
         _boot_log("creating QApplication...")
         app = QApplication.instance() or QApplication(sys.argv)
+        try:
+            from PySide6.QtGui import QIcon
+            from paths import app_dir, bundle_dir
+
+            for cand in (
+                app_dir() / "editor.ico",
+                app_dir() / "assets" / "editor.ico",
+                bundle_dir() / "editor.ico",
+                root / "editor.ico",
+                Path(__file__).resolve().parents[2] / "assets" / "editor.ico",
+            ):
+                if cand.is_file():
+                    app.setWindowIcon(QIcon(str(cand)))
+                    _boot_log(f"window icon={cand}")
+                    break
+        except Exception as e:
+            _boot_log(f"setWindowIcon skip {e}")
         app.setApplicationName("INI 工程编辑器")
-        # Fusion 在个别 Nuitka+PySide6 组合会触发 native 崩溃，失败则退回默认
         try:
             app.setStyle("Fusion")
         except Exception as e:
@@ -272,7 +283,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # 入口最外层：连 main() 进不去也能落日志
     try:
         _boot_log("__main__ enter")
         main()
