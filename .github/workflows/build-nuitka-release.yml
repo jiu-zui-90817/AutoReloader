@@ -1,0 +1,378 @@
+# 正式发布（Nuitka standalone）— 体积更小，结构与 PyInstaller 版一致
+# 触发：tag v*-nuitka 或 Actions 手动 Run workflow
+name: Build Nuitka Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "构建完成后创建 GitHub Release 并上传压缩包"
+        type: boolean
+        default: true
+      tag_name:
+        description: "Release 使用的 tag（手动运行时必填，如 v2.2.0-nuitka）"
+        type: string
+        default: ""
+  push:
+    tags:
+      - "v*-nuitka"
+      - "v*.*.*-nuitka"
+
+concurrency:
+  group: nuitka-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  build-dll:
+    name: AutoReloader.dll
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Clone YRpp
+        run: |
+          if (-not (Test-Path Backend/YRpp/.git)) {
+            git clone --depth 1 https://github.com/Phobos-developers/YRpp.git Backend/YRpp
+          }
+      - name: Configure & Build
+        working-directory: Backend
+        run: |
+          $built = $false
+          cmake -B build -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -eq 0) {
+            cmake --build build --config Release -- /m
+            if ($LASTEXITCODE -eq 0) { $built = $true }
+          }
+          if (-not $built) {
+            if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) { choco install ninja -y --no-progress }
+            if (Test-Path build) { Remove-Item -Recurse -Force build }
+            cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+            if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
+            cmake --build build --parallel
+            if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+          }
+      - name: Collect
+        run: |
+          $dll = Get-ChildItem Backend -Recurse -Filter AutoReloader.dll | Select-Object -First 1
+          if (-not $dll) { throw "AutoReloader.dll not found" }
+          New-Item -ItemType Directory -Force -Path dist/engine | Out-Null
+          Copy-Item $dll.FullName dist/engine/AutoReloader.dll
+          if (Test-Path Config/ReloaderConfig.ini) { Copy-Item Config/ReloaderConfig.ini dist/engine/ }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine
+          path: dist/engine/
+          if-no-files-found: error
+
+  build-launchers:
+    name: Launchers
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Build
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/launchers | Out-Null
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: launchers
+          path: dist/launchers/
+          if-no-files-found: error
+
+  build-editor:
+    name: Editor (Nuitka)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/editor/requirements.txt
+      - name: Prepare
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
+          if (-not (Test-Path Frontend/editor/config.json)) { throw "config.json missing" }
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/editor/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka standalone
+        working-directory: Frontend/editor
+        shell: pwsh
+        run: |
+          $icon = @()
+          if (Test-Path ../../assets/editor.ico) { $icon = @("--windows-icon-from-ico=../../assets/editor.ico") }
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=disable `
+            --output-dir=../../dist-nuitka/editor-build `
+            --output-filename=INIEditor.exe `
+            --include-data-files=config.json=config.json `
+            --include-data-dir=schemas=schemas `
+            --nofollow-import-to=matplotlib,numpy,pandas,scipy,tkinter `
+            --nofollow-import-to=PySide6.QtWebEngine,PySide6.QtWebEngineCore,PySide6.QtQml,PySide6.QtQuick `
+            --nofollow-import-to=PySide6.QtMultimedia,PySide6.QtCharts,PySide6.QtPdf,PySide6.Qt3DCore `
+            @icon main.py
+          if ($LASTEXITCODE -ne 0) { throw "Nuitka editor failed" }
+      - name: Stage + slim + Chinese name
+        shell: pwsh
+        run: |
+          $built = Get-ChildItem dist-nuitka/editor-build -Directory | Where-Object { $_.Name -like "*.dist" } | Select-Object -First 1
+          if (-not $built) { throw "editor .dist missing" }
+          $out = "dist/editor"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $built.FullName "*") -Destination $out -Recurse -Force
+          Copy-Item -Force Frontend/editor/config.json "$out/config.json" -ErrorAction SilentlyContinue
+          if (Test-Path assets/editor.ico) { Copy-Item -Force assets/editor.ico "$out/editor.ico" }
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          $keep = @("platforms","styles","imageformats","iconengines")
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(translations|qml|QtWebEngine|resources)$' } |
+            ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("plugins","qt-plugins") } |
+            ForEach-Object {
+              Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($keep -notcontains $_.Name) { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+              }
+            }
+          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll","*Qt6Designer*","*Qt6Help*","*Qt6Test*")) {
+            Get-ChildItem $out -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
+              ForEach-Object { Remove-Item -Force $_.FullName -ErrorAction SilentlyContinue }
+          }
+          $qwin = Get-ChildItem $out -Recurse -Filter "qwindows.dll" | Select-Object -First 1
+          if (-not $qwin) { throw "missing qwindows.dll" }
+          $prefix = "."
+          $pluginsRel = "PySide6/plugins"
+          if (Test-Path "$out/PySide6/qt-plugins") { $pluginsRel = "PySide6/qt-plugins" }
+          elseif (Test-Path "$out/PySide6/plugins") { $pluginsRel = "PySide6/plugins" }
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
+          $cn = Join-Path $out "INI工程编辑器.exe"
+          if (Test-Path "$out/INIEditor.exe") { Move-Item -Force "$out/INIEditor.exe" $cn }
+          $mb = [math]::Round(((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+          Write-Host "Editor Nuitka size: $mb MB"
+          Write-Host "Top-level:" (Get-ChildItem $out -File | Select-Object -ExpandProperty Name)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: editor-bundle
+          path: dist/editor/
+          if-no-files-found: error
+
+  build-workshop:
+    name: Workshop (Nuitka)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/workshop/requirements.txt
+      - name: Prepare
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
+          if (Test-Path scripts/patch_workshop_icon.py) {
+            $good = "https://raw.githubusercontent.com/jiu-zui-90817/AutoReloader/f4819a9e516f99bcd262e79f60cbdf77d82219e9/Frontend/workshop/app.py"
+            try {
+              Invoke-WebRequest -Uri $good -OutFile "Frontend/workshop/app.py" -UseBasicParsing
+            } catch {
+              Write-Host "restore app.py skipped: $_"
+            }
+            python scripts/patch_workshop_icon.py
+          }
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/workshop/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka standalone
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = (Resolve-Path .).Path
+          Push-Location Frontend/workshop
+          $icon = @()
+          if (Test-Path ../../assets/workshop.ico) { $icon = @("--windows-icon-from-ico=../../assets/workshop.ico") }
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=disable `
+            --output-dir=../../dist-nuitka/workshop-build `
+            --output-filename=Workshop.exe `
+            --include-package=shared --include-package=fields --include-package=app `
+            --include-data-dir=schemas=schemas `
+            --include-data-files=../../shared/profiles.json=profiles.json `
+            --nofollow-import-to=matplotlib,numpy,tkinter `
+            --nofollow-import-to=PySide6.QtWebEngineCore,PySide6.QtQml,PySide6.QtQuick,PySide6.QtMultimedia,PySide6.QtCharts,PySide6.QtPdf `
+            @icon main.py
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "Nuitka workshop failed" }
+      - name: Stage + slim + Chinese name
+        shell: pwsh
+        run: |
+          $built = Get-ChildItem dist-nuitka/workshop-build -Directory | Where-Object { $_.Name -like "*.dist" } | Select-Object -First 1
+          if (-not $built) { throw "workshop .dist missing" }
+          $out = "dist/workshop"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $built.FullName "*") -Destination $out -Recurse -Force
+          Copy-Item -Force shared/profiles.json "$out/profiles.json" -ErrorAction SilentlyContinue
+          if (Test-Path assets/workshop.ico) { Copy-Item -Force assets/workshop.ico "$out/workshop.ico" }
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          $keep = @("platforms","styles","imageformats","iconengines")
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(translations|qml|QtWebEngine|resources)$' } |
+            ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("plugins","qt-plugins") } |
+            ForEach-Object {
+              Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($keep -notcontains $_.Name) { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+              }
+            }
+          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll")) {
+            Get-ChildItem $out -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
+              ForEach-Object { Remove-Item -Force $_.FullName -ErrorAction SilentlyContinue }
+          }
+          $qwin = Get-ChildItem $out -Recurse -Filter "qwindows.dll" | Select-Object -First 1
+          if (-not $qwin) { throw "missing qwindows.dll" }
+          $prefix = "."
+          $pluginsRel = "PySide6/plugins"
+          if (Test-Path "$out/PySide6/qt-plugins") { $pluginsRel = "PySide6/qt-plugins" }
+          elseif (Test-Path "$out/PySide6/plugins") { $pluginsRel = "PySide6/plugins" }
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
+          $cn = Join-Path $out "战术工坊.exe"
+          if (Test-Path "$out/Workshop.exe") { Move-Item -Force "$out/Workshop.exe" $cn }
+          $mb = [math]::Round(((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+          Write-Host "Workshop Nuitka size: $mb MB"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workshop-bundle
+          path: dist/workshop/
+          if-no-files-found: error
+
+  pack:
+    name: Pack MO + YR
+    needs: [build-dll, build-launchers, build-editor, build-workshop]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine
+          path: bins/engine
+      - uses: actions/download-artifact@v4
+        with:
+          name: launchers
+          path: bins/launchers
+      - uses: actions/download-artifact@v4
+        with:
+          name: editor-bundle
+          path: bins/editor
+      - uses: actions/download-artifact@v4
+        with:
+          name: workshop-bundle
+          path: bins/workshop
+      - name: Pack (shared runtime)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: |
+          python scripts/pack_release.py
+          if ($LASTEXITCODE -ne 0) { throw "pack_release.py failed" }
+          foreach ($root in @("AutoReloader-MO", "AutoReloader-YR")) {
+            if (Test-Path $root) {
+              "pack=nuitka" | Out-File -Encoding ascii (Join-Path $root "Tools/PACKER.txt")
+              $mb = [math]::Round(((Get-ChildItem $root -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+              Write-Host "$root total: $mb MB"
+            }
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoReloader-MO-Nuitka
+          path: AutoReloader-MO/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoReloader-YR-Nuitka
+          path: AutoReloader-YR/
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [pack]
+    runs-on: ubuntu-latest
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then TAG="${GITHUB_REF#refs/tags/}"
+          else TAG="${{ inputs.tag_name }}"; fi
+          if [[ -z "$TAG" ]]; then echo "need tag_name"; exit 1; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          name: AutoReloader-MO-Nuitka
+          path: mo_pack
+      - uses: actions/download-artifact@v4
+        with:
+          name: AutoReloader-YR-Nuitka
+          path: yr_pack
+      - name: Zip
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          (cd mo_pack && zip -r -q "../AutoReloader-MO-${TAG}-nuitka.zip" .)
+          (cd yr_pack && zip -r -q "../AutoReloader-YR-${TAG}-nuitka.zip" .)
+          ls -lh *.zip
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          NOTES="## Nuitka 正式包
+- 引擎 / 启动器 / 编辑器 / 工坊完整包
+- 编辑器+工坊：**Nuitka standalone**（体积约数十 MB 级）
+- Tools：INI工程编辑器.exe / 战术工坊.exe，尽量共用运行时
+- 无黑控制台；出错看同目录日志
+- 图标：editor.ico / workshop.ico
+"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release exists"
+          else
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (Nuitka)" --notes "$NOTES" --target "${{ github.sha }}" || true
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (Nuitka)" --notes "$NOTES" --verify-tag || true
+          fi
+          gh release upload "$TAG" "AutoReloader-MO-${TAG}-nuitka.zip" "AutoReloader-YR-${TAG}-nuitka.zip" --repo "${{ github.repository }}" --clobber
