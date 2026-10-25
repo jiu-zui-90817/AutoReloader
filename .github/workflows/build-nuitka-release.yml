@@ -362,13 +362,7 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          NOTES="## Nuitka 正式包
-- 引擎 / 启动器 / 编辑器 / 工坊完整包
-- 编辑器+工坊：**Nuitka standalone**（体积约数十 MB 级）
-- Tools：INI工程编辑器.exe / 战术工坊.exe，尽量共用运行时
-- 无黑控制台；出错看同目录日志
-- 图标：editor.ico / workshop.ico
-"
+          NOTES="Nuitka formal pack: engine + launchers + editor + workshop; shared Tools runtime; no console."
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "release exists"
           else
