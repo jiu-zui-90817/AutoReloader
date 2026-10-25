@@ -11,20 +11,20 @@ def _path_str(p: Path | str) -> str:
     return str(p).replace("\\", "/")
 
 
-def _is_ephemeral(p: Path) -> bool:
-    s = _path_str(p).lower()
-    return any(
-        x in s
-        for x in (
-            "/temp/",
-            "/tmp/",
-            "appdata/local/temp",
-            "onefile_",
-            "/onefile/",
-            "nuitka_temp",
-            "_mei",
-        )
+def _is_ephemeral(path: Path) -> bool:
+    s = _path_str(path).lower()
+    needles = (
+        "/temp/",
+        "/tmp/",
+        "\\temp\\",
+        "appdata/local/temp",
+        "appdata\\local\\temp",
+        "onefile_",
+        "/onefile/",
+        "nuitka_temp",
+        "_mei",
     )
+    return any(n in s for n in needles)
 
 
 def is_frozen() -> bool:
@@ -36,7 +36,7 @@ def is_frozen() -> bool:
     except Exception:
         pass
     try:
-        for name, mod in list(sys.modules.items()):
+        for _name, mod in list(sys.modules.items()):
             if mod is not None and getattr(mod, "__compiled__", None) is not None:
                 return True
     except Exception:
@@ -64,6 +64,7 @@ def is_frozen() -> bool:
 
 
 def local_appdata() -> Path:
+    """真正的 %LocalAppData%，不要用 home/AppData 猜。"""
     env = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
     if env:
         return Path(env)
@@ -116,14 +117,47 @@ def bundle_dir() -> Path:
         try:
             return Path(__file__).resolve().parent
         except Exception:
-            return Path(sys.executable).resolve().parent
+            return app_dir()
     return Path(__file__).resolve().parent
 
 
-def config_path() -> Path:
-    return app_dir() / "config.json"
+def _ensure_writable_dir(d: Path) -> bool:
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        probe = d / ".write_test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
 
 
-def ensure_dir(p: Path) -> Path:
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+def user_data_dir() -> Path:
+    """可写用户数据目录。"""
+    base = local_appdata() / "AutoReloader" / "INIEditor"
+    if _ensure_writable_dir(base):
+        return base
+    fallback = Path.home() / ".autoreloader" / "inieditor"
+    _ensure_writable_dir(fallback)
+    return fallback
+
+
+def user_config_path() -> Path:
+    """用户级 config 备份路径（主 config 仍在 app_dir）。"""
+    return user_data_dir() / "config.user.json"
+
+
+def user_cache_dir() -> Path:
+    d = user_data_dir() / "cache"
+    _ensure_writable_dir(d)
+    return d
+
+
+def describe_paths() -> str:
+    lines = [
+        f"frozen={is_frozen()}",
+        f"app_dir={app_dir()}",
+        f"bundle_dir={bundle_dir()}",
+        f"user_data={user_data_dir()}",
+    ]
+    return "\n".join(lines)
