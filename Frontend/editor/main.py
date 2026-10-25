@@ -22,7 +22,6 @@ def _safe_write(path: Path, msg: str) -> bool:
 
 
 def _boot_log(msg: str) -> None:
-    """多路径写日志：exe 旁 / cwd / TEMP / Desktop，保证总能找到痕迹。"""
     line = msg.rstrip()
     candidates: list[Path] = []
     try:
@@ -30,7 +29,10 @@ def _boot_log(msg: str) -> None:
     except Exception:
         pass
     try:
-        candidates.append(Path(sys.argv[0]).resolve().parent / "INIEditor_boot.log")
+        a0p = Path(sys.argv[0]).resolve().parent
+        candidates.append(a0p / "INIEditor_boot.log")
+        if a0p.name.lower() == "_internal":
+            candidates.append(a0p.parent / "INIEditor_boot.log")
     except Exception:
         pass
     try:
@@ -54,7 +56,7 @@ def _boot_log(msg: str) -> None:
 
 
 def _exe_dir() -> Path:
-    """用户双击的目录。Nuitka standalone 下 sys.executable 有时是同目录 python.exe，优先 argv[0]。"""
+    """真 exe 所在目录（_internal），用于 Qt 插件路径。"""
     try:
         a0 = Path(sys.argv[0]).resolve()
         if a0.suffix.lower() == ".exe" and a0.is_file():
@@ -83,71 +85,60 @@ def _exe_dir() -> Path:
 
 
 def _mark_frozen_if_nuitka() -> None:
-    """Nuitka 不设 sys.frozen；业务代码大量依赖它，启动时补上。"""
-    if getattr(sys, "frozen", False):
-        return
     try:
-        import __main__
-
-        if getattr(__main__, "__compiled__", None) is not None:
-            sys.frozen = True  # type: ignore[attr-defined]
+        if getattr(sys, "frozen", False):
             return
+        for _name, mod in list(sys.modules.items()):
+            if mod is not None and getattr(mod, "__compiled__", None) is not None:
+                sys.frozen = True  # type: ignore[attr-defined]
+                return
+        a0 = Path(sys.argv[0]).resolve()
+        if a0.suffix.lower() == ".exe":
+            parent = a0.parent
+            if (parent / "PySide6").is_dir() or (parent / "python312.dll").is_file():
+                sys.frozen = True  # type: ignore[attr-defined]
     except Exception:
         pass
-    try:
-        root = _exe_dir()
-        if (root / "PySide6").is_dir() or (root / "_internal" / "PySide6").is_dir():
-            sys.frozen = True  # type: ignore[attr-defined]
-    except Exception:
-        pass
-
-
-def _write_crash(msg: str) -> Path:
-    path = _exe_dir() / "INIEditor_crash.log"
-    try:
-        path.write_text(msg, encoding="utf-8")
-        return path
-    except Exception:
-        pass
-    try:
-        path = Path.cwd() / "INIEditor_crash.log"
-        path.write_text(msg, encoding="utf-8")
-        return path
-    except Exception:
-        pass
-    temp = os.environ.get("TEMP") or os.environ.get("TMP") or "."
-    path = Path(temp) / "INIEditor_crash.log"
-    try:
-        path.write_text(msg, encoding="utf-8")
-    except Exception:
-        pass
-    return path
 
 
 def _show_error(title: str, text: str) -> None:
     try:
         import ctypes
+        ctypes.windll.user32.MessageBoxW(0, text[:2000], title, 0x10)
+    except Exception:
+        print(title, text, file=sys.stderr)
 
-        ctypes.windll.user32.MessageBoxW(None, text[:1500], title, 0x10)
-        return
+
+def _write_crash(msg: str) -> Path:
+    try:
+        a0p = Path(sys.argv[0]).resolve().parent
+        path = a0p / "INIEditor_crash.log"
+        if a0p.name.lower() == "_internal":
+            path = a0p.parent / "INIEditor_crash.log"
+        _safe_write(path, msg)
+        return path
     except Exception:
         pass
     try:
-        print(title, text, file=sys.stderr)
+        path = Path.cwd() / "INIEditor_crash.log"
+        _safe_write(path, msg)
+        return path
     except Exception:
         pass
+    temp = os.environ.get("TEMP") or os.environ.get("TMP") or "."
+    path = Path(temp) / "INIEditor_crash.log"
+    _safe_write(path, msg)
+    return path
 
 
 def _setup_qt_plugins(root: Path) -> None:
-    """为 PyInstaller onedir / Nuitka standalone 设置 Qt 插件路径。"""
     candidates = [
-        root / "_internal" / "PySide6" / "plugins",
-        root / "_internal" / "PySide6" / "qt-plugins",
-        root / "PySide6" / "plugins",
         root / "PySide6" / "qt-plugins",
-        root / "qt-plugins",
+        root / "PySide6" / "plugins",
+        root / "_internal" / "PySide6" / "qt-plugins",
+        root / "_internal" / "PySide6" / "plugins",
         root / "plugins",
-        root / "_internal" / "plugins",
+        root / "qt-plugins",
     ]
     for pc in candidates:
         if not pc.is_dir():
@@ -189,10 +180,18 @@ def main() -> None:
     os.environ.setdefault("QT_QPA_PLATFORM", "windows")
 
     try:
-        from paths import user_config_path
-    except Exception:
+        from paths import app_dir, config_path as _config_path
+
         def user_config_path():  # type: ignore
-            return root / "config.json"
+            # 主配置在 Tools（壳旁），禁止落到 AppData/TEMP
+            return _config_path()
+    except Exception:
+
+        def user_config_path():  # type: ignore
+            p = root
+            if p.name.lower() == "_internal":
+                p = p.parent
+            return p / "config.json"
 
     try:
         _boot_log("importing PySide6...")
@@ -250,6 +249,19 @@ def main() -> None:
         _boot_log("QApplication OK")
         config_path = user_config_path()
         _boot_log(f"config={config_path}")
+        _boot_log(f"app_dir try: config exists={config_path.is_file()}")
+        if not config_path.is_file():
+            for seed in (root / "config.json", root.parent / "config.json"):
+                try:
+                    if seed.is_file() and seed.resolve() != config_path.resolve():
+                        config_path.parent.mkdir(parents=True, exist_ok=True)
+                        import shutil
+
+                        shutil.copy2(seed, config_path)
+                        _boot_log(f"seeded config from {seed}")
+                        break
+                except Exception as e:
+                    _boot_log(f"seed skip {e}")
         _boot_log("creating Project...")
         project = Project(config_path)
         _boot_log("Project OK")
@@ -278,20 +290,21 @@ def main() -> None:
         tb = traceback.format_exc()
         log = _write_crash(f"启动后异常\n{tb}")
         _boot_log(f"runtime FAIL {e}")
-        _show_error("INI 工程编辑器崩溃", f"{e}\n\n详情:\n{log}")
+        _show_error("INI 工程编辑器崩溃", f"{e}\n\n{log}")
         raise SystemExit(1) from e
 
 
 if __name__ == "__main__":
     try:
-        _boot_log("__main__ enter")
+        print("__main__ enter", flush=True)
         main()
     except SystemExit as e:
-        _boot_log(f"SystemExit {getattr(e, 'code', e)}")
+        code = e.code if isinstance(e.code, int) else 1
+        _boot_log(f"SystemExit code={code}")
         raise
     except Exception:
         tb = traceback.format_exc()
         log = _write_crash(tb)
-        _boot_log("uncaught\n" + tb)
-        _show_error("INI 工程编辑器无法启动", f"未捕获异常。\n详情:\n{log}")
-        raise
+        _boot_log("fatal\n" + tb)
+        _show_error("INI 工程编辑器崩溃", f"未捕获异常\n{log}")
+        raise SystemExit(1)
