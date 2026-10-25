@@ -91,11 +91,7 @@ def _copy_icon(candidates: list[Path], dest: Path) -> bool:
 
 
 def _nest_nuitka_like_pyinstaller(tools: Path) -> None:
-    """Nuitka 扁平目录 → 对齐 PyInstaller：依赖进 _internal，顶层只留启动器与配置。
-
-    Windows 会从 *exe 所在目录* 找 DLL，真程序必须留在 _internal；
-    顶层用 .cmd 启动器（双击即可）。
-    """
+    """Nuitka 扁平目录 → 对层壳.exe + _internal真身。"""
     if (tools / "_internal").is_dir():
         return
     markers = (
@@ -156,16 +152,30 @@ def _nest_nuitka_like_pyinstaller(tools: Path) -> None:
                 continue
             if found.name != preferred:
                 shutil.copy2(found, target)
-        launcher = tools / preferred.replace(".exe", ".cmd")
-        lines = [
-            "@echo off",
-            "chcp 65001 >nul",
-            'cd /d "%~dp0"',
-            'start "" /D "%~dp0_internal" "%~dp0_internal\\' + preferred + '" %*',
-            "",
-        ]
-        launcher.write_bytes("\r\n".join(lines).encode("utf-8"))
-        _log("launcher", launcher.name, "->", f"_internal/{preferred}")
+        stub = None
+        for cand in (
+            Path("bins/tools_stub/ToolsStub.exe"),
+            Path("Launcher/ToolsStub.exe"),
+            Path("bins/launchers/ToolsStub.exe"),
+        ):
+            if cand.is_file():
+                stub = cand
+                break
+        top_exe = tools / preferred
+        if stub is not None:
+            shutil.copy2(stub, top_exe)
+            _log("stub shell", top_exe.name, "->", f"_internal/{preferred}")
+        else:
+            launcher = tools / preferred.replace(".exe", ".cmd")
+            lines = [
+                "@echo off",
+                "chcp 65001 >nul",
+                'cd /d "%~dp0"',
+                'start "" /D "%~dp0_internal" "%~dp0_internal\\' + preferred + '" %*',
+                "",
+            ]
+            launcher.write_bytes("\r\n".join(lines).encode("utf-8"))
+            _log("WARN: ToolsStub.exe missing, used .cmd", launcher.name)
 
     _log("nested Nuitka runtime into Tools/_internal")
 
@@ -289,13 +299,14 @@ def pack(
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
-    # nest 后真 exe 在 _internal，顶层可能只有 .cmd
     if (tools / "_internal" / "INI工程编辑器.exe").is_file():
         must(tools / "_internal" / "INI工程编辑器.exe")
+        must(tools / "INI工程编辑器.exe")
     else:
         must(tools / "INI工程编辑器.exe")
     if (tools / "_internal" / "战术工坊.exe").is_file():
         must(tools / "_internal" / "战术工坊.exe")
+        must(tools / "战术工坊.exe")
     else:
         must(tools / "战术工坊.exe")
     must(tools / "config.json")
@@ -318,14 +329,14 @@ def pack(
         f"  AutoReloader.dll\n"
         f"  ReloaderConfig.ini\n\n"
         f"Tools\\  （编辑器 + 工坊共用运行时）\n"
-        f"  INI工程编辑器.cmd / 战术工坊.cmd\n"
+        f"  INI工程编辑器.exe / 战术工坊.exe  （壳，真身在 _internal）\n"
         f"  editor.ico / workshop.ico\n"
         f"  config.json / profiles.json / schemas /\n"
         f"  _internal\\        真程序与运行库，请勿删除\n\n"
         f"说明:\n"
         f"  1. 启动器 + DLL + ReloaderConfig.ini 放到游戏根目录\n"
         f"  2. 用本包启动器（管理员）启动游戏\n"
-        f"  3. 双击 Tools 下 .cmd 即可（Nuitka）或 .exe（PyInstaller）\n"
+        f"  3. 双击 Tools 下中文 .exe 即可\n"
         f"  4. 请保持整个 Tools 目录完整\n"
         f"  5. 启动失败看同目录日志\n"
         f"  6. 正式版无黑控制台\n"
