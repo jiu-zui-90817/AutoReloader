@@ -1,1 +1,1 @@
-PLACEHOLDER
+loading from /tmp/workshop_app.py - will fail if not replaced
