@@ -1,0 +1,207 @@
+# 试验性 Nuitka 打包（与正式 PyInstaller 布局对齐）
+# Actions → Build Nuitka Test → Run workflow
+name: Build Nuitka Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "打包目标"
+        type: choice
+        options:
+          - both
+          - editor
+          - workshop
+        default: both
+
+concurrency:
+  group: nuitka-test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  nuitka-editor:
+    name: Nuitka Editor
+    if: inputs.target == 'both' || inputs.target == 'editor'
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/editor/requirements.txt
+      - name: Prepare
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/editor/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/editor/schemas/common_flags.json
+          if (-not (Test-Path Frontend/editor/config.json)) { throw "config.json missing" }
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/editor/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka standalone
+        working-directory: Frontend/editor
+        shell: pwsh
+        run: |
+          $icon = @()
+          if (Test-Path ../../assets/editor.ico) { $icon = @("--windows-icon-from-ico=../../assets/editor.ico") }
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=disable `
+            --output-dir=../../dist-nuitka/editor-build `
+            --output-filename=INIEditor.exe `
+            --include-data-files=config.json=config.json `
+            --include-data-dir=schemas=schemas `
+            --nofollow-import-to=matplotlib,numpy,pandas,scipy,tkinter `
+            --nofollow-import-to=PySide6.QtWebEngine,PySide6.QtWebEngineCore,PySide6.QtQml,PySide6.QtQuick `
+            --nofollow-import-to=PySide6.QtMultimedia,PySide6.QtCharts,PySide6.QtPdf,PySide6.Qt3DCore `
+            @icon main.py
+          if ($LASTEXITCODE -ne 0) { throw "Nuitka editor failed" }
+      - name: Stage + slim + Chinese name
+        shell: pwsh
+        run: |
+          $built = Get-ChildItem dist-nuitka/editor-build -Directory | Where-Object { $_.Name -like "*.dist" } | Select-Object -First 1
+          if (-not $built) { throw "editor .dist missing" }
+          $out = "dist-nuitka/editor"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $built.FullName "*") -Destination $out -Recurse -Force
+          Copy-Item -Force Frontend/editor/config.json "$out/config.json" -ErrorAction SilentlyContinue
+          if (Test-Path assets/editor.ico) { Copy-Item -Force assets/editor.ico "$out/editor.ico" }
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          $keep = @("platforms","styles","imageformats","iconengines")
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(translations|qml|QtWebEngine|resources)$' } |
+            ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("plugins","qt-plugins") } |
+            ForEach-Object {
+              Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($keep -notcontains $_.Name) { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+              }
+            }
+          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll")) {
+            Get-ChildItem $out -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
+              ForEach-Object { Remove-Item -Force $_.FullName -ErrorAction SilentlyContinue }
+          }
+          $qwin = Get-ChildItem $out -Recurse -Filter "qwindows.dll" | Select-Object -First 1
+          if (-not $qwin) { throw "missing qwindows.dll" }
+          $prefix = "."
+          $pluginsRel = "PySide6/plugins"
+          if (Test-Path "$out/PySide6/qt-plugins") { $pluginsRel = "PySide6/qt-plugins" }
+          elseif (Test-Path "$out/PySide6/plugins") { $pluginsRel = "PySide6/plugins" }
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
+          $cn = Join-Path $out "INI工程编辑器.exe"
+          if (Test-Path "$out/INIEditor.exe") { Move-Item -Force "$out/INIEditor.exe" $cn }
+          $mb = [math]::Round(((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+          Write-Host "Editor Nuitka size: $mb MB"
+          Write-Host "Top-level:" (Get-ChildItem $out -File | Select-Object -ExpandProperty Name)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuitka-editor
+          path: dist-nuitka/editor/
+          if-no-files-found: error
+
+  nuitka-workshop:
+    name: Nuitka Workshop
+    if: inputs.target == 'both' || inputs.target == 'workshop'
+    runs-on: windows-2022
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: Frontend/workshop/requirements.txt
+      - name: Prepare
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
+          if (Test-Path scripts/patch_workshop_icon.py) {
+            # 若 app.py 仍是加载器，先从历史提交恢复再打补
+            $good = "https://raw.githubusercontent.com/jiu-zui-90817/AutoReloader/f4819a9e516f99bcd262e79f60cbdf77d82219e9/Frontend/workshop/app.py"
+            try {
+              Invoke-WebRequest -Uri $good -OutFile "Frontend/workshop/app.py" -UseBasicParsing
+            } catch {
+              Write-Host "restore app.py skipped: $_"
+            }
+            python scripts/patch_workshop_icon.py
+          }
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r Frontend/workshop/requirements.txt nuitka ordered-set zstandard
+      - name: Nuitka standalone
+        shell: pwsh
+        run: |
+          $env:PYTHONPATH = (Resolve-Path .).Path
+          Push-Location Frontend/workshop
+          $icon = @()
+          if (Test-Path ../../assets/workshop.ico) { $icon = @("--windows-icon-from-ico=../../assets/workshop.ico") }
+          python -m nuitka --standalone --assume-yes-for-downloads --enable-plugin=pyside6 `
+            --windows-console-mode=disable `
+            --output-dir=../../dist-nuitka/workshop-build `
+            --output-filename=Workshop.exe `
+            --include-package=shared --include-package=fields --include-package=app `
+            --include-data-dir=schemas=schemas `
+            --include-data-files=../../shared/profiles.json=profiles.json `
+            --nofollow-import-to=matplotlib,numpy,tkinter `
+            --nofollow-import-to=PySide6.QtWebEngineCore,PySide6.QtQml,PySide6.QtQuick,PySide6.QtMultimedia,PySide6.QtCharts,PySide6.QtPdf `
+            @icon main.py
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "Nuitka workshop failed" }
+      - name: Stage + slim + Chinese name
+        shell: pwsh
+        run: |
+          $built = Get-ChildItem dist-nuitka/workshop-build -Directory | Where-Object { $_.Name -like "*.dist" } | Select-Object -First 1
+          if (-not $built) { throw "workshop .dist missing" }
+          $out = "dist-nuitka/workshop"
+          Remove-Item -Recurse -Force $out -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item -Path (Join-Path $built.FullName "*") -Destination $out -Recurse -Force
+          Copy-Item -Force shared/profiles.json "$out/profiles.json" -ErrorAction SilentlyContinue
+          if (Test-Path assets/workshop.ico) { Copy-Item -Force assets/workshop.ico "$out/workshop.ico" }
+          New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
+          Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
+          $keep = @("platforms","styles","imageformats","iconengines")
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^(translations|qml|QtWebEngine|resources)$' } |
+            ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+          Get-ChildItem $out -Recurse -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("plugins","qt-plugins") } |
+            ForEach-Object {
+              Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                if ($keep -notcontains $_.Name) { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+              }
+            }
+          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll")) {
+            Get-ChildItem $out -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
+              ForEach-Object { Remove-Item -Force $_.FullName -ErrorAction SilentlyContinue }
+          }
+          $qwin = Get-ChildItem $out -Recurse -Filter "qwindows.dll" | Select-Object -First 1
+          if (-not $qwin) { throw "missing qwindows.dll" }
+          $prefix = "."
+          $pluginsRel = "PySide6/plugins"
+          if (Test-Path "$out/PySide6/qt-plugins") { $pluginsRel = "PySide6/qt-plugins" }
+          elseif (Test-Path "$out/PySide6/plugins") { $pluginsRel = "PySide6/plugins" }
+          Set-Content -Encoding ASCII -Path "$out/qt.conf" -Value "[Paths]`nPrefix = $prefix`nPlugins = $pluginsRel`n"
+          $cn = Join-Path $out "战术工坊.exe"
+          if (Test-Path "$out/Workshop.exe") { Move-Item -Force "$out/Workshop.exe" $cn }
+          $mb = [math]::Round(((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
+          Write-Host "Workshop Nuitka size: $mb MB"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nuitka-workshop
+          path: dist-nuitka/workshop/
+          if-no-files-found: error
