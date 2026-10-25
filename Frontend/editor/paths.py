@@ -47,6 +47,8 @@ def is_frozen() -> bool:
             parent = a0.parent
             if (parent / "PySide6").is_dir() or (parent / "_internal" / "PySide6").is_dir():
                 return True
+            if (parent / "python312.dll").is_file() or (parent / "python3.dll").is_file():
+                return True
     except Exception:
         pass
     try:
@@ -64,7 +66,6 @@ def is_frozen() -> bool:
 
 
 def local_appdata() -> Path:
-    """真正的 %LocalAppData%，不要用 home/AppData 猜。"""
     env = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
     if env:
         return Path(env)
@@ -82,10 +83,7 @@ def _prefer_tools_dir(folder: Path) -> Path:
 
 
 def app_dir() -> Path:
-    """
-    程序目录（用户放置启动器的地方）。
-    打包：优先 argv[0]；若在 _internal 内则上提到 Tools。
-    """
+    """用户可见的程序目录（Tools 壳一层）。"""
     if is_frozen():
         try:
             a0 = Path(sys.argv[0]).resolve()
@@ -108,8 +106,12 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def config_path() -> Path:
+    """主配置：永远在 Tools（壳）目录，不是 AppData，不是临时目录。"""
+    return app_dir() / "config.json"
+
+
 def bundle_dir() -> Path:
-    """只读内置资源目录。"""
     if is_frozen():
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
@@ -133,7 +135,6 @@ def _ensure_writable_dir(d: Path) -> bool:
 
 
 def user_data_dir() -> Path:
-    """可写用户数据目录。"""
     base = local_appdata() / "AutoReloader" / "INIEditor"
     if _ensure_writable_dir(base):
         return base
@@ -143,7 +144,7 @@ def user_data_dir() -> Path:
 
 
 def user_config_path() -> Path:
-    """用户级 config 备份路径（主 config 仍在 app_dir）。"""
+    """备份路径（不再作为主 config）。"""
     return user_data_dir() / "config.user.json"
 
 
@@ -157,6 +158,7 @@ def describe_paths() -> str:
     lines = [
         f"frozen={is_frozen()}",
         f"app_dir={app_dir()}",
+        f"config={config_path()}",
         f"bundle_dir={bundle_dir()}",
         f"user_data={user_data_dir()}",
     ]
