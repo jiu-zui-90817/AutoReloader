@@ -164,7 +164,7 @@ jobs:
                 if ($keep -notcontains $_.Name) { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
               }
             }
-          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll","*Qt6Designer*","*Qt6Help*","*Qt6Test*")) {
+          foreach ($pat in @("*WebEngine*","*Qt6Quick*","*Qt6Qml*","*Qt6Multimedia*","*Qt6Pdf*","opengl32sw.dll")) {
             Get-ChildItem $out -Recurse -File -Filter $pat -ErrorAction SilentlyContinue |
               ForEach-Object { Remove-Item -Force $_.FullName -ErrorAction SilentlyContinue }
           }
@@ -300,12 +300,19 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: Build ToolsStub
+      - name: Build ToolsStub shells (with icons)
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path bins/tools_stub | Out-Null
-          cl /nologo /O2 /EHsc /Fe:"bins/tools_stub/ToolsStub.exe" Launcher/ToolsStub.cpp user32.lib /link /SUBSYSTEM:WINDOWS
-          if ($LASTEXITCODE -ne 0) { throw "ToolsStub build failed" }
+          rc /nologo /fo bins/tools_stub/editor.res Launcher/tools_stub_editor.rc
+          if ($LASTEXITCODE -ne 0) { throw "editor.rc failed" }
+          rc /nologo /fo bins/tools_stub/workshop.res Launcher/tools_stub_workshop.rc
+          if ($LASTEXITCODE -ne 0) { throw "workshop.rc failed" }
+          cl /nologo /O2 /EHsc /Fe:"bins/tools_stub/ToolsStubEditor.exe" Launcher/ToolsStub.cpp user32.lib /link /SUBSYSTEM:WINDOWS bins/tools_stub/editor.res
+          if ($LASTEXITCODE -ne 0) { throw "ToolsStubEditor failed" }
+          cl /nologo /O2 /EHsc /Fe:"bins/tools_stub/ToolsStubWorkshop.exe" Launcher/ToolsStub.cpp user32.lib /link /SUBSYSTEM:WINDOWS bins/tools_stub/workshop.res
+          if ($LASTEXITCODE -ne 0) { throw "ToolsStubWorkshop failed" }
+          Copy-Item -Force bins/tools_stub/ToolsStubEditor.exe bins/tools_stub/ToolsStub.exe
       - name: Pack
         shell: pwsh
         env:
@@ -369,7 +376,7 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          NOTES="Nuitka pack with ToolsStub shells and launcher icons."
+          NOTES="Nuitka pack: ToolsStub shells with icons; config at Tools/config.json."
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then echo exists
           else
             gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (Nuitka)" --notes "$NOTES" --target "${{ github.sha }}" || true
