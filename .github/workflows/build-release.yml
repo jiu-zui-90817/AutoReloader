@@ -156,6 +156,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item -Path (Join-Path $src "*") -Destination $out -Recurse -Force
           Copy-Item -Force Frontend/editor/config.json "$out/config.json"
+          if (Test-Path "assets/editor.ico") { Copy-Item -Force "assets/editor.ico" "$out/editor.ico" }
           New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
           $keep = @("platforms","styles","imageformats","iconengines")
@@ -254,6 +255,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item -Path (Join-Path $src "*") -Destination $out -Recurse -Force
           Copy-Item -Force shared/profiles.json "$out/profiles.json"
+          if (Test-Path "assets/workshop.ico") { Copy-Item -Force "assets/workshop.ico" "$out/workshop.ico" }
+          elseif (Test-Path "assets/editor.ico") { Copy-Item -Force "assets/editor.ico" "$out/workshop.ico" }
           New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
           $keep = @("platforms","styles","imageformats","iconengines")
