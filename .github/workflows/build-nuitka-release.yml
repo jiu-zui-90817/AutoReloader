@@ -176,7 +176,6 @@ jobs:
           if (Test-Path "$out/INIEditor.exe") { Move-Item -Force "$out/INIEditor.exe" $cn }
           $mb = [math]::Round(((Get-ChildItem $out -Recurse -File | Measure-Object Length -Sum).Sum/1MB),1)
           Write-Host "Editor Nuitka size: $mb MB"
-          Write-Host "Top-level:" (Get-ChildItem $out -File | Select-Object -ExpandProperty Name)
       - uses: actions/upload-artifact@v4
         with:
           name: editor-bundle
@@ -201,11 +200,7 @@ jobs:
           Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
           if (Test-Path scripts/patch_workshop_icon.py) {
             $good = "https://raw.githubusercontent.com/jiu-zui-90817/AutoReloader/f4819a9e516f99bcd262e79f60cbdf77d82219e9/Frontend/workshop/app.py"
-            try {
-              Invoke-WebRequest -Uri $good -OutFile "Frontend/workshop/app.py" -UseBasicParsing
-            } catch {
-              Write-Host "restore app.py skipped: $_"
-            }
+            try { Invoke-WebRequest -Uri $good -OutFile "Frontend/workshop/app.py" -UseBasicParsing } catch { Write-Host "restore skipped" }
             python scripts/patch_workshop_icon.py
           }
       - name: Install
@@ -299,6 +294,17 @@ jobs:
         with:
           name: workshop-bundle
           path: bins/workshop
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Build ToolsStub (top-level .exe shell)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bins/tools_stub | Out-Null
+          cl /nologo /O2 /EHsc /Fe:"bins/tools_stub/ToolsStub.exe" Launcher/ToolsStub.cpp user32.lib /link /SUBSYSTEM:WINDOWS
+          if ($LASTEXITCODE -ne 0) { throw "ToolsStub build failed" }
+          if (-not (Test-Path bins/tools_stub/ToolsStub.exe)) { throw "ToolsStub.exe missing" }
+          Write-Host "ToolsStub size:" (Get-Item bins/tools_stub/ToolsStub.exe).Length
       - name: Pack (shared runtime)
         shell: pwsh
         env:
@@ -362,7 +368,7 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          NOTES="Nuitka formal pack: engine + launchers + editor + workshop; shared Tools runtime; no console."
+          NOTES="Nuitka formal pack: engine + launchers + editor + workshop; ToolsStub shell + _internal runtime; no console."
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "release exists"
           else
