@@ -1,16 +1,15 @@
-# 正式发布（Nuitka standalone）— 体积更小，结构与 PyInstaller 版一致
-# 触发：tag v*-nuitka 或 Actions 手动 Run workflow
+# Nuitka formal release
 name: Build Nuitka Release
 
 on:
   workflow_dispatch:
     inputs:
       create_release:
-        description: "构建完成后创建 GitHub Release 并上传压缩包"
+        description: "Create GitHub Release after build"
         type: boolean
         default: true
       tag_name:
-        description: "Release 使用的 tag（手动运行时必填，如 v2.2.0-nuitka）"
+        description: "Release tag (required for release, e.g. v2.2.0-nuitka)"
         type: string
         default: ""
   push:
@@ -89,9 +88,13 @@ jobs:
       - name: Build
         run: |
           New-Item -ItemType Directory -Force -Path dist/launchers | Out-Null
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          rc /nologo /fo dist/launchers/mo_launcher.res Launcher/mo_launcher.rc
+          if ($LASTEXITCODE -ne 0) { throw "MO rc failed" }
+          rc /nologo /fo dist/launchers/yr_launcher.res Launcher/yr_launcher.rc
+          if ($LASTEXITCODE -ne 0) { throw "YR rc failed" }
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/mo_launcher.res
           if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/yr_launcher.res
           if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
       - uses: actions/upload-artifact@v4
         with:
@@ -297,15 +300,13 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
-      - name: Build ToolsStub (top-level .exe shell)
+      - name: Build ToolsStub
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path bins/tools_stub | Out-Null
           cl /nologo /O2 /EHsc /Fe:"bins/tools_stub/ToolsStub.exe" Launcher/ToolsStub.cpp user32.lib /link /SUBSYSTEM:WINDOWS
           if ($LASTEXITCODE -ne 0) { throw "ToolsStub build failed" }
-          if (-not (Test-Path bins/tools_stub/ToolsStub.exe)) { throw "ToolsStub.exe missing" }
-          Write-Host "ToolsStub size:" (Get-Item bins/tools_stub/ToolsStub.exe).Length
-      - name: Pack (shared runtime)
+      - name: Pack
         shell: pwsh
         env:
           PYTHONIOENCODING: utf-8
@@ -368,9 +369,8 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          NOTES="Nuitka formal pack: engine + launchers + editor + workshop; ToolsStub shell + _internal runtime; no console."
-          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            echo "release exists"
+          NOTES="Nuitka pack with ToolsStub shells and launcher icons."
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then echo exists
           else
             gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (Nuitka)" --notes "$NOTES" --target "${{ github.sha }}" || true
             gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (Nuitka)" --notes "$NOTES" --verify-tag || true
