@@ -42,7 +42,6 @@ def _copy_tree(src: Path, dst: Path) -> int:
 
 
 def _merge_tree(src: Path, dst: Path) -> int:
-    """把 src 中 dst 尚不存在的文件补进去（不覆盖已有 DLL / 公共库）。"""
     if not src.is_dir():
         return 0
     n = 0
@@ -82,6 +81,15 @@ def _dir_size_mb(p: Path) -> float:
     return round(total / (1024 * 1024), 1)
 
 
+def _copy_icon(candidates: list[Path], dest: Path) -> bool:
+    for c in candidates:
+        if c.is_file():
+            shutil.copy2(c, dest)
+            _log("icon", dest.name, "from", c.as_posix())
+            return True
+    return False
+
+
 def pack(
     root_name: str,
     editor_profile: str,
@@ -90,18 +98,6 @@ def pack(
     launcher_dst: str,
     label: str,
 ) -> None:
-    """
-    Tools/ 布局（共用运行时）::
-
-        Tools/
-          INI工程编辑器.exe
-          战术工坊.exe
-          config.json
-          profiles.json
-          schemas/
-          qt.conf
-          _internal/
-    """
     root = Path(root_name)
     if root.exists():
         shutil.rmtree(root)
@@ -148,6 +144,17 @@ def pack(
     if ws_exe_src is None:
         raise SystemExit("Workshop exe not found in bins/workshop")
     shutil.copy2(ws_exe_src, tools / "战术工坊.exe")
+
+    assets = Path("assets")
+    _copy_icon(
+        [ed_bin / "editor.ico", assets / "editor.ico", tools / "editor.ico"],
+        tools / "editor.ico",
+    )
+    if not _copy_icon(
+        [ws_bin / "workshop.ico", assets / "workshop.ico"],
+        tools / "workshop.ico",
+    ):
+        _log("WARN: workshop.ico missing")
 
     if (ws_bin / "profiles.json").is_file():
         shutil.copy2(ws_bin / "profiles.json", tools / "profiles.json")
@@ -224,6 +231,7 @@ def pack(
         f"Tools\\  （编辑器 + 工坊共用 _internal）\n"
         f"  INI工程编辑器.exe\n"
         f"  战术工坊.exe\n"
+        f"  editor.ico / workshop.ico\n"
         f"  config.json / profiles.json / schemas /\n"
         f"  _internal\\        请勿删除\n\n"
         f"说明:\n"
