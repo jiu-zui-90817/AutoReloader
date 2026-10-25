@@ -1,8 +1,4 @@
-"""CI 组装 MO/YR 完整发布目录。
-
-Tools/ 内编辑器与工坊共用一份 _internal（PySide6 / Python 运行时），
-避免两套完整依赖叠在一起。用户可见程序名为中文。
-"""
+"""CI 组装 MO/YR 完整发布目录。"""
 from __future__ import annotations
 
 import json
@@ -91,7 +87,6 @@ def _copy_icon(candidates: list[Path], dest: Path) -> bool:
 
 
 def _nest_nuitka_like_pyinstaller(tools: Path) -> None:
-    """Nuitka 扁平目录 → 对层壳.exe + _internal真身。"""
     if (tools / "_internal").is_dir():
         return
     markers = (
@@ -152,19 +147,25 @@ def _nest_nuitka_like_pyinstaller(tools: Path) -> None:
                 continue
             if found.name != preferred:
                 shutil.copy2(found, target)
-        stub = None
-        for cand in (
-            Path("bins/tools_stub/ToolsStub.exe"),
+        top_exe = tools / preferred
+        if "编辑" in preferred or preferred.startswith("INI"):
+            stub_candidates = [
+                Path("bins/tools_stub/ToolsStubEditor.exe"),
+                Path("bins/tools_stub/ToolsStub.exe"),
+            ]
+        else:
+            stub_candidates = [
+                Path("bins/tools_stub/ToolsStubWorkshop.exe"),
+                Path("bins/tools_stub/ToolsStub.exe"),
+            ]
+        stub_candidates += [
             Path("Launcher/ToolsStub.exe"),
             Path("bins/launchers/ToolsStub.exe"),
-        ):
-            if cand.is_file():
-                stub = cand
-                break
-        top_exe = tools / preferred
+        ]
+        stub = next((c for c in stub_candidates if c.is_file()), None)
         if stub is not None:
             shutil.copy2(stub, top_exe)
-            _log("stub shell", top_exe.name, "->", f"_internal/{preferred}")
+            _log("stub shell", top_exe.name, "from", stub.name, "->", f"_internal/{preferred}")
         else:
             launcher = tools / preferred.replace(".exe", ".cmd")
             lines = [
@@ -236,14 +237,8 @@ def pack(
     shutil.copy2(ws_exe_src, tools / "战术工坊.exe")
 
     assets = Path("assets")
-    _copy_icon(
-        [ed_bin / "editor.ico", assets / "editor.ico", tools / "editor.ico"],
-        tools / "editor.ico",
-    )
-    if not _copy_icon(
-        [ws_bin / "workshop.ico", assets / "workshop.ico"],
-        tools / "workshop.ico",
-    ):
+    _copy_icon([ed_bin / "editor.ico", assets / "editor.ico"], tools / "editor.ico")
+    if not _copy_icon([ws_bin / "workshop.ico", assets / "workshop.ico"], tools / "workshop.ico"):
         _log("WARN: workshop.ico missing")
 
     if (ws_bin / "profiles.json").is_file():
@@ -258,11 +253,9 @@ def pack(
     ed_internal = tools / "_internal"
     ws_internal = ws_bin / "_internal"
     if ws_internal.is_dir() and ed_internal.is_dir():
-        n_merge = _merge_tree(ws_internal, ed_internal)
-        _log("merged workshop-only files into _internal", n_merge)
+        _merge_tree(ws_internal, ed_internal)
     elif ws_internal.is_dir() and not ed_internal.is_dir():
-        n_merge = _merge_tree(ws_internal, tools)
-        _log("merged workshop _internal into tools root", n_merge)
+        _merge_tree(ws_internal, tools)
     else:
         for name in ("app", "fields", "shared"):
             s = ws_bin / name
@@ -271,22 +264,12 @@ def pack(
                     shutil.copytree(s, tools / name)
                 else:
                     shutil.copy2(s, tools / name)
-                _log("copied workshop package", name)
 
     if not ed_internal.is_dir():
-        n_extra = _merge_tree(ws_bin, tools)
-        _log("flat merge extras", n_extra)
+        _merge_tree(ws_bin, tools)
 
-    ed_exe = _ensure_exe(
-        tools,
-        "INI工程编辑器.exe",
-        ["INIEditor.exe", "INI_Editor.exe", "main.exe"],
-    )
-    ws_exe = _ensure_exe(
-        tools,
-        "战术工坊.exe",
-        ["Workshop.exe", "main.exe"],
-    )
+    ed_exe = _ensure_exe(tools, "INI工程编辑器.exe", ["INIEditor.exe", "INI_Editor.exe", "main.exe"])
+    ws_exe = _ensure_exe(tools, "战术工坊.exe", ["Workshop.exe", "main.exe"])
     for leftover in ("INIEditor.exe", "Workshop.exe", "INI_Editor.exe"):
         p = tools / leftover
         if p.is_file() and p.resolve() not in (ed_exe.resolve(), ws_exe.resolve()):
@@ -310,10 +293,6 @@ def pack(
     else:
         must(tools / "战术工坊.exe")
     must(tools / "config.json")
-    if (tools / "profiles.json").is_file():
-        must(tools / "profiles.json")
-    if (tools / "schemas" / "common_flags.json").is_file():
-        must(tools / "schemas" / "common_flags.json")
 
     set_profile(tools / "config.json", editor_profile)
     if (tools / "profiles.json").is_file():
@@ -321,25 +300,11 @@ def pack(
 
     tools_mb = _dir_size_mb(tools)
     _log(f"Tools/ total size: {tools_mb} MB (shared runtime)")
-
     readme = (
         f"AutoReloader 完整包 — {label}\n\n"
-        f"根目录:\n"
-        f"  {launcher_dst}\n"
-        f"  AutoReloader.dll\n"
-        f"  ReloaderConfig.ini\n\n"
-        f"Tools\\  （编辑器 + 工坊共用运行时）\n"
-        f"  INI工程编辑器.exe / 战术工坊.exe  （壳，真身在 _internal）\n"
-        f"  editor.ico / workshop.ico\n"
-        f"  config.json / profiles.json / schemas /\n"
-        f"  _internal\\        真程序与运行库，请勿删除\n\n"
-        f"说明:\n"
-        f"  1. 启动器 + DLL + ReloaderConfig.ini 放到游戏根目录\n"
-        f"  2. 用本包启动器（管理员）启动游戏\n"
-        f"  3. 双击 Tools 下中文 .exe 即可\n"
-        f"  4. 请保持整个 Tools 目录完整\n"
-        f"  5. 启动失败看同目录日志\n"
-        f"  6. 正式版无黑控制台\n"
+        f"Tools\\INI工程编辑器.exe / 战术工坊.exe = 壳\n"
+        f"Tools\\_internal\\ = 真程序 + 运行库\n"
+        f"Tools\\config.json = 主配置（与壳同层）\n"
     )
     (root / "README.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name, f"Tools={tools_mb}MB")
@@ -351,7 +316,6 @@ def main() -> int:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore
     except Exception:
         pass
-
     ed = json.loads(Path("bins/editor/config.json").read_text(encoding="utf-8-sig"))
     keys = list((ed.get("profiles") or {}).keys())
     yr_ed = (
@@ -359,23 +323,8 @@ def main() -> int:
         if "YurisRevenge" in keys
         else ("YuriRevenge_Vanilla" if "YuriRevenge_Vanilla" in keys else "MentalOmega")
     )
-
-    pack(
-        "AutoReloader-MO",
-        "MentalOmega",
-        "MentalOmega",
-        ["MOLauncher.exe", "MO启动器.exe"],
-        "MOLauncher.exe",
-        "Mental Omega",
-    )
-    pack(
-        "AutoReloader-YR",
-        yr_ed,
-        "YurisRevenge",
-        ["YRLauncher.exe", "YR启动器.exe"],
-        "YRLauncher.exe",
-        "Yuri's Revenge",
-    )
+    pack("AutoReloader-MO", "MentalOmega", "MentalOmega", ["MOLauncher.exe"], "MOLauncher.exe", "Mental Omega")
+    pack("AutoReloader-YR", yr_ed, "YurisRevenge", ["YRLauncher.exe"], "YRLauncher.exe", "Yuri's Revenge")
     return 0
 
 
