@@ -1,0 +1,63 @@
+name: Restore main_window
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Restore main_window.py from known-good commit + tree filter fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          GOOD=47b60ed095842db206dc14d6227207f147b77288
+          git show "${GOOD}:Frontend/editor/ui/main_window.py" > Frontend/editor/ui/main_window.py
+          python3 scripts/patch_tree_filter_inline.py
+          rm -f Frontend/editor/ui/_mw_z0.txt Frontend/editor/ui/_mw_c0.py Frontend/editor/ui/tree_filter_patch.py || true
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path("Frontend/editor/main.py")
+          if not p.is_file():
+              raise SystemExit(0)
+          t = p.read_text(encoding="utf-8")
+          t2, n = re.subn(
+              r"from ui\.main_window import MainWindow\n\s*try:\n\s*from ui\.tree_filter_patch.*?except Exception as _e:\n\s*_boot_log\(f\"tree_filter_patch skip \{_e\}\"\)\n\n\s*_boot_log\(\"Project/MainWindow OK\"\)",
+              "from ui.main_window import MainWindow\n\n        _boot_log(\"Project/MainWindow OK\")",
+              t,
+              count=1,
+              flags=re.S,
+          )
+          if n:
+              p.write_text(t2, encoding="utf-8")
+              print("cleaned main.py patch hook", n)
+          else:
+              print("main.py no patch hook")
+          PY
+          sz=$(wc -c < Frontend/editor/ui/main_window.py)
+          echo "main_window.py size=$sz"
+          test "$sz" -gt 100000
+
+      - name: Commit and push
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Frontend/editor/ui/main_window.py Frontend/editor/main.py scripts/patch_tree_filter_inline.py || true
+          git add -u Frontend/editor/ui/ || true
+          if git diff --cached --quiet; then
+            echo "nothing to commit"
+            exit 0
+          fi
+          git commit -m "fix(editor): restore main_window.py and tree filter without expand"
+          git push
