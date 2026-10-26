@@ -210,14 +210,6 @@ def main() -> None:
         from core.project import Project
         from ui.main_window import MainWindow
 
-        try:
-            from ui.tree_filter_patch import apply_tree_filter_patch
-
-            apply_tree_filter_patch(MainWindow)
-            _boot_log("tree_filter_patch applied")
-        except Exception as _e:
-            _boot_log(f"tree_filter_patch skip {_e}")
-
         _boot_log("Project/MainWindow OK")
     except Exception as e:
         tb = traceback.format_exc()
