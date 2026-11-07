@@ -3796,9 +3796,10 @@ class MainWindow(QMainWindow):
         self._store_current_to_mem()
         self._sync_tab_picker()
         if index >= 0:
-            title = self.tabs.tabText(index)
+            # 必须去掉脏标记「● 」，否则会去查 [● GACNST] 导致 not found
+            title = self._tab_title_base(self.tabs.tabText(index))
             prefer, group = self._parse_tab_meta(self.tabs.tabToolTip(index) or "")
-            sid = title.split(" · ")[0] if " · " in title else title
+            sid = title.split(" · ")[0].strip() if " · " in title else title.strip()
             self.show_section(sid, prefer=prefer, group=group)
             self.select_tree_item(sid, group=group, prefer=prefer)
 
@@ -5696,10 +5697,11 @@ class MainWindow(QMainWindow):
         self._mem_sections.pop(sid, None)
         self._mem_sections.pop(f"art::{sid}", None)
 
-        # 关 tab
+        # 关 tab（标题可能带 ● 脏标记）
         for i in range(self.tabs.count() - 1, -1, -1):
-            title = self.tabs.tabText(i)
-            if title == sid or title.startswith(sid + " ·"):
+            title = self._tab_title_base(self.tabs.tabText(i))
+            base = title.split(" · ")[0].strip() if " · " in title else title.strip()
+            if base.lower() == sid.lower() or title.startswith(sid + " ·"):
                 self.tabs.removeTab(i)
         self.current_section_id = None
         self.current_prefer = ""
