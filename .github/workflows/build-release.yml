@@ -1,6 +1,6 @@
-# 发布工作流：引擎 + 启动器 + 编辑器 + 工坊 → MO/YR 包（PyInstaller 备份）
-# 触发：仅手动。正式 Nuitka 包请用 Build Nuitka Release / tag v*-nuitka
-name: Build Release (PyInstaller backup)
+# 发布工作流：引擎 + 启动器 + 编辑器 + 工坊 → MO/YR 包
+# 触发：tag v* 或 Actions 手动 Run workflow
+name: Build Release
 
 on:
   workflow_dispatch:
@@ -8,14 +8,17 @@ on:
       create_release:
         description: "构建完成后创建 GitHub Release 并上传压缩包"
         type: boolean
-        default: false
+        default: true
       tag_name:
-        description: "Release 使用的 tag（手动运行时如需发版再填）"
+        description: "Release 使用的 tag（手动运行时必填，如 v1.2.0）"
         type: string
         default: ""
+  push:
+    tags:
+      - "v*"
 
 concurrency:
-  group: release-pyinstaller-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -218,9 +221,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path Frontend/workshop/schemas | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json Frontend/workshop/schemas/common_flags.json
-          $good = "https://raw.githubusercontent.com/jiu-zui-90817/AutoReloader/f4819a9e516f99bcd262e79f60cbdf77d82219e9/Frontend/workshop/app.py"
-          Invoke-WebRequest -Uri $good -OutFile "Frontend/workshop/app.py" -UseBasicParsing
-          python scripts/patch_workshop_icon.py
       - name: Install
         run: |
           python -m pip install --upgrade pip
@@ -256,6 +256,7 @@ jobs:
           Copy-Item -Path (Join-Path $src "*") -Destination $out -Recurse -Force
           Copy-Item -Force shared/profiles.json "$out/profiles.json"
           if (Test-Path "assets/workshop.ico") { Copy-Item -Force "assets/workshop.ico" "$out/workshop.ico" }
+          elseif (Test-Path "assets/editor.ico") { Copy-Item -Force "assets/editor.ico" "$out/workshop.ico" }
           New-Item -ItemType Directory -Force -Path "$out/schemas" | Out-Null
           Copy-Item -Force shared/schemas/common_flags.json "$out/schemas/common_flags.json"
           $keep = @("platforms","styles","imageformats","iconengines")
@@ -348,13 +349,16 @@ jobs:
     name: Create GitHub Release
     needs: [pack]
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && inputs.create_release == true
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
     steps:
       - name: Resolve tag
         id: tag
         shell: bash
         run: |
-          TAG="${{ inputs.tag_name }}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then TAG="${GITHUB_REF#refs/tags/}"
+          else TAG="${{ inputs.tag_name }}"; fi
           if [[ -z "$TAG" ]]; then echo "need tag_name"; exit 1; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
@@ -369,18 +373,19 @@ jobs:
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          (cd mo_pack && zip -r -q "../AutoReloader-MO-${TAG}-pyinstaller.zip" .)
-          (cd yr_pack && zip -r -q "../AutoReloader-YR-${TAG}-pyinstaller.zip" .)
+          (cd mo_pack && zip -r -q "../AutoReloader-MO-${TAG}.zip" .)
+          (cd yr_pack && zip -r -q "../AutoReloader-YR-${TAG}.zip" .)
       - name: Publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          NOTES="## PyInstaller 备份包\n- 体积较大；正式推荐 Nuitka 包\n"
+          NOTES="## 打包说明\n- 正式版无黑控制台（windowed）\n- Tools：INI工程编辑器.exe / 战术工坊.exe，共用 _internal\n- 出错看同目录 boot/crash 日志\n"
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             echo "exists"
           else
-            gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG} (PyInstaller)" --notes "$NOTES" --target "${{ github.sha }}" || true
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG}" --notes "$NOTES" --target "${{ github.sha }}" || true
+            gh release create "$TAG" --repo "${{ github.repository }}" --title "AutoReloader ${TAG}" --notes "$NOTES" --verify-tag || true
           fi
-          gh release upload "$TAG" "AutoReloader-MO-${TAG}-pyinstaller.zip" "AutoReloader-YR-${TAG}-pyinstaller.zip" --repo "${{ github.repository }}" --clobber
+          gh release upload "$TAG" "AutoReloader-MO-${TAG}.zip" "AutoReloader-YR-${TAG}.zip" --repo "${{ github.repository }}" --clobber
