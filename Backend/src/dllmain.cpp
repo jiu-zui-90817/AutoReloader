@@ -1421,10 +1421,6 @@ BOOL CALLBACK FindGameWindowProc(HWND hwnd, LPARAM lparam)
         search->area = area;
         return FALSE;
     }
-    if (!search->best || area > search->area) {
-        search->best = hwnd;
-        search->area = area;
-    }
     return TRUE;
 }
 
@@ -1571,6 +1567,10 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     }
 
     fresh->AttachedTag = tag;
+    fresh->Veterancy = veterancy;
+    fresh->Ammo = ammo;
+    fresh->Group = group;
+    fresh->PrimaryFacing.SetCurrent(facing);
 
     int newHealth = health;
     const int newMaxHealth = type->Strength;
