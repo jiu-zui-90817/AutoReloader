@@ -56,6 +56,7 @@ using byte = unsigned char;
 #include <ctime>
 #include <cwctype>
 #include <cwchar>
+#include <objidl.h>
 
 #include "YRPPCore.h"
 #include "Unsorted.h"
@@ -1500,7 +1501,7 @@ bool CanRebuildExistingUnit(TechnoClass* old)
     if (old->WhatAmI() == UnitClass::AbsID) {
         auto* unit = static_cast<UnitClass*>(old);
         if (unit->Deployed || unit->Deploying || unit->Undeploying
-            || unit->IsHarvester || unit->IsFollowerCar || unit->FollowerCar) {
+            || unit->IsHarvesting || unit->IsFollowerCar || unit->FollowerCar) {
             return false;
         }
     }
