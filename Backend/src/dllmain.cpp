@@ -1618,7 +1618,18 @@ void ProcessRefreshRequests()
         int rebuilt = 0;
         int skipped = 0;
         int failed = 0;
-        for (DWORD uniqueId : request.uniqueIds) {
+
+        std::vector<DWORD> uniqueIds = request.uniqueIds;
+        if (uniqueIds.empty()) {
+            for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+                TechnoClass* object = TechnoClass::Array.Items[i];
+                if (!object || !object->IsAlive) continue;
+                if (object->GetTechnoType() != type) continue;
+                uniqueIds.push_back(object->UniqueID);
+            }
+        }
+
+        for (DWORD uniqueId : uniqueIds) {
             TechnoClass* old = FindTechnoByUniqueId(uniqueId);
             if (!old || old->GetTechnoType() != type || !CanRebuildExistingUnit(old)) {
                 ++skipped;
@@ -1650,36 +1661,16 @@ void QueueExistingUnitRefresh(const std::string& section, TechnoTypeClass* type,
     const AbstractType what = type->WhatAmI();
     if (what != InfantryTypeClass::AbsID && what != UnitTypeClass::AbsID) return;
 
-    std::vector<DWORD> uniqueIds;
-    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
-        TechnoClass* object = TechnoClass::Array.Items[i];
-        if (!object || !object->IsAlive) continue;
-        if (object->GetTechnoType() != type) continue;
-        uniqueIds.push_back(object->UniqueID);
-    }
-    if (uniqueIds.empty()) return;
-
     EnsureGameThreadDispatcher();
     if (!g_gameWnd) return;
 
     const std::string typeId = LowerAscii(section);
     {
         std::lock_guard<std::mutex> lock(g_refreshMutex);
-        RefreshRequest* request = nullptr;
-        for (auto& item : g_refreshRequests) {
-            if (item.typeId == typeId) {
-                request = &item;
-                break;
-            }
+        for (const auto& item : g_refreshRequests) {
+            if (item.typeId == typeId) return;
         }
-        if (!request) {
-            g_refreshRequests.push_back(RefreshRequest{ typeId, {} });
-            request = &g_refreshRequests.back();
-        }
-        std::unordered_set<DWORD> known(request->uniqueIds.begin(), request->uniqueIds.end());
-        for (DWORD id : uniqueIds) {
-            if (known.insert(id).second) request->uniqueIds.push_back(id);
-        }
+        g_refreshRequests.push_back(RefreshRequest{ typeId, {} });
     }
 
     if (!PostMessageW(g_gameWnd, g_refreshMessage, 0, 0)) {
