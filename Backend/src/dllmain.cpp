@@ -49,6 +49,7 @@ using byte = unsigned char;
 #include <chrono>
 #include <algorithm>
 #include <filesystem>
+#include <iterator>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
@@ -68,6 +69,12 @@ using byte = unsigned char;
 #include "ParticleTypeClass.h"
 #include "ParticleSystemTypeClass.h"
 #include "VoxelAnimTypeClass.h"
+#include "TechnoClass.h"
+#include "FootClass.h"
+#include "UnitClass.h"
+#include "InfantryClass.h"
+#include "AircraftClass.h"
+#include "BuildingClass.h"
 
 namespace fs = std::filesystem;
 
