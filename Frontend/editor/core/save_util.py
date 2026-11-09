@@ -77,7 +77,8 @@ def normalize_section_body(section_id: str, body: str) -> str:
       ...
     - 去掉工具提示行
     - 多个同名 [ID] 只保留第一段
-    - 头前注释不会再触发“缺头就再插一个 [ID]”
+    - 兼容节头行尾注释（不复制出第二个节头）
+    - 节头后不主动插入空行
     """
     lines_in = []
     for ln in body.splitlines():
@@ -90,37 +91,50 @@ def normalize_section_body(section_id: str, body: str) -> str:
         return f"[{section_id}]\n"
 
     header_re = re.compile(
-        rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\]\s*$"
+        rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\](?P<tail>[^\r\n]*)(?P<nl>\r?\n)?"
     )
     matches = list(header_re.finditer(text))
     if matches:
-        start = matches[0].start()
-        preamble = text[:start].strip("\n")
-        rest = text[matches[0].end() :]
+        m = matches[0]
+        tail = (m.group("tail") or "").rstrip()
+        header_line = f"[{section_id}]{tail}"
+        preamble = text[: m.start()].strip("\n")
+        rest = text[m.end() :]
         next_hdr = re.search(r"(?m)^\[", rest)
         chunk = rest[: next_hdr.start()] if next_hdr else rest
-        body_lines = [f"[{section_id}]"]
+        body_lines = [header_line]
         if preamble:
             for ln in preamble.splitlines():
                 st = ln.strip()
-                if not st or (st.startswith("[") and st.endswith("]")):
+                if not st or (st.startswith("[") and "]" in st):
                     continue
-                body_lines.append(ln)
+                body_lines.append(ln.rstrip())
         for ln in chunk.splitlines():
             st = ln.strip()
-            if st.startswith("[") and st.endswith("]"):
+            if st.startswith("[") and "]" in st:
                 break
+            if not st:
+                # 节头后的前导空行不要；节内空行保留
+                if len(body_lines) == 1:
+                    continue
+                body_lines.append("")
+                continue
             body_lines.append(ln.rstrip())
-        text = "\n".join(body_lines)
     else:
         body_lines = [f"[{section_id}]"]
         for ln in text.splitlines():
             st = ln.strip()
-            if st.startswith("[") and st.endswith("]"):
+            if st.startswith("[") and "]" in st:
+                continue
+            if not st and len(body_lines) == 1:
                 continue
             body_lines.append(ln.rstrip())
-        text = "\n".join(body_lines)
 
+    # 去掉末尾多余空行
+    while len(body_lines) > 1 and not body_lines[-1].strip():
+        body_lines.pop()
+
+    text = "\n".join(body_lines)
     if not text.endswith("\n"):
         text += "\n"
     return text

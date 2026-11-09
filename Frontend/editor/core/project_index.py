@@ -130,8 +130,6 @@ def find_references(project, target_id: str, limit: int = 500) -> List[Hit]:
             val = str(sec.keys.get(key, ""))
             parts = [p.strip().lower() for p in val.replace(";", ",").split(",") if p.strip()]
             if tl in parts or tl == val.strip().lower():
-                if name.lower() == tl and key == "":
-                    continue
                 hits.append(Hit(name, key, val, "value", src))
                 if len(hits) >= limit:
                     break

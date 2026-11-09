@@ -19,7 +19,12 @@ from PySide6.QtWidgets import (
 
 from PySide6.QtCore import QObject, QEvent
 from core.project import Project
-from core.save_util import save_section_to_file, normalize_section_body
+from core.save_util import (
+    save_section_to_file,
+    normalize_section_body,
+    read_text,
+    find_section_span,
+)
 
 
 PRIORITY_KEYS = [
@@ -454,21 +459,18 @@ class DebugWindow(QDialog):
         body = self.current_body()
         path = self._hotfix_path()
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-        exists = path.exists()
+        # hotfix 已存在但还没有该节时按新增追加
+        is_new = not path.exists()
+        if not is_new:
+            try:
+                text, _ = read_text(path)
+                is_new = find_section_span(text, self.section_id) is None
+            except Exception:
+                pass
         result = save_section_to_file(
             path, self.section_id, body, backup_root=backup_root,
-            is_new=not exists, peer_section_names=[],
+            is_new=is_new, peer_section_names=[],
         )
-        if exists and (not result.get("ok") or "未找到" in (result.get("message") or "")):
-            result = save_section_to_file(
-                path, self.section_id, body, backup_root=backup_root,
-                is_new=False, peer_section_names=[],
-            )
-            if not result.get("ok"):
-                result = save_section_to_file(
-                    path, self.section_id, body, backup_root=backup_root,
-                    is_new=True, peer_section_names=[],
-                )
         if result.get("ok"):
             QMessageBox.information(self, "已部署", f"[{self.section_id}] → {path}")
         else:
@@ -477,7 +479,6 @@ class DebugWindow(QDialog):
     def write_back(self):
         body = self.current_body()
         path = self.project.get_source_path_for_section(self.section_id)
-        is_new = False
         if path is None or not Path(path).is_file():
             path_str, _ = QFileDialog.getOpenFileName(
                 self, "选择要回写的工程 INI",
@@ -490,15 +491,22 @@ class DebugWindow(QDialog):
             is_new = True
         else:
             path = Path(path)
+            is_new = False
+            try:
+                text, _ = read_text(path)
+                is_new = find_section_span(text, self.section_id) is None
+            except Exception:
+                pass
+        # confirmed=True：走项目级按键来源拆分写回 + 工程目录守卫，
+        # 不再 fallback 到整节裸写单文件。
         result = self.project.save_section_text(
-            self.section_id, body, target_path=path, is_new=is_new, peer_ids=[]
+            self.section_id,
+            body,
+            target_path=path,
+            is_new=is_new,
+            peer_ids=[],
+            confirmed=True,
         )
-        if not result.get("ok"):
-            backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
-            result = save_section_to_file(
-                path, self.section_id, body, backup_root=backup_root,
-                is_new=is_new, peer_section_names=[],
-            )
         if result.get("ok"):
             QMessageBox.information(self, "回写成功", result.get("message", f"已写回 {path}"))
             if self.on_written_back:

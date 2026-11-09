@@ -936,6 +936,17 @@ class Project:
         except Exception:
             return str(path_str)
 
+    def _disk_section_key_set(self, filepath: Path, section_id: str) -> set:
+        """磁盘上该文件该节里的普通键（小写），用于删除/保留判定。"""
+        raw = self._extract_section_raw_from_file(Path(filepath), section_id)
+        if not raw.strip():
+            return set()
+        return {
+            str(item[0]).lower()
+            for item in self._parse_section_kv_lines(section_id, raw)
+            if item[0] not in ("+", "+=", "++")
+        }
+
     def _extract_section_raw_from_file(self, filepath: Path, section_id: str) -> str:
         """读取磁盘上该文件中 [section] 原始文本（含注释）。"""
         from core.save_util import read_text, find_section_span
@@ -956,12 +967,20 @@ class Project:
         section_id: str,
         filepath: str,
         kvs: list,
+        preserve_keys: Optional[set] = None,
+        preserve_plus: Optional[set] = None,
     ) -> str:
         """
         在该文件原有节块上更新键值，保留纯注释行与行内注释。
         kvs: [(out_key, value, comment), ...]，out_key 为 '+=' 或键名
+        preserve_keys: 当前正文里仍存在的键（小写）；本文件里不属于新值的
+                       同键（被后续文件覆盖的旧副本）保持原样，不删除
+        preserve_plus: 当前正文里仍存在的 += 值（小写）；不在新值列表里的
+                       旧副本也保留
         """
         raw = self._extract_section_raw_from_file(Path(filepath), section_id)
+        preserve_keys = {str(k).lower() for k in (preserve_keys or set())}
+        preserve_plus = {str(v).lower() for v in (preserve_plus or set())}
         normal = {}
         plus_list = []
         for ok, val, cmt in kvs:
@@ -1016,6 +1035,9 @@ class Project:
                     val, cmt = plus_list[plus_i]
                     plus_i += 1
                     out_lines.append(fmt_plus(val, cmt or old_cmt))
+                elif main.strip().lower() in preserve_plus:
+                    # 被后续文件覆盖/重复的 += 值：保留原行，避免误删
+                    out_lines.append(line.rstrip())
                 continue
             if "=" in s:
                 if ";" in s:
@@ -1030,6 +1052,9 @@ class Project:
                     ok, val, cmt = normal[kl]
                     seen_normal.add(kl)
                     out_lines.append(fmt_kv(ok, val, cmt or old_cmt))
+                elif kl in preserve_keys:
+                    # 当前正文仍保留该键，但生效来源在别的文件：保留旧副本
+                    out_lines.append(line.rstrip())
                 continue
             out_lines.append(line.rstrip())
 
@@ -1320,35 +1345,88 @@ class Project:
                 groups[src] = []
 
         cur_keys_l = set()
+        cur_plus_set = set()
         for item in parsed:
             k = item[0]
-            if k not in ("+", "+=", "++"):
+            if k in ("+", "+=", "++"):
+                v = (item[1] or "").strip().lower()
+                if v:
+                    cur_plus_set.add(v)
+            else:
                 cur_keys_l.add(str(k).lower())
+
+        # 打开时生效的键/+= 集合 - 当前正文 = 被删除项
+        known_keys = set(origin_by_key.keys())
+        if mem:
+            known_keys |= {
+                str(k).lower() for k in mem.key_order if not str(k).startswith("+@")
+            }
+        deleted_keys = {k for k in known_keys if k not in cur_keys_l}
+        deleted_plus = {v for v in origin_by_plus_val if v not in cur_plus_set}
+
+        # 预扫描其它来源文件：只含「被覆盖/被删除」键的文件也要进计划，
+        # 否则删除只作用于生效来源，旧副本会在下次重载时“复活”。
+        ini = prefer_ini or self.active_ini()
+        candidates: list[str] = []
+        if ini:
+            for src, names in (ini.file_sections or {}).items():
+                if any(str(n).lower() == section_id.lower() for n in names):
+                    candidates.append(str(src))
+            for f in ini.loaded_files or []:
+                s = str(f)
+                if s not in candidates:
+                    candidates.append(s)
+        for src in candidates:
+            p = Path(src)
+            if not p.is_file():
+                rp = self._resolve_name(src)
+                p = rp if rp else p
+            if not p.is_file():
+                continue
+            key = self._resolve_key_origin(str(p))
+            if key in groups:
+                continue
+            need = False
+            if deleted_keys and (deleted_keys & self._disk_section_key_set(p, section_id)):
+                need = True
+            elif deleted_plus:
+                raw = self._extract_section_raw_from_file(p, section_id)
+                vals = {
+                    (it[1] or "").strip().lower()
+                    for it in self._parse_section_kv_lines(section_id, raw)
+                    if it[0] in ("+", "+=", "++")
+                }
+                need = bool(deleted_plus & vals)
+            if need:
+                groups[key] = []
 
         files = []
         skipped_empty = []
         for fpath, kvs in groups.items():
             if not fpath:
                 continue
-            body = self._build_body_preserving_comments(section_id, fpath, kvs)
+            disk_keys = self._disk_section_key_set(fpath, section_id)
+            deleted_here = sorted(k for k in disk_keys if k not in cur_keys_l)
+            body = self._build_body_preserving_comments(
+                section_id,
+                fpath,
+                kvs,
+                preserve_keys=cur_keys_l,
+                preserve_plus=cur_plus_set,
+            )
             item = {
                 "path": fpath,
                 "body": body,
                 "count": len(kvs),
                 "keys": [a for a, _, _ in kvs],
             }
-            # 该文件原先有、现在正文里没有的键 → 必须写回以完成删除
-            disk_only = [
-                kl for kl, src in origin_by_key.items()
-                if src == fpath and kl not in cur_keys_l
-            ]
-            if len(kvs) == 0 and not disk_only:
+            if deleted_here:
+                item["deletes"] = deleted_here
+                item["count"] = max(len(kvs), len(deleted_here))
+            elif len(kvs) == 0:
                 item["skip"] = True
                 item["skip_reason"] = "无待写键且无删除，保留原内容"
                 skipped_empty.append(fpath)
-            elif disk_only:
-                item["deletes"] = disk_only
-                item["count"] = max(len(kvs), len(disk_only))
             files.append(item)
         files.sort(key=lambda x: x["path"].lower())
         msg = "计划写入 %d 个文件（全量）" % sum(1 for f in files if not f.get("skip"))

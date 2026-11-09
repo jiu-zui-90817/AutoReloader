@@ -196,10 +196,15 @@ class INIFile:
             if not inc_name or inc_name.startswith(";"):
                 continue
 
-            inc_path = base_dir / inc_name
-            if not inc_path.exists():
-                inc_path = base_dir / Path(inc_name).name
-            if not inc_path.exists():
+            # 相对路径优先按「当前文件所在目录」解析，其次工程根目录
+            candidates = [
+                filepath.parent / inc_name,
+                base_dir / inc_name,
+                base_dir / Path(inc_name).name,
+                filepath.parent / Path(inc_name).name,
+            ]
+            inc_path = next((c for c in candidates if c.exists()), None)
+            if inc_path is None:
                 continue
 
             self.load_with_includes(inc_path, base_dir, visited)

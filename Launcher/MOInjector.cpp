@@ -93,6 +93,7 @@ bool IsProcessRunning(const wchar_t* processName) {
     PROCESSENTRY32W pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32W);
     HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) return false;
     if (Process32FirstW(hSnapshot, &pe32)) {
         do {
             if (wcscmp(pe32.szExeFile, processName) == 0) {
@@ -166,6 +167,10 @@ int main()
         PROCESSENTRY32W pe32;
         pe32.dwSize = sizeof(PROCESSENTRY32W);
         HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (hSnapshot == INVALID_HANDLE_VALUE) {
+            Sleep(1000);
+            continue;
+        }
         if (Process32FirstW(hSnapshot, &pe32)) {
             do {
                 if (wcscmp(pe32.szExeFile, L"gamemd.exe") == 0 || wcscmp(pe32.szExeFile, L"YURI.exe") == 0) {

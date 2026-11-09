@@ -248,6 +248,12 @@ class INIFile:
         except Exception:
             return False
 
+        if self.filepath is None:
+            try:
+                self.filepath = filepath.resolve()
+            except Exception:
+                self.filepath = filepath
+
         src_key = str(filepath.resolve()) if filepath.exists() else str(filepath)
         # 用绝对路径作来源，拆分注册表写回时才能落到正确文件（不能只用文件名）
         src_name = src_key
@@ -286,10 +292,15 @@ class INIFile:
             if not inc_name or inc_name.startswith(";"):
                 continue
 
-            inc_path = base_dir / inc_name
-            if not inc_path.exists():
-                inc_path = base_dir / Path(inc_name).name
-            if not inc_path.exists():
+            # 相对路径优先按「当前文件所在目录」解析，其次工程根目录
+            candidates = [
+                filepath.parent / inc_name,
+                base_dir / inc_name,
+                base_dir / Path(inc_name).name,
+                filepath.parent / Path(inc_name).name,
+            ]
+            inc_path = next((c for c in candidates if c.exists()), None)
+            if inc_path is None:
                 continue
 
             self.load_with_includes(inc_path, base_dir, visited)

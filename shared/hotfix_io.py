@@ -59,12 +59,38 @@ def normalize_section_body(section_id: str, body: str) -> str:
         if s.startswith("; 来源:") or s.startswith("; 来源："):
             continue
         lines.append(ln.rstrip())
-    text = "\n".join(lines).strip()
-    if not text:
-        text = f"[{section_id}]"
-    first = text.splitlines()[0].strip() if text else ""
-    if not (first.startswith("[") and first.endswith("]")):
-        text = f"[{section_id}]\n" + text
+    text = "\n".join(lines).strip("\n")
+
+    header_re = re.compile(
+        rf"(?i)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\][^\r\n]*$"
+    )
+    arr = text.splitlines() if text else []
+    first_i = 0
+    while first_i < len(arr) and not arr[first_i].strip():
+        first_i += 1
+
+    out: List[str] = []
+    if first_i < len(arr) and header_re.match(arr[first_i].strip()):
+        out.append(arr[first_i].rstrip())
+        rest = arr[first_i + 1 :]
+    else:
+        out.append(f"[{section_id}]")
+        rest = arr
+
+    started = False
+    for ln in rest:
+        s = ln.strip()
+        if s.startswith("[") and "]" in s:
+            break
+        if not s and not started:
+            # 节头后前导空行不要
+            continue
+        started = True
+        out.append(ln.rstrip())
+
+    while len(out) > 1 and not out[-1].strip():
+        out.pop()
+    text = "\n".join(out)
     if not text.endswith("\n"):
         text += "\n"
     return text

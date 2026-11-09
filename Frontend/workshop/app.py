@@ -69,17 +69,26 @@ def local_appdata() -> Path:
 
 
 def get_app_dir() -> Path:
+    def _prefer_tools_dir(folder: Path) -> Path:
+        """Nuitka 真身在 Tools/_internal 时，配置/图标目录用 Tools。"""
+        try:
+            if folder.name.lower() == "_internal" and folder.parent.is_dir():
+                return folder.parent
+        except Exception:
+            pass
+        return folder
+
     if is_frozen():
         parent = Path(sys.executable).resolve().parent
         if not _is_ephemeral(parent):
-            return parent
+            return _prefer_tools_dir(parent)
         try:
             a0 = Path(sys.argv[0]).resolve()
             if a0.suffix.lower() == ".exe" and not _is_ephemeral(a0.parent):
-                return a0.parent
+                return _prefer_tools_dir(a0.parent)
         except Exception:
             pass
-        return parent
+        return _prefer_tools_dir(parent)
     return Path(__file__).resolve().parent
 
 
@@ -112,7 +121,12 @@ def ensure_shared_path() -> None:
 ensure_shared_path()
 
 from shared.project_scan import GameProject, load_profiles  # noqa: E402
-from shared.hotfix_io import save_section_to_file, normalize_section_body, read_text  # noqa: E402
+from shared.hotfix_io import (
+    save_section_to_file,
+    normalize_section_body,
+    read_text,
+    encode_ini_bytes,
+)  # noqa: E402
 from shared.codex_builder import build_codex, load_codex, save_codex  # noqa: E402
 
 
@@ -1279,8 +1293,15 @@ class WorkshopWindow(QMainWindow):
             QMessageBox.critical(self, "恢复失败", str(e))
 
     def _clean_hotfix_file(self) -> None:
-        """对齐旧版 clean_ini_silent：去掉与 rules 相同的键及无意义 AE 默认。"""
+        """对齐旧版 clean_ini_silent：去掉与 rules 相同的键及无意义 AE 默认。
+
+        只允许作用于 hotfix.ini。高级模式可能绑定任意工程 ini，若拿 rules 当基准
+        做“瘦身”，会把所有与 rules 相同的节整节删掉（数据损坏）。
+        """
         if not self.hotfix_path or not self.hotfix_path.is_file() or not self.game:
+            return
+        # 只有安全模式（hotfix.ini）才做瘦身；高级模式目标可能是任意工程文件
+        if self.mode != "safe" or self.hotfix_path.name.lower() != "hotfix.ini":
             return
         try:
             text, _enc = read_text(self.hotfix_path)
@@ -1356,8 +1377,8 @@ class WorkshopWindow(QMainWindow):
         flush()
 
         try:
-            # 无 BOM UTF-8
-            data = "".join(out_lines).encode("utf-8")
+            # 沿用原文件编码；utf-8-sig 也写回无 BOM
+            data = encode_ini_bytes("".join(out_lines), _enc)
             tmp = self.hotfix_path.with_suffix(self.hotfix_path.suffix + ".tmp_clean")
             tmp.write_bytes(data)
             tmp.replace(self.hotfix_path)

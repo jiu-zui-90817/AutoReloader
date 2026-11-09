@@ -2047,6 +2047,8 @@ class MainWindow(QMainWindow):
         # 多文件合并节：用户为「无来源新键」指定的写入文件 section_id -> path str
         self._merge_newkey_target: Dict[str, str] = {}
         self._dirty = False
+        # 按 mem key（sid / art::sid / ai::sid）记录真正有未保存修改的标签
+        self._dirty_keys: set[str] = set()
         self._loading_section = False
         self._file_map: Dict[str, Path] = {}
         self._filter_timer = QTimer(self)
@@ -2219,14 +2221,27 @@ class MainWindow(QMainWindow):
         if path is None:
             QMessageBox.information(self, "热重载", "请先在「首选项」或菜单中设置 hotfix 路径")
             return
-        from core.save_util import normalize_section_body, save_section_to_file
+        from core.save_util import (
+            normalize_section_body,
+            save_section_to_file,
+            read_text,
+            find_section_span,
+        )
 
         sid = self.current_section_id
         body = normalize_section_body(sid, self.code.toPlainText())
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
+        # hotfix 已存在但还没有该节时按新增追加；否则 replace 会拒绝写入
+        is_new = not path.exists()
+        if not is_new:
+            try:
+                text, _ = read_text(path)
+                is_new = find_section_span(text, sid) is None
+            except Exception:
+                pass
         result = save_section_to_file(
             path, sid, body, backup_root=backup_root,
-            is_new=not path.exists(), peer_section_names=[],
+            is_new=is_new, peer_section_names=[],
         )
         if result.get("ok"):
             self.statusBar().showMessage(f"已部署 [{sid}] → {path.name}", 8000)
@@ -2753,7 +2768,7 @@ class MainWindow(QMainWindow):
             self.act_merged.setEnabled(True)
         d = self.project.project_dir
         prof = self.project.profile.get("display_name", self.project.profile_name)
-        dirty_mark = " ●" if getattr(self, "_dirty", False) else ""
+        dirty_mark = " ●" if (getattr(self, "_dirty", False) or getattr(self, "_dirty_keys", set())) else ""
         if d:
             self.setWindowTitle(f"{APP_TITLE}{dirty_mark}  —  {prof}  —  {mode}  —  {d}")
             self.dir_label.setText(f"  [{prof}]  {d}")
@@ -2783,9 +2798,83 @@ class MainWindow(QMainWindow):
         if key:
             self._mem_sections[key] = self.code.toPlainText()
 
+    def _mark_current_dirty(self):
+        key = self._mem_key()
+        if key:
+            self._dirty_keys.add(key)
+
+    def _current_key_dirty(self) -> bool:
+        key = self._mem_key()
+        return bool(key and key in self._dirty_keys)
+
+    def _remember_saved_body(self, section_id: str, prefer: str, body: str):
+        """保存成功后同步内存与增量基线，并把该标签移出脏集合。"""
+        key = self._mem_key(section_id, prefer)
+        if not key:
+            return
+        self._mem_sections[key] = body
+        nb = body if body.endswith("\n") else body + "\n"
+        self._section_baseline[key] = nb
+        try:
+            ks = set()
+            ps = set()
+            for item in self.project._parse_section_kv_lines(section_id, nb):
+                if item[0] in ("+", "+=", "++"):
+                    if item[1]:
+                        ps.add(str(item[1]).strip().lower())
+                else:
+                    ks.add(str(item[0]).lower())
+            self._section_baseline_keys[key] = ks
+            self._section_baseline_plus[key] = ps
+        except Exception:
+            pass
+        self._dirty_keys.discard(key)
+        self._mark_session_saved(key)
+
+    def _finalize_pending_new(self, section_id: str, pending: dict) -> list[str]:
+        """新增/克隆首次保存后的附加动作：注册表 / CSF / Art。"""
+        extra_msgs: list[str] = []
+        if pending.get("also_register") and pending.get("register_path"):
+            reg = self._append_to_type_list(
+                Path(pending["register_path"]),
+                pending.get("type_list") or "VehicleTypes",
+                section_id,
+            )
+            extra_msgs.append("注册表: " + (reg.get("message") or ""))
+            if not reg.get("ok"):
+                QMessageBox.warning(self, "注册表写入失败", reg.get("message", ""))
+        if pending.get("write_csf"):
+            zh = (pending.get("csf_text") or "").strip()
+            if not zh:
+                extra_msgs.append("CSF: 已勾选但未填「CSF 中文名」，已跳过")
+            else:
+                csf_res = self._write_csf_uiname(section_id, zh)
+                extra_msgs.append("CSF: " + (csf_res.get("message") or ""))
+                if not csf_res.get("ok"):
+                    QMessageBox.warning(self, "CSF 写入失败", csf_res.get("message", ""))
+        art_body = pending.get("art_body")
+        art_path = pending.get("art_path")
+        if art_body and art_path:
+            from core.save_util import save_section_to_file
+            backup_root = (
+                (self.project.project_dir / "backups")
+                if self.project.project_dir
+                else (Path(art_path).parent / "backups")
+            )
+            ar = save_section_to_file(
+                Path(art_path), section_id, art_body,
+                backup_root=backup_root, is_new=True, peer_section_names=[],
+            )
+            if ar.get("ok"):
+                extra_msgs.append(f"Art: {art_path}")
+            else:
+                extra_msgs.append("Art 失败: " + (ar.get("message") or ""))
+        return extra_msgs
+
     def _on_code_edited(self):
         if not self._loading_section:
             self._set_dirty(True)
+            self._mark_current_dirty()
             self._store_current_to_mem()
             self._touch_session_change()
             # 实时校验波浪线（防抖）
@@ -2833,14 +2922,57 @@ class MainWindow(QMainWindow):
         else:
             self._quick_view("merged")
 
+    def _discard_all_dirty(self):
+        """丢弃所有标签的未保存草稿（内存/基线/脏集合一起清）。"""
+        removed_new = False
+        for k in list(self._dirty_keys):
+            sid, prefer = k, ""
+            if k.startswith("art::"):
+                sid, prefer = k[5:], "art"
+            elif k.startswith("ai::"):
+                sid, prefer = k[4:], "ai"
+            if k in self._pending_new or sid in self._pending_new:
+                self._remove_section_from_memory(sid, prefer=prefer)
+                removed_new = True
+                # 克隆时同时存在 art::sid 草稿，一并清理
+                for extra in (f"art::{sid}", f"ai::{sid}"):
+                    self._mem_sections.pop(extra, None)
+                    self._section_baseline.pop(extra, None)
+                    self._section_baseline_keys.pop(extra, None)
+                    self._section_baseline_plus.pop(extra, None)
+                    self._session_changes.pop(extra, None)
+            self._mem_sections.pop(k, None)
+            self._section_baseline.pop(k, None)
+            self._section_baseline_keys.pop(k, None)
+            self._section_baseline_plus.pop(k, None)
+            self._session_changes.pop(k, None)
+        self._dirty_keys.clear()
+        self._pending_new.clear()
+        self._dirty = False
+        if removed_new:
+            self.project.invalidate_classify_cache()
+            self.refresh_tree()
+        if self.current_section_id:
+            self.show_section(
+                self.current_section_id,
+                prefer=self.current_prefer,
+                group=self.current_group,
+            )
+        else:
+            self._update_chrome()
+
     def _confirm_discard_if_dirty(self) -> bool:
-        if not self._dirty:
+        if not (self._dirty or self._dirty_keys):
             return True
         box = QMessageBox(self)
         box.setWindowTitle("未保存的修改")
-        box.setText("当前代码区有未保存的修改。")
+        n = len(self._dirty_keys)
+        if n > 1:
+            box.setText(f"有 {n} 个标签存在未保存的修改。")
+        else:
+            box.setText("当前代码区有未保存的修改。")
         box.setInformativeText("继续将可能丢失这些修改。")
-        save_btn = box.addButton("保存后继续", QMessageBox.AcceptRole)
+        save_btn = box.addButton("保存全部后继续", QMessageBox.AcceptRole)
         disc_btn = box.addButton("丢弃修改", QMessageBox.DestructiveRole)
         cancel_btn = box.addButton("取消", QMessageBox.RejectRole)
         box.exec()
@@ -2848,9 +2980,9 @@ class MainWindow(QMainWindow):
         if clicked == cancel_btn:
             return False
         if clicked == save_btn:
-            self.save_current()
-            return not self._dirty
-        self._dirty = False
+            self.save_all()
+            return not (self._dirty or self._dirty_keys)
+        self._discard_all_dirty()
         return True
 
     def on_mode_action(self, action: QAction):
@@ -2877,6 +3009,7 @@ class MainWindow(QMainWindow):
         self._display_cache.clear()
         self.tabs.clear()
         self.current_section_id = None
+        self._dirty_keys.clear()
         self._dirty = False
         self.code.setPlainText("")
         self.prop.clear()
@@ -3146,6 +3279,7 @@ class MainWindow(QMainWindow):
         self._session_changes.clear()
         self._pending_new.clear()
         self._merge_newkey_target.clear()
+        self._dirty_keys.clear()
         self.current_section_id = None
         self.current_prefer = ""
         self.current_group = ""
@@ -3324,18 +3458,23 @@ class MainWindow(QMainWindow):
         return prefer, group
 
     def _project_fingerprint(self) -> str:
-        """用 rules/art/ai 主文件 mtime 做指纹；外部编辑器改过会变。"""
+        """用 rules/art/ai 及其 #include 文件的 mtime 做指纹；外部改动会失效。"""
         parts = []
         for ini in (self.project.rules, self.project.art, self.project.ai):
-            if not ini or not getattr(ini, "filepath", None):
+            if not ini:
                 continue
-            try:
-                fp = Path(ini.filepath)
-                if fp.is_file():
-                    st = fp.stat()
-                    parts.append(f"{fp.name}:{st.st_mtime_ns}:{st.st_size}")
-            except Exception:
-                continue
+            files: list = []
+            if getattr(ini, "filepath", None):
+                files.append(ini.filepath)
+            files.extend(getattr(ini, "loaded_files", []) or [])
+            for f in files:
+                try:
+                    fp = Path(f)
+                    if fp.is_file():
+                        st = fp.stat()
+                        parts.append(f"{fp.name}:{st.st_mtime_ns}:{st.st_size}")
+                except Exception:
+                    continue
         # 也扫 allowed 主文件
         for key in ("rules_files", "art_files", "ai_files"):
             for name in self.project.profile.get(key) or []:
@@ -3909,7 +4048,7 @@ class MainWindow(QMainWindow):
         if hasattr(self.code, "update_line_number_area_width"):
             self.code.update_line_number_area_width(0)
         # 内存中有未保存稿则保持 dirty
-        self._set_dirty(bool(from_mem and key and key in self._mem_sections))
+        self._set_dirty(bool(key and key in self._dirty_keys))
         self._show_editor_pane(True)
         if getattr(self, "_live_lint_timer", None):
             self._live_lint_timer.start(200)
@@ -4806,8 +4945,9 @@ class MainWindow(QMainWindow):
         is_new: bool = False,
         peers=None,
         prefer: str = "",
+        confirm: bool = True,
     ) -> dict:
-        """先出计划确认，再 confirmed 写盘。"""
+        """先出计划确认，再 confirmed 写盘；confirm=False 用于保存全部。"""
         peers = peers or []
         if not self.project.project_dir and self.project.work_mode != "single":
             # 无工程：仍走旧单文件
@@ -4848,6 +4988,8 @@ class MainWindow(QMainWindow):
             )
         ]
         if not writable and not is_new:
+            if not confirm:
+                return {"ok": False, "noop": True, "message": "无变更"}
             # 诊断：帮助确认是「真没改」还是「+=/基线」问题
             try:
                 cur_p = self.project._parse_section_kv_lines(section_id, body)
@@ -4868,7 +5010,7 @@ class MainWindow(QMainWindow):
                 "改已有「键=值」或保留新的 += 后再保存。",
             )
             return {"ok": False, "cancelled": True, "message": "无需写入"}
-        if not self._confirm_save_plan(plan, title="确认保存 [%s]" % section_id):
+        if confirm and not self._confirm_save_plan(plan, title="确认保存 [%s]" % section_id):
             return {"ok": False, "cancelled": True, "message": "已取消保存"}
         return self.project.save_section_text(
             section_id,
@@ -4886,33 +5028,30 @@ class MainWindow(QMainWindow):
         )
 
     def save_all(self):
-        """保存所有内存中有草稿的单位 + 当前编辑区。"""
+        """保存所有未保存的节 + 当前编辑区（含新增/克隆）。"""
         self._store_current_to_mem()
-        # 收集要保存的 key
-        keys = set(self._mem_sections.keys())
-        if self.current_section_id:
-            keys.add(self._mem_key())
+        keys = set(self._dirty_keys)
+        keys |= set(self._pending_new.keys())
+        if self.current_section_id and self._current_key_dirty():
+            k = self._mem_key()
+            if k:
+                keys.add(k)
         if not keys:
-            # 仍尝试保存当前
-            if self.current_section_id:
-                self.save_current()
-            else:
-                QMessageBox.information(self, "保存全部", "没有可保存的内容")
+            QMessageBox.information(self, "保存全部", "没有需要保存的修改")
             return
         # 保存全部：自动校验整个工程（可在首选项关闭）
         if not self._lint_before_save_all():
             return
-        ok_n, fail = 0, []
-        # 静默保存：临时去掉每成功一次的弹窗
-        old_code = self.code.toPlainText()
-        old_sid = self.current_section_id
-        old_prefer = self.current_prefer
         if getattr(self.code, "_comments_collapsed", False):
             QMessageBox.warning(
                 self, "无法保存全部",
                 "当前编辑区处于「折叠注释」阅读模式。\n请先展开全部折叠后再保存全部。",
             )
             return
+        old_code = self.code.toPlainText()
+        old_sid = self.current_section_id
+        old_prefer = self.current_prefer
+        ok_n, fail, notes = 0, [], []
         for key in sorted(keys):
             if key.startswith("art::"):
                 sid, prefer = key[5:], "art"
@@ -4925,21 +5064,46 @@ class MainWindow(QMainWindow):
                 body = old_code
             if not body:
                 continue
+            pending = (self._pending_new or {}).get(sid) if prefer not in ("art", "ai") else None
+            # 克隆的 Art 由 rules 保存后的 finalize 统一写入，避免这里重复写/重复节
+            if prefer == "art" and (self._pending_new or {}).get(sid, {}).get("art_body"):
+                continue
             # 切到该 section 的上下文写盘
             self.current_section_id = sid
             self.current_prefer = prefer
-            path = self._resolve_save_path(sid, prefer=prefer)
-            if path is None or not Path(path).is_file():
+            is_new = bool(pending and pending.get("is_new"))
+            if pending and pending.get("path"):
+                path = Path(pending["path"])
+            else:
+                path = self._resolve_save_path(sid, prefer=prefer)
+            if path is None:
                 fail.append(f"{sid} ({prefer or 'rules'}): 无来源文件")
                 continue
+            path = Path(path)
+            # 文件在、节不在 → 按新增追加；新文件 → 新增
+            if not is_new and path.is_file():
+                from core.save_util import read_text, find_section_span
+                try:
+                    text, _ = read_text(path)
+                    is_new = find_section_span(text, sid) is None
+                except Exception:
+                    pass
+            elif not path.is_file():
+                is_new = True
             peers = self._peers_for(sid)
             result = self._save_section_with_confirm(
-                sid, body, Path(path), is_new=False, peers=peers, prefer=prefer
+                sid, body, path, is_new=is_new, peers=peers, prefer=prefer, confirm=False
             )
             if result.get("ok"):
                 ok_n += 1
-                self._mem_sections[key] = body
-                self._mark_session_saved(key)
+                self._remember_saved_body(sid, prefer, body)
+                if pending and prefer not in ("art", "ai"):
+                    notes.extend(self._finalize_pending_new(sid, pending))
+                    self._pending_new.pop(sid, None)
+            elif result.get("noop"):
+                # 内容与磁盘一致：不算失败，也不弹“无需保存”
+                self._dirty_keys.discard(key)
+                continue
             elif result.get("cancelled"):
                 fail.append(f"{sid}: 用户取消")
                 break
@@ -4948,8 +5112,10 @@ class MainWindow(QMainWindow):
         # 恢复当前编辑视图
         self.current_section_id = old_sid
         self.current_prefer = old_prefer
-        self._dirty = False
-        msg = f"已保存 {ok_n} 个单位到磁盘。"
+        self._set_dirty(self._current_key_dirty())
+        msg = f"已保存 {ok_n} 个节到磁盘。"
+        if notes:
+            msg += "\n" + "\n".join(notes[:8])
         if fail:
             msg += "\n失败:\n" + "\n".join(fail[:8])
             QMessageBox.warning(self, "保存全部", msg)
@@ -5005,65 +5171,13 @@ class MainWindow(QMainWindow):
             section_id, body, path, is_new=is_new, peers=peers, prefer=prefer
         )
         if result.get("ok"):
-            extra_msgs = []
+            extra_msgs: list[str] = []
             if pending and prefer not in ("art", "ai"):
-                if pending.get("also_register") and pending.get("register_path"):
-                    reg = self._append_to_type_list(
-                        Path(pending["register_path"]),
-                        pending.get("type_list") or "VehicleTypes",
-                        section_id,
-                    )
-                    extra_msgs.append("注册表: " + (reg.get("message") or ""))
-                    if not reg.get("ok"):
-                        QMessageBox.warning(self, "注册表写入失败", reg.get("message", ""))
-                if pending.get("write_csf"):
-                    zh = (pending.get("csf_text") or "").strip()
-                    if not zh:
-                        extra_msgs.append("CSF: 已勾选但未填「CSF 中文名」，已跳过")
-                    else:
-                        csf_res = self._write_csf_uiname(section_id, zh)
-                        extra_msgs.append("CSF: " + (csf_res.get("message") or ""))
-                        if not csf_res.get("ok"):
-                            QMessageBox.warning(self, "CSF 写入失败", csf_res.get("message", ""))
-                art_body = pending.get("art_body")
-                art_path = pending.get("art_path")
-                if art_body and art_path:
-                    from core.save_util import save_section_to_file
-                    backup_root = (
-                        (self.project.project_dir / "backups")
-                        if self.project.project_dir
-                        else (Path(art_path).parent / "backups")
-                    )
-                    ar = save_section_to_file(
-                        Path(art_path), section_id, art_body,
-                        backup_root=backup_root, is_new=True, peer_section_names=[],
-                    )
-                    if ar.get("ok"):
-                        extra_msgs.append(f"Art: {art_path}")
-                    else:
-                        extra_msgs.append("Art 失败: " + (ar.get("message") or ""))
+                extra_msgs = self._finalize_pending_new(section_id, pending)
                 self._pending_new.pop(section_id, None)
 
+            self._remember_saved_body(section_id, prefer, body)
             self._set_dirty(False)
-            k = self._mem_key(section_id)
-            if k:
-                self._mem_sections[k] = body
-                nb = body if body.endswith("\n") else body + "\n"
-                self._section_baseline[k] = nb
-                try:
-                    ks = set()
-                    ps = set()
-                    for item in self.project._parse_section_kv_lines(section_id, nb):
-                        if item[0] in ("+", "+=", "++"):
-                            if item[1]:
-                                ps.add(str(item[1]).strip().lower())
-                        else:
-                            ks.add(str(item[0]).lower())
-                    self._section_baseline_keys[k] = ks
-                    self._section_baseline_plus[k] = ps
-                except Exception:
-                    pass
-                self._mark_session_saved(k)
             files = result.get("files") or []
             if files:
                 parts = ["已写入 %d 个文件:" % len(files)]
@@ -5105,7 +5219,13 @@ class MainWindow(QMainWindow):
         if not path_str:
             return
         path = Path(path_str)
-        from core.save_util import normalize_section_body, save_section_to_file, encode_ini_bytes, read_text
+        from core.save_util import (
+            normalize_section_body,
+            save_section_to_file,
+            encode_ini_bytes,
+            read_text,
+            find_section_span,
+        )
 
         body = normalize_section_body(section_id, self.code.toPlainText())
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
@@ -5128,9 +5248,16 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 result = {"ok": False, "message": str(e)}
         else:
+            # 已存在但没有该节 → 按新增追加（与提示文案一致）
+            is_new = False
+            try:
+                text, _ = read_text(path)
+                is_new = find_section_span(text, section_id) is None
+            except Exception:
+                pass
             result = save_section_to_file(
                 path, section_id, body, backup_root=backup_root,
-                is_new=False, peer_section_names=[],
+                is_new=is_new, peer_section_names=[],
             )
 
         if not result.get("ok"):
@@ -5266,6 +5393,7 @@ class MainWindow(QMainWindow):
             "csf_text": (data.get("csf_text") or "").strip(),
         }
         self._touch_session_change(sid, is_new=True, kind="new")
+        self._dirty_keys.add(sid)
         self._dirty = True
         self.project.invalidate_classify_cache()
         self._display_cache.clear()
@@ -5400,6 +5528,7 @@ class MainWindow(QMainWindow):
 
         self._pending_new[sid] = pending
         self._touch_session_change(sid, is_new=True, kind="clone")
+        self._dirty_keys.add(sid)
         self._dirty = True
         self.project.invalidate_classify_cache()
         self._display_cache.clear()
@@ -5524,10 +5653,12 @@ class MainWindow(QMainWindow):
             header_end += 1
         block = text[header_end:end]
 
-        # 已存在？
-        if re.search(rf"(?im)^[^=]+=\s*{re.escape(new_id)}\s*(;.*)?$", block):
+        # 已存在？（ID 不区分大小写）
+        block_l = block.lower()
+        id_l = new_id.lower()
+        if re.search(rf"(?im)^[^=]+=\s*{re.escape(id_l)}\s*(;.*)?$", block_l):
             return {"ok": True, "message": f"[{new_id}] 已在 {path.name} 的 [{type_list}] 中"}
-        if re.search(rf"(?im)^\+=\s*{re.escape(new_id)}\s*(;.*)?$", block):
+        if re.search(rf"(?im)^\+=\s*{re.escape(id_l)}\s*(;.*)?$", block_l):
             return {"ok": True, "message": f"[{new_id}] 已在 {path.name} 的 [{type_list}] 中"}
 
         insert_line = f"+={new_id}\n"
@@ -5565,7 +5696,7 @@ class MainWindow(QMainWindow):
                 lst = ini.get_section(type_list)
                 if lst is not None and hasattr(lst, "set"):
                     # 用唯一数字键或 += 形式注入内存
-                    lst.set("+", new_id, source_file=path.name)
+                    lst.set("+", new_id, source_file=str(path.resolve()))
         except Exception:
             pass
 
@@ -5593,6 +5724,7 @@ class MainWindow(QMainWindow):
             self.tabs.clear()
             # 切换视图清空内存草稿，避免串文件
             self._mem_sections.clear()
+            self._dirty_keys.clear()
             self._dirty = False
             self._update_chrome()
             self.refresh_tree()
@@ -5614,6 +5746,7 @@ class MainWindow(QMainWindow):
             self._refresh_file_combo()
             self.tabs.clear()
             self._mem_sections.clear()
+            self._dirty_keys.clear()
             self._dirty = False
             self._update_chrome()
             self.refresh_tree()
@@ -5649,7 +5782,7 @@ class MainWindow(QMainWindow):
         ):
             return
 
-        from core.save_util import read_text, backup_file
+        from core.save_util import read_text, backup_file, encode_ini_bytes
         import re
         path = Path(src)
         try:
@@ -5676,10 +5809,12 @@ class MainWindow(QMainWindow):
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
         try:
             backup_file(path, backup_root)
-        except Exception:
-            pass
+        except Exception as e:
+            QMessageBox.critical(self, "删除", f"备份失败，已中止删除: {e}")
+            return
         try:
-            path.write_text(new_text, encoding=enc)
+            # 用 encode_ini_bytes：utf-8-sig 也写回无 BOM，保持工程约定
+            path.write_bytes(encode_ini_bytes(new_text, enc))
         except Exception as e:
             QMessageBox.critical(self, "删除", f"写入失败: {e}")
             return
@@ -5710,6 +5845,9 @@ class MainWindow(QMainWindow):
         self.source_label.setText("")
         if getattr(self, "merge_target_row", None):
             self.merge_target_row.hide()
+        self._dirty_keys.discard(sid)
+        self._dirty_keys.discard(f"art::{sid}")
+        self._dirty_keys.discard(f"ai::{sid}")
         self._dirty = False
         self._display_cache.clear()
         self.project.invalidate_classify_cache()
@@ -5720,7 +5858,7 @@ class MainWindow(QMainWindow):
 
     def _remove_from_type_list(self, path: Path, type_list: str, unit_id: str) -> dict:
         """从 [TypeList] 中删除某 ID 行。"""
-        from core.save_util import read_text, backup_file
+        from core.save_util import read_text, backup_file, encode_ini_bytes
         import re
         path = Path(path)
         if not path.is_file():
@@ -5748,10 +5886,10 @@ class MainWindow(QMainWindow):
         backup_root = (self.project.project_dir / "backups") if self.project.project_dir else (path.parent / "backups")
         try:
             backup_file(path, backup_root)
-        except Exception:
-            pass
+        except Exception as e:
+            return {"ok": False, "changed": False, "message": f"备份失败: {e}"}
         try:
-            path.write_text(new_text, encoding=enc)
+            path.write_bytes(encode_ini_bytes(new_text, enc))
         except Exception as e:
             return {"ok": False, "changed": False, "message": str(e)}
         return {"ok": True, "changed": True}
@@ -5773,11 +5911,6 @@ class MainWindow(QMainWindow):
             ini.section_order = [x for x in ini.section_order if x.lower() != sid_l]
             # 注册表值里去掉
             for name, sec in list(ini.sections.items()):
-                if not name.endswith("Types") and name not in (
-                    "Warheads", "Animations", "Particles", "ParticleSystems", "Projectiles", "Countries"
-                ):
-                    # 仍检查所有像列表的节
-                    pass
                 to_del = []
                 for k, v in list(sec.keys.items()):
                     if v.strip().lower() == sid_l:

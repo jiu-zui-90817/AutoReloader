@@ -22,6 +22,8 @@ class CSFParser:
         self.version: int = 3
         self.language: int = 0
         self.source_files: List[str] = []
+        # label(小写) -> [(magic, text, extra_raw), ...]；保留 WRTS/STRW 等附加数据
+        self.pairs: Dict[str, List[Tuple[bytes, str, bytes]]] = {}
 
     def _set_label(self, label: str, value: str) -> None:
         if not label:
@@ -105,6 +107,7 @@ class CSFParser:
                 label = ""
             offset += label_len
 
+            pair_entries: List[Tuple[bytes, str, bytes]] = []
             for pair_idx in range(num_pairs):
                 if offset + 8 > len(data):
                     break
@@ -134,18 +137,25 @@ class CSFParser:
                 except Exception:
                     value = ""
 
-                if is_wide_extra:
-                    if offset + 4 <= len(data):
-                        try:
-                            extra_len = struct.unpack_from("<I", data, offset)[0]
+                extra_raw = b""
+                if is_wide_extra and offset + 4 <= len(data):
+                    try:
+                        extra_len = struct.unpack_from("<I", data, offset)[0]
+                        total_extra = 4 + extra_len
+                        if extra_len > 0 and offset + total_extra <= len(data):
+                            extra_raw = bytes(data[offset : offset + total_extra])
+                            offset += total_extra
+                        else:
                             offset += 4
-                            if extra_len > 0 and offset + extra_len <= len(data):
-                                offset += extra_len
-                        except struct.error:
-                            pass
+                    except struct.error:
+                        pass
 
-                if label and pair_idx == 0:
-                    self._set_label(label, value)
+                pair_entries.append((bytes(value_magic), value, extra_raw))
+
+            if label:
+                # 首个 pair 是显示文本；其余 pair（WRTS/STRW 音效等）原样保留
+                self._set_label(label, pair_entries[0][1] if pair_entries else "")
+                self.pairs[label.lower()] = pair_entries
 
             labels_parsed += 1
 
@@ -196,8 +206,16 @@ def write_csf_file(
     *,
     version: int = 3,
     language: int = 0,
+    pairs: Optional[Dict[str, List[Tuple[bytes, str, bytes]]]] = None,
 ) -> None:
-    """整文件写回。labels 的 key 使用原始大小写，勿混入纯小写重复项。"""
+    """
+    整文件写回。labels 的 key 使用原始大小写，勿混入纯小写重复项。
+
+    pairs（来自 CSFParser.pairs）用于保留同一 label 的多个值块：
+    - 第一个 pair 的文本用 labels 中的新值覆盖；
+    - 其余 pair（WRTS/STRW 及其 wave 附加数据）原样写回；
+    - 新 label 没有 pairs 时按一个标准 RTS 值块写入。
+    """
     filepath = Path(filepath)
     # 去重：同 label 小写只留第一次
     ordered: OrderedDict[str, str] = OrderedDict()
@@ -217,22 +235,35 @@ def write_csf_file(
         seen_l.add(lk)
         ordered[k] = v
 
+    pair_map = pairs or {}
     num_labels = len(ordered)
-    num_strings = num_labels  # 每 label 一个 value
+    num_strings = 0
+    for label in ordered:
+        entries = pair_map.get(label.lower()) or []
+        num_strings += max(1, len(entries))
+
     out = bytearray()
     out += b" FSC"
     out += struct.pack("<IIIII", int(version), num_labels, num_strings, 0, int(language))
 
     for label, value in ordered.items():
         label_bytes = label.encode("ascii", errors="ignore")
+        entries = list(pair_map.get(label.lower()) or [])
+        if not entries:
+            entries = [(b" RTS", value, b"")]
+        else:
+            # 第一个值块更新为最新文本，其余保留原样
+            entries[0] = (entries[0][0], value, entries[0][2])
         out += b" LBL"
-        out += struct.pack("<II", 1, len(label_bytes))  # 1 pair
+        out += struct.pack("<II", len(entries), len(label_bytes))
         out += label_bytes
-        val_bytes = _encode_value_bytes(value)
-        char_count = len(val_bytes) // 2
-        out += b" RTS"
-        out += struct.pack("<I", char_count)
-        out += val_bytes
+        for magic, text, extra_raw in entries:
+            val_bytes = _encode_value_bytes(text)
+            out += magic
+            out += struct.pack("<I", len(val_bytes) // 2)
+            out += val_bytes
+            if extra_raw:
+                out += extra_raw
 
     filepath.write_bytes(bytes(out))
 
@@ -298,6 +329,7 @@ def upsert_label_to_file(
             ordered,
             version=parser.version or 3,
             language=parser.language or 0,
+            pairs=parser.pairs,
         )
     except Exception as e:
         return {"ok": False, "message": f"写入 CSF 失败: {e}"}
