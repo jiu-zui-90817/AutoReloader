@@ -54,6 +54,7 @@ using byte = unsigned char;
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <cwctype>
 
 #include "YRPPCore.h"
 #include "CCINIClass.h"
@@ -355,6 +356,7 @@ struct Config
     bool beep = true;
     bool hotkeyOnlyInGame = true;
     bool liveConvert = true;
+    bool autoSyncAE = true;
     bool logFile = true;
     int logMaxKB = 1024;
     int pollMs = 500;
@@ -407,6 +409,7 @@ Config LoadConfig(const fs::path& configPath, std::wstring& error)
     if (cfg.logMaxKB > 10240) cfg.logMaxKB = 10240;
 
     cfg.liveConvert = ParseBoolW(IniStringW(configPath, L"Extensions", L"LiveConvert", L"true"), true);
+    cfg.autoSyncAE = ParseBoolW(IniStringW(configPath, L"Extensions", L"AutoSyncAttachEffects", L"true"), true);
 
     std::wstring list = IniStringW(configPath, L"Settings", L"TargetINI", L"hotfix.ini", 8192);
     std::wstringstream ss(list);
@@ -546,6 +549,8 @@ struct TypeEntry
 
 std::unordered_map<std::string, std::vector<TypeEntry>> g_TypeIndex;
 std::unordered_map<std::string, TechnoTypeClass*> g_TechnoTypes;
+// Section(lower) -> last known "AttachEffect.AttachTypes" list.
+std::unordered_map<std::string, std::vector<std::string>> g_typeAECache;
 int g_TypeTotal = 0;
 
 int CurrentTypeTotal()
@@ -593,8 +598,12 @@ struct InteropVersion
 
 using GetInteropVersionFn = HRESULT(__stdcall*)(InteropVersion*);
 using ConvertTypeFn = HRESULT(__stdcall*)(FootClass*, TechnoTypeClass*);
-using AEAttachFn = HRESULT(__stdcall*)(TechnoClass*, HouseClass*, TechnoClass*, AbstractClass*,
-                                      const char**, int, int, int, int, int, int*);
+// Phobos Interop 1.1 (v0.5-alpha1/2): AE_Attach has 11 parameters.
+using AEAttachFnV1 = HRESULT(__stdcall*)(TechnoClass*, HouseClass*, TechnoClass*, AbstractClass*,
+                                        const char**, int, int, int, int, int, int*);
+// Phobos Interop 1.2 (develop): adds selfOwned / hasDelay (13 parameters).
+using AEAttachFnV2 = HRESULT(__stdcall*)(TechnoClass*, HouseClass*, TechnoClass*, AbstractClass*,
+                                        const char**, int, int, int, int, int, int*, bool, bool);
 using AEDetachFn = HRESULT(__stdcall*)(TechnoClass*, const char**, int, int*);
 using AEDetachGroupsFn = HRESULT(__stdcall*)(TechnoClass*, const char**, int, int*);
 using SetVarFn = HRESULT(__stdcall*)(int, int);
@@ -606,7 +615,8 @@ struct ExtensionInfo
     bool interop = false;
     InteropVersion version{};
     ConvertTypeFn convertToType = nullptr;
-    AEAttachFn aeAttach = nullptr;
+    AEAttachFnV1 aeAttachV1 = nullptr;
+    AEAttachFnV2 aeAttachV2 = nullptr;
     AEDetachFn aeDetach = nullptr;
     AEDetachGroupsFn aeDetachGroups = nullptr;
     SetVarFn setLocalVar = nullptr;
@@ -648,8 +658,21 @@ void DetectExtensions()
 
         g_Extensions.convertToType = ResolveExport<ConvertTypeFn>(
             phobos, "ConvertToType_Phobos", "_ConvertToType_Phobos@8");
-        g_Extensions.aeAttach = ResolveExport<AEAttachFn>(
-            phobos, "AE_Attach", "_AE_Attach@44");
+
+        const bool interop12 = g_Extensions.version.major > 1
+            || (g_Extensions.version.major == 1 && g_Extensions.version.minor >= 2);
+        if (interop12) {
+            g_Extensions.aeAttachV2 = ResolveExport<AEAttachFnV2>(
+                phobos, "AE_Attach", "_AE_Attach@52");
+            if (!g_Extensions.aeAttachV2) {
+                g_Extensions.aeAttachV2 = ResolveExport<AEAttachFnV2>(
+                    phobos, "_AE_Attach@48", nullptr);
+            }
+        } else {
+            g_Extensions.aeAttachV1 = ResolveExport<AEAttachFnV1>(
+                phobos, "AE_Attach", "_AE_Attach@44");
+        }
+
         g_Extensions.aeDetach = ResolveExport<AEDetachFn>(
             phobos, "AE_Detach", "_AE_Detach@16");
         g_Extensions.aeDetachGroups = ResolveExport<AEDetachGroupsFn>(
@@ -671,7 +694,7 @@ void DetectExtensions()
                 g_Extensions.version.major, g_Extensions.version.minor,
                 g_Extensions.version.patch,
                 g_Extensions.convertToType ? 1 : 0,
-                g_Extensions.aeAttach ? 1 : 0,
+                (g_Extensions.aeAttachV1 || g_Extensions.aeAttachV2) ? 1 : 0,
                 (g_Extensions.aeDetach ? 1 : 0) + (g_Extensions.aeDetachGroups ? 1 : 0),
                 g_Extensions.setLocalVar ? 1 : 0,
                 g_Extensions.setGlobalVar ? 1 : 0);
@@ -760,6 +783,137 @@ void ForEachTechnoOfType(TechnoTypeClass* type, Fn fn)
     }
 }
 
+std::wstring NarrowToWide(const std::string& value)
+{
+    if (value.empty()) return {};
+    UINT codePage = CP_UTF8;
+    int need = MultiByteToWideChar(codePage, MB_ERR_INVALID_CHARS, value.c_str(), -1, nullptr, 0);
+    if (need <= 0) {
+        codePage = CP_ACP;
+        need = MultiByteToWideChar(codePage, 0, value.c_str(), -1, nullptr, 0);
+    }
+    if (need <= 0) return {};
+    std::vector<wchar_t> buffer(static_cast<size_t>(need), L'\0');
+    MultiByteToWideChar(codePage, 0, value.c_str(), -1, buffer.data(), need);
+    return std::wstring(buffer.data());
+}
+
+// Minimal rules scanner used to seed the "old AttachEffect.AttachTypes" cache
+// before the first hot reload. Follows [#include] recursively.
+void CollectRulesAE(
+    const fs::path& file,
+    const fs::path& gameDir,
+    std::unordered_set<std::wstring>& visited,
+    std::unordered_map<std::string, std::string>& out)
+{
+    std::wstring visitKey = file.wstring();
+    for (auto& ch : visitKey) ch = static_cast<wchar_t>(towlower(ch));
+    if (!visited.insert(visitKey).second) return;
+
+    std::string bytes;
+    if (!ReadAllBytesW(file, bytes)) return;
+    NormalizeTextEncoding(bytes);
+
+    std::string section;
+    std::vector<std::string> includes;
+    size_t pos = 0;
+    while (pos < bytes.size()) {
+        size_t end = bytes.find('\n', pos);
+        std::string line = bytes.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        pos = (end == std::string::npos) ? bytes.size() : end + 1;
+        line = TrimA(line);
+        if (line.empty() || line[0] == ';' || (line[0] == '#' && line.rfind("[", 0) != 0)) continue;
+
+        if (line[0] == '[') {
+            size_t close = line.find(']');
+            if (close == std::string::npos) continue;
+            section = LowerAscii(TrimA(line.substr(1, close - 1)));
+            continue;
+        }
+        if (section.empty()) continue;
+
+        size_t eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string key = LowerAscii(TrimA(line.substr(0, eq)));
+        std::string value = TrimA(line.substr(eq + 1));
+
+        if (section == "#include") {
+            if (!value.empty()) includes.push_back(value);
+        }
+        else if (key == "attacheffect.attachtypes") {
+            out[section] = value;
+        }
+    }
+
+    for (const auto& includeName : includes) {
+        std::wstring wideName = NarrowToWide(includeName);
+        if (wideName.empty()) continue;
+        fs::path rel(wideName);
+        const fs::path candidates[] = {
+            gameDir / rel,
+            file.parent_path() / rel,
+            gameDir / rel.filename(),
+        };
+        for (const auto& candidate : candidates) {
+            if (FileExistsW(candidate)) {
+                CollectRulesAE(candidate, gameDir, visited, out);
+                break;
+            }
+        }
+    }
+}
+
+void LoadAEBaseline(const fs::path& gameDir)
+{
+    g_typeAECache.clear();
+
+    const wchar_t* names[] = { L"rulesmo.ini", L"rulesmd.ini", L"rules.ini" };
+    fs::path rulesFile;
+    for (const wchar_t* name : names) {
+        fs::path candidate = gameDir / name;
+        if (FileExistsW(candidate)) {
+            rulesFile = candidate;
+            break;
+        }
+    }
+    if (rulesFile.empty()) {
+        LogF("[ae-auto] no rules ini found; baseline AttachTypes cache is empty");
+        return;
+    }
+
+    std::unordered_map<std::string, std::string> raw;
+    std::unordered_set<std::wstring> visited;
+    CollectRulesAE(rulesFile, gameDir, visited, raw);
+
+    for (const auto& [section, value] : raw) {
+        std::vector<std::string> namesList = SplitCsv(value);
+        if (!namesList.empty()) g_typeAECache[section] = namesList;
+    }
+    LogF("[ae-auto] baseline loaded: %zu sections from %s",
+        g_typeAECache.size(), WideToUtf8(rulesFile.wstring()).c_str());
+}
+
+std::vector<int> ReadIntList(CCINIClass& ini, const char* section, const char* key)
+{
+    char buffer[2048] = {};
+    if (ini.ReadString(section, key, "", buffer, sizeof(buffer)) <= 0) return {};
+    std::vector<int> out;
+    for (const auto& item : SplitCsv(buffer)) {
+        char* end = nullptr;
+        long value = std::strtol(item.c_str(), &end, 10);
+        if (end && *end == '\0') out.push_back(static_cast<int>(value));
+    }
+    return out;
+}
+
+int ParamAt(const std::vector<int>& values, int index, int fallback)
+{
+    if (values.empty()) return fallback;
+    size_t i = index < 0 ? 0 : static_cast<size_t>(index);
+    if (i >= values.size()) i = values.size() - 1;
+    return values[i];
+}
+
 void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
 {
     if (!g_Extensions.convertToType) {
@@ -816,9 +970,42 @@ void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
     LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
 }
 
+bool HasAEAttach()
+{
+    return g_Extensions.aeAttachV1 != nullptr || g_Extensions.aeAttachV2 != nullptr;
+}
+
+HRESULT CallAEAttach(
+    TechnoClass* target,
+    const char** names,
+    int count,
+    int duration,
+    int delay,
+    int initial,
+    int recreation,
+    int* attached,
+    bool selfOwned,
+    bool hasDelay)
+{
+    if (g_Extensions.aeAttachV2) {
+        return g_Extensions.aeAttachV2(
+            target, nullptr, nullptr, nullptr,
+            names, count, duration, delay, initial, recreation,
+            attached, selfOwned, hasDelay);
+    }
+    if (g_Extensions.aeAttachV1) {
+        // Interop 1.1 has no selfOwned / hasDelay parameters.
+        return g_Extensions.aeAttachV1(
+            target, nullptr, nullptr, nullptr,
+            names, count, duration, delay, initial, recreation,
+            attached);
+    }
+    return E_FAIL;
+}
+
 void ApplyAEAttach(const std::string& value, ReloadOutcome& outcome)
 {
-    if (!g_Extensions.aeAttach) {
+    if (!HasAEAttach()) {
         LogF("[ae] attach skipped: Phobos AE_Attach not available");
         return;
     }
@@ -848,10 +1035,9 @@ void ApplyAEAttach(const std::string& value, ReloadOutcome& outcome)
     int failed = 0;
     ForEachTechnoOfType(type, [&](TechnoClass* object) {
         int objectAttached = 0;
-        HRESULT hr = g_Extensions.aeAttach(
-            object, nullptr, nullptr, nullptr,
-            namePtrs.data(), static_cast<int>(namePtrs.size()),
-            0, -1, -1, -1, &objectAttached);
+        HRESULT hr = CallAEAttach(
+            object, namePtrs.data(), static_cast<int>(namePtrs.size()),
+            0, -1, -1, -1, &objectAttached, false, true);
         if (SUCCEEDED(hr)) attached += objectAttached;
         else ++failed;
     });
@@ -907,7 +1093,7 @@ void ApplyAEDetach(const std::string& value, ReloadOutcome& outcome, bool byGrou
 
 void ApplyAEReplace(const std::string& value, ReloadOutcome& outcome, bool byGroup)
 {
-    if (!g_Extensions.aeAttach) {
+    if (!HasAEAttach()) {
         LogF("[ae] replace skipped: Phobos AE_Attach not available");
         return;
     }
@@ -964,10 +1150,9 @@ void ApplyAEReplace(const std::string& value, ReloadOutcome& outcome, bool byGro
         removed += objectRemoved;
 
         int objectAttached = 0;
-        hr = g_Extensions.aeAttach(
-            object, nullptr, nullptr, nullptr,
-            newPtrs.data(), static_cast<int>(newPtrs.size()),
-            0, -1, -1, -1, &objectAttached);
+        hr = CallAEAttach(
+            object, newPtrs.data(), static_cast<int>(newPtrs.size()),
+            0, -1, -1, -1, &objectAttached, false, true);
         if (FAILED(hr)) {
             ++failed;
             return;
@@ -1066,6 +1251,123 @@ void ApplyCommands(const std::vector<std::pair<std::string, std::string>>& comma
     }
 }
 
+void SyncAttachEffectsForSection(
+    const std::string& section,
+    CCINIClass& ini,
+    const Config& cfg,
+    ReloadOutcome& outcome)
+{
+    if (!cfg.autoSyncAE || !HasAEAttach() || !g_Extensions.aeDetach) return;
+
+    TechnoTypeClass* type = FindTechnoTypeById(section);
+    if (!type) return;
+
+    const char* attachKey = "AttachEffect.AttachTypes";
+    if (!ini.Exists(section.c_str(), attachKey)) return;
+
+    char buffer[4096] = {};
+    ini.ReadString(section.c_str(), attachKey, "", buffer, sizeof(buffer));
+    std::vector<std::string> newNames = SplitCsv(buffer);
+
+    std::string sectionKey = LowerAscii(section);
+    std::vector<std::string> oldNames;
+    auto cacheIt = g_typeAECache.find(sectionKey);
+    if (cacheIt != g_typeAECache.end()) oldNames = cacheIt->second;
+
+    // Detach old and new type-owned names first, so a reload replaces instead of stacking.
+    std::vector<std::string> detachNames = oldNames;
+    std::unordered_set<std::string> seenNames;
+    for (const auto& name : detachNames) seenNames.insert(LowerAscii(name));
+    for (const auto& name : newNames) {
+        if (seenNames.insert(LowerAscii(name)).second) detachNames.push_back(name);
+    }
+
+    int removedTotal = 0;
+    int detachFailures = 0;
+    if (!detachNames.empty()) {
+        std::vector<const char*> namePtrs;
+        namePtrs.reserve(detachNames.size());
+        for (const auto& name : detachNames) namePtrs.push_back(name.c_str());
+
+        ForEachTechnoOfType(type, [&](TechnoClass* object) {
+            int removed = 0;
+            HRESULT hr = g_Extensions.aeDetach(
+                object, namePtrs.data(), static_cast<int>(namePtrs.size()), &removed);
+            if (SUCCEEDED(hr)) removedTotal += removed;
+            else ++detachFailures;
+        });
+    }
+
+    const auto durationOverrides = ReadIntList(ini, section.c_str(), "AttachEffect.DurationOverrides");
+    const auto delays = ReadIntList(ini, section.c_str(), "AttachEffect.Delays");
+    const auto initialDelays = ReadIntList(ini, section.c_str(), "AttachEffect.InitialDelays");
+    const auto recreationDelays = ReadIntList(ini, section.c_str(), "AttachEffect.RecreationDelays");
+
+    int attachedTotal = 0;
+    int attachFailures = 0;
+    for (size_t i = 0; i < newNames.size(); ++i) {
+        const char* namePtr = newNames[i].c_str();
+        int duration = ParamAt(durationOverrides, static_cast<int>(i), 0);
+        int delay = ParamAt(delays, static_cast<int>(i), -1);
+        int initial = ParamAt(initialDelays, static_cast<int>(i), -1);
+        int recreation = ParamAt(recreationDelays, static_cast<int>(i), -1);
+
+        ForEachTechnoOfType(type, [&](TechnoClass* object) {
+            int attached = 0;
+            HRESULT hr = CallAEAttach(
+                object, &namePtr, 1,
+                duration, delay, initial, recreation,
+                &attached, true, true);
+            if (SUCCEEDED(hr)) attachedTotal += attached;
+            else ++attachFailures;
+        });
+    }
+
+    // Phobos also supports removing types/groups after the attach list.
+    int removeFailures = 0;
+    if (g_Extensions.aeDetach && ini.Exists(section.c_str(), "AttachEffect.RemoveTypes")) {
+        char removeBuffer[2048] = {};
+        ini.ReadString(section.c_str(), "AttachEffect.RemoveTypes", "", removeBuffer, sizeof(removeBuffer));
+        std::vector<std::string> removeNames = SplitCsv(removeBuffer);
+        if (!removeNames.empty()) {
+            std::vector<const char*> namePtrs;
+            for (const auto& name : removeNames) namePtrs.push_back(name.c_str());
+            ForEachTechnoOfType(type, [&](TechnoClass* object) {
+                int removed = 0;
+                HRESULT hr = g_Extensions.aeDetach(
+                    object, namePtrs.data(), static_cast<int>(namePtrs.size()), &removed);
+                if (SUCCEEDED(hr)) removedTotal += removed;
+                else ++removeFailures;
+            });
+        }
+    }
+    if (g_Extensions.aeDetachGroups && ini.Exists(section.c_str(), "AttachEffect.RemoveGroups")) {
+        char removeBuffer[2048] = {};
+        ini.ReadString(section.c_str(), "AttachEffect.RemoveGroups", "", removeBuffer, sizeof(removeBuffer));
+        std::vector<std::string> removeGroups = SplitCsv(removeBuffer);
+        if (!removeGroups.empty()) {
+            std::vector<const char*> groupPtrs;
+            for (const auto& group : removeGroups) groupPtrs.push_back(group.c_str());
+            ForEachTechnoOfType(type, [&](TechnoClass* object) {
+                int removed = 0;
+                HRESULT hr = g_Extensions.aeDetachGroups(
+                    object, groupPtrs.data(), static_cast<int>(groupPtrs.size()), &removed);
+                if (SUCCEEDED(hr)) removedTotal += removed;
+                else ++removeFailures;
+            });
+        }
+    }
+
+    g_typeAECache[sectionKey] = newNames;
+    outcome.aeDetached += removedTotal;
+    outcome.aeAttached += attachedTotal;
+    outcome.actionFailures += detachFailures + attachFailures + removeFailures;
+
+    LogF("[ae-auto] [%s] old=%zu new=%zu removed=%d attached=%d failed=%d",
+        section.c_str(), oldNames.size(), newNames.size(),
+        removedTotal, attachedTotal, detachFailures + attachFailures + removeFailures);
+}
+
 bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcome)
 {
     auto started = std::chrono::steady_clock::now();
@@ -1139,6 +1441,8 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
                             LogF("[reload]   [%s] -> %s", section.c_str(), entry.slot->name);
                         }
                     }
+
+                    SyncAttachEffectsForSection(section, ini, cfg, outcome);
                 }
             }
         }
@@ -1275,8 +1579,8 @@ DWORD WINAPI MonitorThread(LPVOID)
     ToggleConsole(cfg.showConsole);
     DetectExtensions();
 
-    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d",
-        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert);
+    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d AutoSyncAE=%d",
+        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert, cfg.autoSyncAE);
     for (const auto& target : cfg.targets) {
         LogF("[config] target: %s", WideToUtf8(target.wstring()).c_str());
     }
@@ -1311,6 +1615,10 @@ DWORD WINAPI MonitorThread(LPVOID)
             if (consoleChanged) ToggleConsole(cfg.showConsole);
             if (logChanged) LoggerInit(g_GameDir, cfg.logFile, cfg.logMaxKB);
             if (engineReady && targetsChanged) InitFileStates(cfg, states);
+            if (cfg.autoSyncAE && g_typeAECache.empty()
+                && HasAEAttach() && g_Extensions.aeDetach) {
+                LoadAEBaseline(g_GameDir);
+            }
 
             LogF("[config] reloaded; AutoMonitor=%d HotKey=%d Poll=%dms targets=%zu",
                 cfg.autoMonitor, cfg.hotKey, cfg.pollMs, cfg.targets.size());
@@ -1322,6 +1630,12 @@ DWORD WINAPI MonitorThread(LPVOID)
                 BuildTypeIndex();
                 InitFileStates(cfg, states);
                 DetectExtensions();
+                if (cfg.autoSyncAE && HasAEAttach() && g_Extensions.aeDetach) {
+                    LoadAEBaseline(g_GameDir);
+                } else if (cfg.autoSyncAE) {
+                    LogF("[ae-auto] AutoSyncAttachEffects is enabled but Phobos AE Interop "
+                         "(v0.5-alpha1 / Interop 1.1+) is not available; existing-unit AE sync disabled");
+                }
                 LogF("[system] engine ready; loaded units=%d", UnitTypeClass::Array.Count);
             } else {
                 Sleep(250);

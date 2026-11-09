@@ -92,25 +92,66 @@ Convert=OLD_TYPE->NEW_TYPE
 执行条件：
 
 - `[Extensions] LiveConvert=true`；
-- 进程内已加载 Phobos 且 Interop 版本 ≥ 1.0；
+- 进程内已加载 Phobos 且 **Interop API ≥ 1.1**（Phobos **v0.5-alpha1** 或更新版本）；
 - 源/目标类型都在内存中，且类型类别一致（Unit/Infantry/Aircraft）。
 
 转换在本次 section 重载完成后执行，日志会记录 `converted / failed` 数量。
 
-### 自动同步已有单位 AE（Ares / Phobos 源码补丁）
+### 自动同步已有单位 AE（Phobos v0.5-alpha1+）
 
-只改单位节里的 `AttachEffect.*`，希望**场上已有的该类型单位**也同步，需要在 Ares / Phobos 源码里加一个“版本号 + 游戏线程延迟刷新”补丁：
+这是给“只改原版 INI 的用户”用的：不需要写 `[AutoReloader]` 命令。
 
-- Ares：`docs/patches/ares-auto-refresh-ae.patch`
-- Phobos：`docs/patches/phobos-auto-refresh-ae.patch`
+AutoReloader 在类型重载后读取单位节里的：
 
-说明与用法见 [`docs/patches/README.md`](../docs/patches/README.md)。
+- `AttachEffect.AttachTypes`
+- `AttachEffect.RemoveTypes` / `AttachEffect.RemoveGroups`
+- `AttachEffect.DurationOverrides` / `Delays` / `InitialDelays` / `RecreationDelays`
 
-原因：AutoReloader 的 `LoadFromINI` 在监控线程执行，直接遍历/修改场上单位会与游戏线程竞争；Ares/Phobos 也没有导出刷新接口。补丁只在线程安全的位置给类型版本号 +1，实际 AE 重建由游戏线程的常规单位更新完成。
+然后对场上**已有**的该类型单位执行：
 
-打了补丁后，用户只需要原来的 INI 写法，不再需要 `[AutoReloader]` 命令。
+1. 先摘掉旧的 type-owned AE（名称来自 rules 基线 + 上次重载缓存）；
+2. 按新的 AE 列表和参数重新附加。
 
-### 运行时 AttachEffect（需要 Phobos）
+要求：
+
+- 已加载 **Phobos**，且 Interop API **≥ 1.1**（Phobos **v0.5-alpha1** 或更新；v0.4.0.2 及更早没有 Interop）；
+- `[Extensions] AutoSyncAttachEffects=true`（默认开启）；
+- 只处理 **Phobos 具名 AE**（`AttachEffectTypes`）；Ares 的内联 `AttachEffect.*` 不适用；
+- 首次运行会扫描 `rulesmo.ini` / `rulesmd.ini` / `rules.ini`（含 `#include`）建立旧 AE 基线。若找不到 rules 文件，只能保证“同名 AE 刷新”，旧的不同名 AE 可能残留。
+
+日志会输出：
+
+```
+[ae-auto] [E1] old=2 new=1 removed=3 attached=2 failed=0
+```
+
+注意：
+
+- Interop **1.2+**（当前 Phobos develop）支持 `selfOwned=true`，语义与类型自带 AE 一致；Interop **1.1**（v0.5-alpha1/alpha2）没有该参数，只能按普通 AE 附加。
+- 自动同步发生在重载线程（与 `LoadFromINI` 相同），建议在单人/测试场景验证后再用于正式对局。
+
+### Ares-only / 没有 Phobos 时
+
+- 没有 Phobos：自动同步、`Convert`、`AttachAE`、场景变量等功能**全部不可用**。
+- Ares 3.0 / 3.0 P1 没有导出刷新接口，外部 DLL 无法安全刷新已有单位；只能：
+  - 接受“只对新单位生效”；
+  - 或使用 `docs/patches/ares-auto-refresh-ae.patch` 自己改 Ares 源码并重新编译（不适合普通用户）。
+- Phobos 版本同理，可用 `docs/patches/phobos-auto-refresh-ae.patch` 做游戏线程补丁；但本 DLL 的自动同步已覆盖 Phobos 具名 AE，一般不需要。
+
+### 功能与 Phobos 版本对照
+
+| 功能 | 需要 | 最低版本 |
+|------|------|----------|
+| 自动同步已有单位 AE | Phobos Interop ≥ 1.1 | **Phobos v0.5-alpha1** |
+| `Convert` 实时换类型 | 同上 | 同上 |
+| `AttachAE` / `DetachAE` / `ReplaceAE` | 同上 | 同上 |
+| `SetLocalVar` / `SetGlobalVar` | 同上 | 同上 |
+| `AE_Attach` 的 `selfOwned` 参数 | Interop ≥ 1.2 | 当前 develop（alpha2 仍为 1.1） |
+| Ares 内联 `AttachEffect.*` 自动刷新 | 无公开运行时接口 | 需 Ares 源码补丁/自定义构建 |
+
+> MO 3.3.6 默认不提供 Phobos，因此默认环境只有 Ares，上表功能都不可用；MO 3.3.7 是否内置 Phobos、内置哪个版本，需要以实际发布包为准。
+
+### 运行时 AttachEffect（需要 Phobos，手动命令）
 
 Phobos Interop 提供 `AE_Attach` / `AE_Detach` / `AE_DetachByGroups`。可用 hotfix 指令：
 
@@ -165,10 +206,11 @@ SetGlobalVar=10=1
 | `[Logging] LogFile` | true | 写 `Reloader_Log.txt` |
 | `[Logging] LogMaxKB` | 1024 | 日志轮转大小 |
 | `[Extensions] LiveConvert` | true | 允许 `[AutoReloader]` 转换 |
+| `[Extensions] AutoSyncAttachEffects` | true | 自动同步已有单位 AE（需 Phobos） |
 
 ## 源码现状 / 限制
 
-`dllmain.cpp` 实现：配置热更新、文件监控、稳定读取、类型索引、日志、热键边沿触发、`[AutoReloader]` 转换，以及 Ares/Phobos 探测与 Phobos Interop 调用。
+`dllmain.cpp` 实现：配置热更新、文件监控、稳定读取、类型索引、日志、热键边沿触发、`[AutoReloader]` 转换、Phobos 具名 AE 的已有单位自动同步，以及 Ares/Phobos 探测与 Interop 调用。
 
 **限制**：
 
