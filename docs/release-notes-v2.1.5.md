@@ -14,6 +14,7 @@
   - `ReplaceAE=M60:OLD_AE>NEW_AE`
   - `ReplaceAEGroup=M60:GROUP>NEW_AE`
 - **场景变量**：`SetLocalVar=5=1` / `SetGlobalVar=10=1` 运行时修改地图局部变量或战役全局变量，方便调试触发器/事件。
+- **已有单位 AE 自动同步补丁**：提供 Ares / Phobos 源码补丁，让只改单位节 `AttachEffect.*` 的原有写法也能刷新场上已有单位；补丁采用“版本号 + 游戏线程延迟刷新”，避免监控线程直接改单位。见 `docs/patches/`。
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。

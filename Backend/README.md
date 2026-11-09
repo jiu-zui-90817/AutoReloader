@@ -97,6 +97,19 @@ Convert=OLD_TYPE->NEW_TYPE
 
 转换在本次 section 重载完成后执行，日志会记录 `converted / failed` 数量。
 
+### 自动同步已有单位 AE（Ares / Phobos 源码补丁）
+
+只改单位节里的 `AttachEffect.*`，希望**场上已有的该类型单位**也同步，需要在 Ares / Phobos 源码里加一个“版本号 + 游戏线程延迟刷新”补丁：
+
+- Ares：`docs/patches/ares-auto-refresh-ae.patch`
+- Phobos：`docs/patches/phobos-auto-refresh-ae.patch`
+
+说明与用法见 [`docs/patches/README.md`](../docs/patches/README.md)。
+
+原因：AutoReloader 的 `LoadFromINI` 在监控线程执行，直接遍历/修改场上单位会与游戏线程竞争；Ares/Phobos 也没有导出刷新接口。补丁只在线程安全的位置给类型版本号 +1，实际 AE 重建由游戏线程的常规单位更新完成。
+
+打了补丁后，用户只需要原来的 INI 写法，不再需要 `[AutoReloader]` 命令。
+
 ### 运行时 AttachEffect（需要 Phobos）
 
 Phobos Interop 提供 `AE_Attach` / `AE_Detach` / `AE_DetachByGroups`。可用 hotfix 指令：

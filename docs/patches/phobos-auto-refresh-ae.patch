@@ -1,0 +1,70 @@
+diff --git a/src/Ext/Techno/Body.Update.cpp b/src/Ext/Techno/Body.Update.cpp
+index 4952526..6647d10 100644
+--- a/src/Ext/Techno/Body.Update.cpp
++++ b/src/Ext/Techno/Body.Update.cpp
+@@ -15,6 +15,14 @@
+ void TechnoExt::OnEarlyUpdate()
+ {
+ 	this->UpdateShield();
++
++	// AutoReloader: a type INI reload bumped AE_RefreshVersion; reapply on game thread.
++	if (this->TypeExtData && this->AE_SeenVersion != this->TypeExtData->AE_RefreshVersion)
++	{
++		this->AE_SeenVersion = this->TypeExtData->AE_RefreshVersion;
++		this->UpdateSelfOwnedAttachEffects();
++	}
++
+ 	this->UpdateAttachEffects();
+ 	this->EatPassengers();
+ 	this->ApplySpawnLimitRange();
+diff --git a/src/Ext/Techno/Body.h b/src/Ext/Techno/Body.h
+index 0f3f7ae..ec4dbdd 100644
+--- a/src/Ext/Techno/Body.h
++++ b/src/Ext/Techno/Body.h
+@@ -34,6 +34,7 @@ public:
+ 	std::unique_ptr<ShieldClass> Shield;
+ 	std::vector<std::unique_ptr<LaserTrailClass>> LaserTrails;
+ 	std::vector<std::unique_ptr<AttachEffectClass>> AttachedEffects;
++	int AE_SeenVersion{ 0 };
+ 	AttachEffectTechnoProperties AE;
+ 	std::vector<EBolt*> ElectricBolts; // EBolts are not serialized so do not serialize this either.
+ 	int AnimRefCount; // Used to keep track of how many times this techno is referenced in anims f.ex Invoker, ParentBuilding etc., for pointer invalidation.
+diff --git a/src/Ext/Techno/Hooks.cpp b/src/Ext/Techno/Hooks.cpp
+index 7295497..2525221 100644
+--- a/src/Ext/Techno/Hooks.cpp
++++ b/src/Ext/Techno/Hooks.cpp
+@@ -293,6 +293,7 @@ void TechnoExt::InitializeState(TechnoTypeClass* pType)
+ 
+ 	auto const pTypeExt = TechnoTypeExt::Fetch(pType);
+ 	this->TypeExtData = pTypeExt;
++	this->AE_SeenVersion = pTypeExt->AE_RefreshVersion;
+ 	pTypeExt->Array.AddItem(pThis);
+ 
+ 	auto const pShieldType = pTypeExt->ShieldType && pTypeExt->ShieldType->Strength > 0 ? pTypeExt->ShieldType : nullptr;
+diff --git a/src/Ext/TechnoType/Body.cpp b/src/Ext/TechnoType/Body.cpp
+index 3ab3a90..0244b54 100644
+--- a/src/Ext/TechnoType/Body.cpp
++++ b/src/Ext/TechnoType/Body.cpp
+@@ -1381,6 +1381,10 @@ void TechnoTypeExt::LoadFromINIFile(CCINIClass* const pINI)
+ 	// Parasitic types
+ 	this->AttachEffects.LoadFromINI(pINI, pSection);
+ 
++	// AutoReloader: signal existing units to reapply their self-owned AttachEffects.
++	// The actual mutation happens on the game thread in TechnoExt::OnEarlyUpdate.
++	++this->AE_RefreshVersion;
++
+ 	auto [canParse, resetValue] = PassengerDeletionTypeClass::CanParse(exINI, pSection);
+ 
+ 	if (canParse && !this->PassengerDeletionType)
+diff --git a/src/Ext/TechnoType/Body.h b/src/Ext/TechnoType/Body.h
+index c23db11..0a1baca 100644
+--- a/src/Ext/TechnoType/Body.h
++++ b/src/Ext/TechnoType/Body.h
+@@ -326,6 +326,7 @@ public:
+ 	Valueable<AffectedHouse> RevengeWeapon_AffectsHouse;
+ 
+ 	AEAttachInfoTypeClass AttachEffects;
++	int AE_RefreshVersion{ 0 };
+ 
+ 	Nullable<bool> RecountBurst;
+ 

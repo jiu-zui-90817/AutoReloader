@@ -1,0 +1,79 @@
+diff --git a/src/Ext/Techno/Body.h b/src/Ext/Techno/Body.h
+index 503d1ad..7e2c8ee 100644
+--- a/src/Ext/Techno/Body.h
++++ b/src/Ext/Techno/Body.h
+@@ -67,6 +67,7 @@ public:
+ 		//stuff for #1623
+ 		bool AttachedTechnoEffect_isset;
+ 		int AttachedTechnoEffect_Delay;
++		int AE_SeenVersion{ 0 };
+ 
+ 		//crate fields
+ 		double Crate_FirepowerMultiplier;
+diff --git a/src/Ext/TechnoType/Body.cpp b/src/Ext/TechnoType/Body.cpp
+index f5db14a..064352d 100644
+--- a/src/Ext/TechnoType/Body.cpp
++++ b/src/Ext/TechnoType/Body.cpp
+@@ -304,6 +304,10 @@ void TechnoTypeExt::ExtData::LoadFromINIFile(CCINIClass* pINI)
+ 	//#1623 - AttachEffect on unit-creation
+ 	this->AttachedTechnoEffect.Read(exINI);
+ 
++	// AutoReloader: signal existing units to reapply their type AttachEffect.
++	// The actual mutation happens on the game thread in AttachEffectClass::Update.
++	++this->AE_RefreshVersion;
++
+ 	this->BuiltAt.Read(exINI, section, "BuiltAt");
+ 
+ 	this->Cloneable.Read(exINI, section, "Cloneable");
+diff --git a/src/Ext/TechnoType/Body.h b/src/Ext/TechnoType/Body.h
+index 7025c48..93ec977 100644
+--- a/src/Ext/TechnoType/Body.h
++++ b/src/Ext/TechnoType/Body.h
+@@ -159,6 +159,7 @@ public:
+ 
+ 		//issue #1623
+ 		AttachEffectTypeClass AttachedTechnoEffect; //The AttachedEffect which should been on the Techno from the start.
++		int AE_RefreshVersion{ 0 };
+ 
+ 		ValueableVector<BuildingTypeClass const*> BuiltAt;
+ 		Valueable<bool> Cloneable;
+diff --git a/src/Misc/AttachEffect.cpp b/src/Misc/AttachEffect.cpp
+index 8e90db7..f7e339b 100644
+--- a/src/Misc/AttachEffect.cpp
++++ b/src/Misc/AttachEffect.cpp
+@@ -236,6 +236,35 @@ void AttachEffectClass::Update(TechnoClass* pSource) {
+ 	auto const pData = TechnoExt::ExtMap.Find(pSource);
+ 	auto const pTypeData = TechnoTypeExt::ExtMap.Find(pType);
+ 
++	// AutoReloader: type INI was reloaded - rebuild this unit's type-owned AttachEffect
++	// on the game thread so existing units match newly produced ones.
++	if (pData && pTypeData && pData->AE_SeenVersion != pTypeData->AE_RefreshVersion)
++	{
++		pData->AE_SeenVersion = pTypeData->AE_RefreshVersion;
++
++		auto& effects = pData->AttachedEffects;
++		bool removedAny = false;
++		for (auto it = effects.begin(); it != effects.end(); )
++		{
++			if (it->Type == &pTypeData->AttachedTechnoEffect)
++			{
++				it->KillAnim();
++				it = effects.erase(it);
++				removedAny = true;
++			}
++			else
++			{
++				++it;
++			}
++		}
++
++		if (removedAny)
++			pData->RecalculateStats();
++
++		pData->AttachedTechnoEffect_isset = false;
++		pData->AttachedTechnoEffect_Delay = pTypeData->AttachedTechnoEffect.Delay;
++	}
++
+ 	if(!pData->AttachedEffects.empty()) {
+ 
+ 		if(pSource->CloakState == CloakState::Cloaked
