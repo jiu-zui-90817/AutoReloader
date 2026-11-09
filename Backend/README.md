@@ -97,6 +97,47 @@ Convert=OLD_TYPE->NEW_TYPE
 
 转换在本次 section 重载完成后执行，日志会记录 `converted / failed` 数量。
 
+### 运行时 AttachEffect（需要 Phobos）
+
+Phobos Interop 提供 `AE_Attach` / `AE_Detach` / `AE_DetachByGroups`。可用 hotfix 指令：
+
+```ini
+[AutoReloader]
+; 给所有 M60 附加一个或多个 AttachEffect
+AttachAE=M60:EFFECT_NAME
+AttachAE=M60:AE_ONE,AE_TWO
+
+; 按效果名移除
+DetachAE=M60:EFFECT_NAME
+
+; 按组移除（AttachEffect 类型可定义 Group）
+DetachAEGroup=M60:GROUP_NAME
+
+; 替换：先移除旧效果（或旧组），再附加新效果
+ReplaceAE=M60:OLD_EFFECT>NEW_EFFECT
+ReplaceAEGroup=M60:GROUP_NAME>NEW_EFFECT
+```
+
+行为说明：
+
+- 对**所有该类型且存活**的单位执行；建筑等 TechnoClass 也可作为目标（取决于 AE 是否支持）。
+- 每次热重载都会执行一次；重复 `AttachAE` 是否叠加取决于该 AE 类型的 `Cumulative` 设置。
+- `ReplaceAE` / `ReplaceAEGroup` 内部就是“先 detach，再 attach”。
+- 效果名 / 组名来自 Ares/Phobos 的 AttachEffect 定义；名称不存在时 Phobos 返回 `S_FALSE`，日志显示 attached/removed 为 0。
+
+### 场景变量（需要 Phobos）
+
+```ini
+[AutoReloader]
+SetLocalVar=5=1
+SetGlobalVar=10=1
+```
+
+- **局部变量（Local）**：当前地图 / 场景的触发器变量，地图触发器读取它；重开地图会重置。
+- **全局变量（Global）**：战役 / 跨地图保存的变量，常用于战役进度、跨任务标志。
+- 用途：调试地图触发器 / 事件时，直接改条件变量，不必回到地图编辑器加触发器动作。
+- 索引与取值范围由 Phobos/游戏侧决定；写入失败会记录 HRESULT。
+
 ### 配置项
 
 | 项 | 默认 | 说明 |

@@ -52,6 +52,7 @@ using byte = unsigned char;
 #include <iterator>
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 
 #include "YRPPCore.h"
@@ -430,7 +431,7 @@ fs::path ResolveTarget(const fs::path& gameDir, const fs::path& target)
 struct ScanResult
 {
     std::vector<std::string> sections;
-    std::vector<std::pair<std::string, std::string>> convertCommands;
+    std::vector<std::pair<std::string, std::string>> commands;
 };
 
 void NormalizeTextEncoding(std::string& data)
@@ -486,11 +487,10 @@ void ScanIniText(std::string data, ScanResult& out)
             size_t eq = line.find('=');
             if (eq == std::string::npos) continue;
             std::string key = LowerAscii(TrimA(line.substr(0, eq)));
-            if (key.rfind("convert", 0) != 0) continue;
             std::string value = TrimA(line.substr(eq + 1));
             size_t semi = value.find(';');
             if (semi != std::string::npos) value = TrimA(value.substr(0, semi));
-            if (!value.empty()) out.convertCommands.emplace_back(key, value);
+            if (!key.empty() && !value.empty()) out.commands.emplace_back(key, value);
         }
     }
 }
@@ -593,6 +593,11 @@ struct InteropVersion
 
 using GetInteropVersionFn = HRESULT(__stdcall*)(InteropVersion*);
 using ConvertTypeFn = HRESULT(__stdcall*)(FootClass*, TechnoTypeClass*);
+using AEAttachFn = HRESULT(__stdcall*)(TechnoClass*, HouseClass*, TechnoClass*, AbstractClass*,
+                                      const char**, int, int, int, int, int, int*);
+using AEDetachFn = HRESULT(__stdcall*)(TechnoClass*, const char**, int, int*);
+using AEDetachGroupsFn = HRESULT(__stdcall*)(TechnoClass*, const char**, int, int*);
+using SetVarFn = HRESULT(__stdcall*)(int, int);
 
 struct ExtensionInfo
 {
@@ -601,6 +606,11 @@ struct ExtensionInfo
     bool interop = false;
     InteropVersion version{};
     ConvertTypeFn convertToType = nullptr;
+    AEAttachFn aeAttach = nullptr;
+    AEDetachFn aeDetach = nullptr;
+    AEDetachGroupsFn aeDetachGroups = nullptr;
+    SetVarFn setLocalVar = nullptr;
+    SetVarFn setGlobalVar = nullptr;
 };
 
 ExtensionInfo g_Extensions;
@@ -638,6 +648,16 @@ void DetectExtensions()
 
         g_Extensions.convertToType = ResolveExport<ConvertTypeFn>(
             phobos, "ConvertToType_Phobos", "_ConvertToType_Phobos@8");
+        g_Extensions.aeAttach = ResolveExport<AEAttachFn>(
+            phobos, "AE_Attach", "_AE_Attach@44");
+        g_Extensions.aeDetach = ResolveExport<AEDetachFn>(
+            phobos, "AE_Detach", "_AE_Detach@16");
+        g_Extensions.aeDetachGroups = ResolveExport<AEDetachGroupsFn>(
+            phobos, "AE_DetachByGroups", "_AE_DetachByGroups@16");
+        g_Extensions.setLocalVar = ResolveExport<SetVarFn>(
+            phobos, "Variables_SetLocal_Phobos", "_Variables_SetLocal_Phobos@8");
+        g_Extensions.setGlobalVar = ResolveExport<SetVarFn>(
+            phobos, "Variables_SetGlobal_Phobos", "_Variables_SetGlobal_Phobos@8");
     }
 
     if (g_Extensions.ares) {
@@ -647,10 +667,14 @@ void DetectExtensions()
     }
     if (g_Extensions.phobos) {
         if (g_Extensions.interop) {
-            LogF("[ext] Phobos.dll detected, Interop API %u.%u.%u, ConvertToType=%s",
+            LogF("[ext] Phobos.dll detected, Interop API %u.%u.%u, Convert=%d AE=%d/%d Vars=%d/%d",
                 g_Extensions.version.major, g_Extensions.version.minor,
                 g_Extensions.version.patch,
-                g_Extensions.convertToType ? "yes" : "no");
+                g_Extensions.convertToType ? 1 : 0,
+                g_Extensions.aeAttach ? 1 : 0,
+                (g_Extensions.aeDetach ? 1 : 0) + (g_Extensions.aeDetachGroups ? 1 : 0),
+                g_Extensions.setLocalVar ? 1 : 0,
+                g_Extensions.setGlobalVar ? 1 : 0);
         } else {
             LogF("[ext] Phobos.dll detected but its Interop API was not found (old Phobos?)");
         }
@@ -672,91 +696,374 @@ struct ReloadOutcome
     int failedLoads = 0;
     int conversions = 0;
     int conversionFailures = 0;
+    int aeAttached = 0;
+    int aeDetached = 0;
+    int varsSet = 0;
+    int actionFailures = 0;
     std::string error;
     long long durationMs = 0;
 };
 
-int ApplyConversions(const std::vector<std::pair<std::string, std::string>>& commands, ReloadOutcome& outcome)
+std::vector<std::string> SplitCsv(const std::string& value)
+{
+    std::vector<std::string> out;
+    size_t pos = 0;
+    while (pos <= value.size()) {
+        size_t comma = value.find(',', pos);
+        std::string item = TrimA(value.substr(pos, comma == std::string::npos
+            ? std::string::npos : comma - pos));
+        if (!item.empty()) out.push_back(item);
+        if (comma == std::string::npos) break;
+        pos = comma + 1;
+    }
+    return out;
+}
+
+bool SplitMapping(const std::string& value, std::string& left, std::string& right)
+{
+    size_t arrow = value.find("->");
+    size_t arrowLen = 2;
+    if (arrow == std::string::npos) {
+        arrow = value.find('>');
+        arrowLen = 1;
+    }
+    if (arrow == std::string::npos) return false;
+    left = TrimA(value.substr(0, arrow));
+    right = TrimA(value.substr(arrow + arrowLen));
+    return !left.empty() && !right.empty();
+}
+
+bool SplitTypeSpec(const std::string& value, std::string& typeId, std::string& rest)
+{
+    size_t colon = value.find(':');
+    if (colon == std::string::npos) return false;
+    typeId = TrimA(value.substr(0, colon));
+    rest = TrimA(value.substr(colon + 1));
+    return !typeId.empty() && !rest.empty();
+}
+
+TechnoTypeClass* FindTechnoTypeById(const std::string& id)
+{
+    auto it = g_TechnoTypes.find(LowerAscii(id));
+    return it == g_TechnoTypes.end() ? nullptr : it->second;
+}
+
+template <typename Fn>
+void ForEachTechnoOfType(TechnoTypeClass* type, Fn fn)
+{
+    if (!type) return;
+    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+        TechnoClass* object = TechnoClass::Array.Items[i];
+        if (!object || !object->IsAlive) continue;
+        if (object->GetTechnoType() != type) continue;
+        fn(object);
+    }
+}
+
+void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
 {
     if (!g_Extensions.convertToType) {
         LogF("[convert] skipped: Phobos ConvertToType_Phobos not available");
-        return 0;
+        return;
     }
 
-    int totalConverted = 0;
+    std::string from;
+    std::string to;
+    if (!SplitMapping(value, from, to)) {
+        LogF("[convert] invalid mapping: %s", value.c_str());
+        return;
+    }
+
+    TechnoTypeClass* fromType = FindTechnoTypeById(from);
+    TechnoTypeClass* toType = FindTechnoTypeById(to);
+    if (!fromType) {
+        LogF("[convert] source type not found: %s", from.c_str());
+        return;
+    }
+    if (!toType) {
+        LogF("[convert] target type not found: %s", to.c_str());
+        return;
+    }
+    if (fromType->WhatAmI() != toType->WhatAmI()) {
+        LogF("[convert] incompatible types: %s -> %s", from.c_str(), to.c_str());
+        return;
+    }
+
+    int converted = 0;
+    int failed = 0;
+    ForEachTechnoOfType(fromType, [&](TechnoClass* object) {
+        FootClass* foot = nullptr;
+        switch (object->WhatAmI()) {
+            case AbstractType::Unit:
+                foot = static_cast<UnitClass*>(object);
+                break;
+            case AbstractType::Infantry:
+                foot = static_cast<InfantryClass*>(object);
+                break;
+            case AbstractType::Aircraft:
+                foot = static_cast<AircraftClass*>(object);
+                break;
+            default:
+                return;
+        }
+        HRESULT hr = g_Extensions.convertToType(foot, toType);
+        if (SUCCEEDED(hr)) ++converted;
+        else ++failed;
+    });
+
+    outcome.conversions += converted;
+    outcome.conversionFailures += failed;
+    LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
+}
+
+void ApplyAEAttach(const std::string& value, ReloadOutcome& outcome)
+{
+    if (!g_Extensions.aeAttach) {
+        LogF("[ae] attach skipped: Phobos AE_Attach not available");
+        return;
+    }
+
+    std::string typeId;
+    std::string rest;
+    if (!SplitTypeSpec(value, typeId, rest)) {
+        LogF("[ae] invalid attach command: %s", value.c_str());
+        return;
+    }
+    TechnoTypeClass* type = FindTechnoTypeById(typeId);
+    if (!type) {
+        LogF("[ae] attach type not found: %s", typeId.c_str());
+        return;
+    }
+
+    std::vector<std::string> names = SplitCsv(rest);
+    if (names.empty()) {
+        LogF("[ae] attach has no effect names: %s", value.c_str());
+        return;
+    }
+    std::vector<const char*> namePtrs;
+    namePtrs.reserve(names.size());
+    for (const auto& name : names) namePtrs.push_back(name.c_str());
+
+    int attached = 0;
+    int failed = 0;
+    ForEachTechnoOfType(type, [&](TechnoClass* object) {
+        int objectAttached = 0;
+        HRESULT hr = g_Extensions.aeAttach(
+            object, nullptr, nullptr, nullptr,
+            namePtrs.data(), static_cast<int>(namePtrs.size()),
+            0, -1, -1, -1, &objectAttached);
+        if (SUCCEEDED(hr)) attached += objectAttached;
+        else ++failed;
+    });
+
+    outcome.aeAttached += attached;
+    outcome.actionFailures += failed;
+    LogF("[ae] attach %s: effects=%zu attached=%d failed=%d",
+        typeId.c_str(), names.size(), attached, failed);
+}
+
+void ApplyAEDetach(const std::string& value, ReloadOutcome& outcome, bool byGroup)
+{
+    AEDetachFn fn = byGroup
+        ? reinterpret_cast<AEDetachFn>(g_Extensions.aeDetachGroups)
+        : g_Extensions.aeDetach;
+    if (!fn) {
+        LogF("[ae] detach skipped: Phobos %s not available", byGroup ? "AE_DetachByGroups" : "AE_Detach");
+        return;
+    }
+
+    std::string typeId;
+    std::string rest;
+    if (!SplitTypeSpec(value, typeId, rest)) {
+        LogF("[ae] invalid detach command: %s", value.c_str());
+        return;
+    }
+    TechnoTypeClass* type = FindTechnoTypeById(typeId);
+    if (!type) {
+        LogF("[ae] detach type not found: %s", typeId.c_str());
+        return;
+    }
+
+    std::vector<std::string> names = SplitCsv(rest);
+    if (names.empty()) return;
+    std::vector<const char*> namePtrs;
+    namePtrs.reserve(names.size());
+    for (const auto& name : names) namePtrs.push_back(name.c_str());
+
+    int removed = 0;
+    int failed = 0;
+    ForEachTechnoOfType(type, [&](TechnoClass* object) {
+        int objectRemoved = 0;
+        HRESULT hr = fn(object, namePtrs.data(), static_cast<int>(namePtrs.size()), &objectRemoved);
+        if (SUCCEEDED(hr)) removed += objectRemoved;
+        else ++failed;
+    });
+
+    outcome.aeDetached += removed;
+    outcome.actionFailures += failed;
+    LogF("[ae] detach%s %s: names=%zu removed=%d failed=%d",
+        byGroup ? " group" : "", typeId.c_str(), names.size(), removed, failed);
+}
+
+void ApplyAEReplace(const std::string& value, ReloadOutcome& outcome, bool byGroup)
+{
+    if (!g_Extensions.aeAttach) {
+        LogF("[ae] replace skipped: Phobos AE_Attach not available");
+        return;
+    }
+    AEDetachFn detachFn = byGroup
+        ? reinterpret_cast<AEDetachFn>(g_Extensions.aeDetachGroups)
+        : g_Extensions.aeDetach;
+    if (!detachFn) {
+        LogF("[ae] replace skipped: Phobos %s not available", byGroup ? "AE_DetachByGroups" : "AE_Detach");
+        return;
+    }
+
+    std::string typeId;
+    std::string rest;
+    if (!SplitTypeSpec(value, typeId, rest)) {
+        LogF("[ae] invalid replace command: %s", value.c_str());
+        return;
+    }
+    TechnoTypeClass* type = FindTechnoTypeById(typeId);
+    if (!type) {
+        LogF("[ae] replace type not found: %s", typeId.c_str());
+        return;
+    }
+
+    std::string oldSpec;
+    std::string newSpec;
+    if (!SplitMapping(rest, oldSpec, newSpec)) {
+        LogF("[ae] invalid replace mapping: %s", value.c_str());
+        return;
+    }
+
+    std::vector<std::string> oldNames = SplitCsv(oldSpec);
+    std::vector<std::string> newNames = SplitCsv(newSpec);
+    if (oldNames.empty() || newNames.empty()) {
+        LogF("[ae] replace has empty side: %s", value.c_str());
+        return;
+    }
+    std::vector<const char*> oldPtrs;
+    oldPtrs.reserve(oldNames.size());
+    for (const auto& name : oldNames) oldPtrs.push_back(name.c_str());
+    std::vector<const char*> newPtrs;
+    newPtrs.reserve(newNames.size());
+    for (const auto& name : newNames) newPtrs.push_back(name.c_str());
+
+    int removed = 0;
+    int attached = 0;
+    int failed = 0;
+    ForEachTechnoOfType(type, [&](TechnoClass* object) {
+        int objectRemoved = 0;
+        HRESULT hr = detachFn(object, oldPtrs.data(), static_cast<int>(oldPtrs.size()), &objectRemoved);
+        if (FAILED(hr)) {
+            ++failed;
+            return;
+        }
+        removed += objectRemoved;
+
+        int objectAttached = 0;
+        hr = g_Extensions.aeAttach(
+            object, nullptr, nullptr, nullptr,
+            newPtrs.data(), static_cast<int>(newPtrs.size()),
+            0, -1, -1, -1, &objectAttached);
+        if (FAILED(hr)) {
+            ++failed;
+            return;
+        }
+        attached += objectAttached;
+    });
+
+    outcome.aeDetached += removed;
+    outcome.aeAttached += attached;
+    outcome.actionFailures += failed;
+    LogF("[ae] replace%s %s: removed=%d attached=%d failed=%d",
+        byGroup ? " group" : "", typeId.c_str(), removed, attached, failed);
+}
+
+void ApplySetVariable(const std::string& value, ReloadOutcome& outcome, bool global)
+{
+    SetVarFn fn = global ? g_Extensions.setGlobalVar : g_Extensions.setLocalVar;
+    if (!fn) {
+        LogF("[var] %s skipped: Phobos %s not available",
+            global ? "global" : "local",
+            global ? "Variables_SetGlobal_Phobos" : "Variables_SetLocal_Phobos");
+        return;
+    }
+
+    size_t eq = value.find('=');
+    if (eq == std::string::npos) {
+        LogF("[var] invalid command: %s", value.c_str());
+        return;
+    }
+    std::string indexText = TrimA(value.substr(0, eq));
+    std::string valueText = TrimA(value.substr(eq + 1));
+    if (indexText.empty() || valueText.empty()) {
+        LogF("[var] invalid command: %s", value.c_str());
+        return;
+    }
+
+    char* end = nullptr;
+    long index = std::strtol(indexText.c_str(), &end, 10);
+    if (!end || *end != '\0') {
+        LogF("[var] invalid index: %s", indexText.c_str());
+        return;
+    }
+    end = nullptr;
+    long number = std::strtol(valueText.c_str(), &end, 10);
+    if (!end || *end != '\0') {
+        LogF("[var] invalid value: %s", valueText.c_str());
+        return;
+    }
+
+    HRESULT hr = fn(static_cast<int>(index), static_cast<int>(number));
+    if (SUCCEEDED(hr)) {
+        ++outcome.varsSet;
+        LogF("[var] set %s[%ld] = %ld", global ? "global" : "local", index, number);
+    } else {
+        ++outcome.actionFailures;
+        LogF("[var] set %s[%ld] failed (hr=0x%08X)",
+            global ? "global" : "local", index, static_cast<unsigned int>(hr));
+    }
+}
+
+void ApplyCommands(const std::vector<std::pair<std::string, std::string>>& commands,
+                   const Config& cfg, ReloadOutcome& outcome)
+{
     for (const auto& [key, value] : commands) {
-        (void)key;
-        size_t arrow = value.find("->");
-        size_t arrowLen = 2;
-        if (arrow == std::string::npos) {
-            arrow = value.find('>');
-            arrowLen = 1;
-        }
-        if (arrow == std::string::npos) {
-            LogF("[convert] invalid mapping: %s", value.c_str());
-            continue;
-        }
-
-        std::string from = TrimA(value.substr(0, arrow));
-        std::string to = TrimA(value.substr(arrow + arrowLen));
-        if (from.empty() || to.empty()) {
-            LogF("[convert] invalid mapping: %s", value.c_str());
-            continue;
-        }
-
-        auto itFrom = g_TechnoTypes.find(LowerAscii(from));
-        auto itTo = g_TechnoTypes.find(LowerAscii(to));
-        if (itFrom == g_TechnoTypes.end()) {
-            LogF("[convert] source type not found: %s", from.c_str());
-            continue;
-        }
-        if (itTo == g_TechnoTypes.end()) {
-            LogF("[convert] target type not found: %s", to.c_str());
-            continue;
-        }
-
-        TechnoTypeClass* fromType = itFrom->second;
-        TechnoTypeClass* toType = itTo->second;
-        if (!fromType || !toType) continue;
-
-        if (fromType->WhatAmI() != toType->WhatAmI()) {
-            LogF("[convert] incompatible types: %s -> %s", from.c_str(), to.c_str());
-            continue;
-        }
-
-        int converted = 0;
-        int failed = 0;
-        for (int i = 0; i < TechnoClass::Array.Count; ++i) {
-            TechnoClass* object = TechnoClass::Array.Items[i];
-            if (!object || !object->IsAlive) continue;
-            if (object->GetTechnoType() != fromType) continue;
-
-            FootClass* foot = nullptr;
-            switch (object->WhatAmI()) {
-                case AbstractType::Unit:
-                    foot = static_cast<UnitClass*>(object);
-                    break;
-                case AbstractType::Infantry:
-                    foot = static_cast<InfantryClass*>(object);
-                    break;
-                case AbstractType::Aircraft:
-                    foot = static_cast<AircraftClass*>(object);
-                    break;
-                default:
-                    continue;
+        if (key.rfind("convert", 0) == 0) {
+            if (!cfg.liveConvert) {
+                LogF("[convert] skipped: LiveConvert=false");
+            } else {
+                ApplyConvert(value, outcome);
             }
-
-            HRESULT hr = g_Extensions.convertToType(foot, toType);
-            if (SUCCEEDED(hr)) ++converted;
-            else ++failed;
         }
-
-        totalConverted += converted;
-        outcome.conversions += converted;
-        outcome.conversionFailures += failed;
-        LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
+        else if (key == "attachae") {
+            ApplyAEAttach(value, outcome);
+        }
+        else if (key == "detachae") {
+            ApplyAEDetach(value, outcome, false);
+        }
+        else if (key == "detachaegroup") {
+            ApplyAEDetach(value, outcome, true);
+        }
+        else if (key == "replaceae") {
+            ApplyAEReplace(value, outcome, false);
+        }
+        else if (key == "replaceaegroup") {
+            ApplyAEReplace(value, outcome, true);
+        }
+        else if (key == "setlocalvar") {
+            ApplySetVariable(value, outcome, false);
+        }
+        else if (key == "setglobalvar") {
+            ApplySetVariable(value, outcome, true);
+        }
+        else {
+            LogF("[auto] unknown command: %s", key.c_str());
+        }
     }
-    return totalConverted;
 }
 
 bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcome)
@@ -773,7 +1080,7 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
 
     ScanResult scan;
     ScanIniText(bytes, scan);
-    if (scan.sections.empty() && scan.convertCommands.empty()) {
+    if (scan.sections.empty() && scan.commands.empty()) {
         outcome.ok = true;
         LogF("[reload] %s: no sections", WideToUtf8(target.wstring()).c_str());
         return true;
@@ -837,14 +1144,8 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
         }
     }
 
-    if (ok && !scan.convertCommands.empty()) {
-        if (!cfg.liveConvert) {
-            LogF("[convert] skipped: LiveConvert=false");
-        } else if (!g_Extensions.convertToType) {
-            LogF("[convert] skipped: Phobos is not loaded or Interop ConvertToType is unavailable");
-        } else {
-            ApplyConversions(scan.convertCommands, outcome);
-        }
+    if (ok && !scan.commands.empty()) {
+        ApplyCommands(scan.commands, cfg, outcome);
     }
 
     if (tempUsed) {
@@ -855,10 +1156,11 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
     outcome.ok = ok;
     outcome.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - started).count();
-    LogF("[reload] %s: sections=%d types=%d unmatched=%d failed=%d convert=%d/%d time=%lldms",
+    LogF("[reload] %s: sections=%d types=%d unmatched=%d failed=%d convert=%d/%d ae=%d/%d vars=%d time=%lldms",
         WideToUtf8(target.wstring()).c_str(),
         outcome.sections, outcome.matchedTypes, outcome.unmatchedSections,
         outcome.failedLoads, outcome.conversions, outcome.conversionFailures,
+        outcome.aeAttached, outcome.aeDetached, outcome.varsSet,
         outcome.durationMs);
     return ok;
 }

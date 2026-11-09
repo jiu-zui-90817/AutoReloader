@@ -7,6 +7,13 @@
 - **日志文件**：游戏目录写入 `Reloader_Log.txt`，超过 `LogMaxKB` 自动轮转为 `.1`；即使关闭控制台也能排查重载结果。
 - **热键增强**：边沿触发（按住不重复重载）；AutoMonitor 开启时也可强制重载；默认仅在游戏窗口前台响应。
 - **`[AutoReloader]` 实时类型转换**：通过 Phobos `ConvertToType_Phobos` 把地图上已放置的旧单位转换为新类型，例如 `Convert=M60>MTNK`；若装有 Ares 3.0，Phobos 会转调 Ares 的转换实现。
+- **运行时 AttachEffect**：通过 Phobos `AE_Attach` / `AE_Detach` / `AE_DetachByGroups` 对指定类型的所有单位执行附加、移除、按组移除与替换：
+  - `AttachAE=M60:AE_NAME`
+  - `DetachAE=M60:AE_NAME`
+  - `DetachAEGroup=M60:GROUP_NAME`
+  - `ReplaceAE=M60:OLD_AE>NEW_AE`
+  - `ReplaceAEGroup=M60:GROUP>NEW_AE`
+- **场景变量**：`SetLocalVar=5=1` / `SetGlobalVar=10=1` 运行时修改地图局部变量或战役全局变量，方便调试触发器/事件。
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
