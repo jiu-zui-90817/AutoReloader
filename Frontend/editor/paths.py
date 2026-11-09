@@ -8,21 +8,21 @@ from pathlib import Path
 
 
 def _path_str(p: Path | str) -> str:
-    return str(p).replace("\\", "/").lower()
+    return str(p).replace("\\", "/")
 
 
 def _is_ephemeral(path: Path) -> bool:
-    """临时目录 / onefile 解压目录不可用于持久配置。"""
-    s = _path_str(path)
+    s = _path_str(path).lower()
     needles = (
         "/temp/",
         "/tmp/",
-        "/temps/",
+        "\\temp\\",
         "appdata/local/temp",
+        "appdata\\local\\temp",
         "onefile_",
         "/onefile/",
         "nuitka_temp",
-        "\\temp\\",
+        "_mei",
     )
     return any(n in s for n in needles)
 
@@ -30,37 +30,27 @@ def _is_ephemeral(path: Path) -> bool:
 def is_frozen() -> bool:
     if getattr(sys, "frozen", False):
         return True
-    if os.environ.get("NUITKA_ONEFILE_PARENT"):
-        return True
-    # Nuitka standalone / onefile：模块上挂 __compiled__
     try:
-        import __main__
-
-        if getattr(__main__, "__compiled__", None) is not None:
+        if getattr(sys, "_MEIPASS", None):
             return True
     except Exception:
         pass
     try:
-        if globals().get("__compiled__") is not None:
-            return True
-    except Exception:
-        pass
-    try:
-        for mod in list(sys.modules.values()):
+        for _name, mod in list(sys.modules.items()):
             if mod is not None and getattr(mod, "__compiled__", None) is not None:
                 return True
     except Exception:
         pass
-    # 旁路：与 INIEditor.exe 同目录且有 PySide6 运行库
     try:
         a0 = Path(sys.argv[0]).resolve()
         if a0.suffix.lower() == ".exe":
             parent = a0.parent
             if (parent / "PySide6").is_dir() or (parent / "_internal" / "PySide6").is_dir():
                 return True
+            if (parent / "python312.dll").is_file() or (parent / "python3.dll").is_file():
+                return True
     except Exception:
         pass
-    # 运行中的 __file__ 落在临时目录 → 视为打包
     try:
         if _is_ephemeral(Path(__file__).resolve().parent):
             return True
@@ -76,24 +66,29 @@ def is_frozen() -> bool:
 
 
 def local_appdata() -> Path:
-    """真正的 %LocalAppData%，不要用 home/AppData 猜。"""
     env = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
     if env:
         return Path(env)
-    # 极端回退
     return Path.home() / "AppData" / "Local"
 
 
+def _prefer_tools_dir(folder: Path) -> Path:
+    """Nuitka 真身在 Tools/_internal 时，配置/图标目录用 Tools。"""
+    try:
+        if folder.name.lower() == "_internal" and folder.parent.is_dir():
+            return folder.parent
+    except Exception:
+        pass
+    return folder
+
+
 def app_dir() -> Path:
-    """
-    程序目录（用户放置 exe 的地方）。
-    打包：优先 argv[0]（Nuitka 下 executable 可能是 python.exe）；源码：Frontend/editor。
-    """
+    """用户可见的程序目录（Tools 壳一层）。"""
     if is_frozen():
         try:
             a0 = Path(sys.argv[0]).resolve()
             if a0.suffix.lower() == ".exe" and not _is_ephemeral(a0.parent):
-                return a0.parent
+                return _prefer_tools_dir(a0.parent)
         except Exception:
             pass
         exe = Path(sys.executable).resolve()
@@ -102,16 +97,21 @@ def app_dir() -> Path:
             try:
                 a0 = Path(sys.argv[0]).resolve()
                 if not _is_ephemeral(a0.parent):
-                    return a0.parent
+                    return _prefer_tools_dir(a0.parent)
             except Exception:
                 pass
         if not _is_ephemeral(parent):
-            return parent
-        return parent
+            return _prefer_tools_dir(parent)
+        return _prefer_tools_dir(parent)
     return Path(__file__).resolve().parent
 
+
+def config_path() -> Path:
+    """主配置：永远在 Tools（壳）目录，不是 AppData，不是临时目录。"""
+    return app_dir() / "config.json"
+
+
 def bundle_dir() -> Path:
-    """只读内置资源目录。"""
     if is_frozen():
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass:
@@ -135,53 +135,17 @@ def _ensure_writable_dir(d: Path) -> bool:
 
 
 def user_data_dir() -> Path:
-    """
-    可写数据根：config / cache。
-    1) exe 旁（非临时且可写）
-    2) %LOCALAPPDATA%\\MO_INI_Editor  （强制创建）
-    3) ~/.mo_ini_editor
-    """
-    candidates: list[Path] = []
-    ad = app_dir()
-    if not _is_ephemeral(ad):
-        candidates.append(ad)
-    candidates.append(local_appdata() / "MO_INI_Editor")
-    candidates.append(Path.home() / ".mo_ini_editor")
-
-    for d in candidates:
-        if _is_ephemeral(d):
-            continue
-        if _ensure_writable_dir(d):
-            return d
-    # 最后一搏：仍返回 LocalAppData 路径（即使探测失败，调用方再试写）
-    fallback = local_appdata() / "MO_INI_Editor"
-    try:
-        fallback.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
+    base = local_appdata() / "AutoReloader" / "INIEditor"
+    if _ensure_writable_dir(base):
+        return base
+    fallback = Path.home() / ".autoreloader" / "inieditor"
+    _ensure_writable_dir(fallback)
     return fallback
 
 
 def user_config_path() -> Path:
-    """用户 config.json（含 last_project_dir）。永不落在临时目录。"""
-    data = user_data_dir()
-    path = data / "config.json"
-    bundled = bundle_dir() / "config.json"
-    if not path.is_file():
-        # 再试 exe 旁的默认 config（发布包里常有）
-        side = app_dir() / "config.json"
-        src = None
-        if bundled.is_file():
-            src = bundled
-        elif side.is_file() and not _is_ephemeral(side):
-            src = side
-        if src is not None:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, path)
-            except Exception:
-                pass
-    return path
+    """备份路径（不再作为主 config）。"""
+    return user_data_dir() / "config.user.json"
 
 
 def user_cache_dir() -> Path:
@@ -191,13 +155,11 @@ def user_cache_dir() -> Path:
 
 
 def describe_paths() -> str:
-    """调试用：当前解析到的路径。"""
-    return (
-        f"frozen={is_frozen()}\n"
-        f"executable={sys.executable}\n"
-        f"app_dir={app_dir()}\n"
-        f"bundle_dir={bundle_dir()}\n"
-        f"user_data={user_data_dir()}\n"
-        f"config={user_config_path()}\n"
-        f"LOCALAPPDATA={os.environ.get('LOCALAPPDATA', '')}\n"
-    )
+    lines = [
+        f"frozen={is_frozen()}",
+        f"app_dir={app_dir()}",
+        f"config={config_path()}",
+        f"bundle_dir={bundle_dir()}",
+        f"user_data={user_data_dir()}",
+    ]
+    return "\n".join(lines)
