@@ -55,8 +55,10 @@ using byte = unsigned char;
 #include <cstdlib>
 #include <ctime>
 #include <cwctype>
+#include <cwchar>
 
 #include "YRPPCore.h"
+#include "Unsorted.h"
 #include "CCINIClass.h"
 #include "CCFileClass.h"
 #include "WeaponTypeClass.h"
@@ -357,6 +359,7 @@ struct Config
     bool hotkeyOnlyInGame = true;
     bool liveConvert = true;
     bool autoSyncAE = true;
+    bool refreshExisting = false;
     bool logFile = true;
     int logMaxKB = 1024;
     int pollMs = 500;
@@ -410,6 +413,7 @@ Config LoadConfig(const fs::path& configPath, std::wstring& error)
 
     cfg.liveConvert = ParseBoolW(IniStringW(configPath, L"Extensions", L"LiveConvert", L"true"), true);
     cfg.autoSyncAE = ParseBoolW(IniStringW(configPath, L"Extensions", L"AutoSyncAttachEffects", L"true"), true);
+    cfg.refreshExisting = ParseBoolW(IniStringW(configPath, L"Experimental", L"RefreshExistingUnits", L"false"), false);
 
     std::wstring list = IniStringW(configPath, L"Settings", L"TargetINI", L"hotfix.ini", 8192);
     std::wstringstream ss(list);
@@ -552,6 +556,20 @@ std::unordered_map<std::string, TechnoTypeClass*> g_TechnoTypes;
 // Section(lower) -> last known "AttachEffect.AttachTypes" list.
 std::unordered_map<std::string, std::vector<std::string>> g_typeAECache;
 int g_TypeTotal = 0;
+
+// Experimental: rebuild existing objects on the game thread after a type reload.
+HWND g_gameWnd = nullptr;
+WNDPROC g_oldWndProc = nullptr;
+UINT g_refreshMessage = 0;
+std::mutex g_refreshMutex;
+struct RefreshRequest
+{
+    std::string typeId;
+    std::vector<DWORD> uniqueIds;
+};
+std::vector<RefreshRequest> g_refreshRequests;
+std::atomic<bool> g_refreshWindowMissingLogged{ false };
+bool g_refreshDispatcherReady = false;
 
 int CurrentTypeTotal()
 {
@@ -1368,6 +1386,306 @@ void SyncAttachEffectsForSection(
         removedTotal, attachedTotal, detachFailures + attachFailures + removeFailures);
 }
 
+LRESULT CALLBACK GameWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+
+struct WindowSearch
+{
+    DWORD processId;
+    HWND best;
+    long area;
+};
+
+BOOL CALLBACK FindGameWindowProc(HWND hwnd, LPARAM lparam)
+{
+    auto* search = reinterpret_cast<WindowSearch*>(lparam);
+    DWORD processId = 0;
+    GetWindowThreadProcessId(hwnd, &processId);
+    if (processId != search->processId || !IsWindowVisible(hwnd)) return TRUE;
+
+    wchar_t className[128] = {};
+    wchar_t title[256] = {};
+    GetClassNameW(hwnd, className, 128);
+    GetWindowTextW(hwnd, title, 256);
+
+    RECT rect = {};
+    GetWindowRect(hwnd, &rect);
+    const long area = (rect.right - rect.left) * (rect.bottom - rect.top);
+    const bool likely = _wcsicmp(className, L"Game") == 0
+        || wcsstr(title, L"Mental Omega") != nullptr
+        || wcsstr(title, L"Yuri") != nullptr
+        || wcsstr(title, L"Command") != nullptr;
+
+    if (likely) {
+        search->best = hwnd;
+        search->area = area;
+        return FALSE;
+    }
+    if (!search->best || area > search->area) {
+        search->best = hwnd;
+        search->area = area;
+    }
+    return TRUE;
+}
+
+void UninstallGameThreadDispatcher()
+{
+    if (g_gameWnd && g_oldWndProc && IsWindow(g_gameWnd)) {
+        SetWindowLongPtrW(g_gameWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_oldWndProc));
+    }
+    g_gameWnd = nullptr;
+    g_oldWndProc = nullptr;
+    g_refreshDispatcherReady = false;
+}
+
+void EnsureGameThreadDispatcher()
+{
+    if (g_refreshDispatcherReady && g_gameWnd && IsWindow(g_gameWnd)) return;
+
+    if (!g_refreshMessage) {
+        g_refreshMessage = RegisterWindowMessageW(L"AutoReloader_RefreshExistingUnits");
+    }
+    if (!g_refreshMessage) return;
+
+    WindowSearch search{ GetCurrentProcessId(), nullptr, 0 };
+    EnumWindows(FindGameWindowProc, reinterpret_cast<LPARAM>(&search));
+    if (!search.best) {
+        if (!g_refreshWindowMissingLogged.exchange(true)) {
+            LogF("[rebuild] game window not found yet; existing-unit rebuild will retry on next reload");
+        }
+        return;
+    }
+
+    SetLastError(0);
+    WNDPROC oldProc = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(search.best, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GameWndProc)));
+    if (!oldProc && GetLastError() != 0) {
+        LogF("[rebuild] could not subclass game window (error %lu)", GetLastError());
+        return;
+    }
+
+    g_gameWnd = search.best;
+    g_oldWndProc = oldProc;
+    g_refreshDispatcherReady = true;
+    g_refreshWindowMissingLogged = false;
+
+    wchar_t className[128] = {};
+    GetClassNameW(g_gameWnd, className, 128);
+    LogF("[rebuild] game-thread dispatcher installed (window class=%s)", WideToUtf8(std::wstring(className)).c_str());
+}
+
+TechnoClass* FindTechnoByUniqueId(DWORD uniqueId)
+{
+    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+        TechnoClass* object = TechnoClass::Array.Items[i];
+        if (object && object->UniqueID == uniqueId) return object;
+    }
+    return nullptr;
+}
+
+bool CanRebuildExistingUnit(TechnoClass* old)
+{
+    if (!old || !old->IsAlive || old->InLimbo || old->Health <= 0) return false;
+    if (old->Transporter || old->Passengers.NumPassengers > 0) return false;
+    if (old->MindControlledBy || old->BunkerLinkedItem) return false;
+    if (old->IsSinking || old->Deactivated) return false;
+    if (old->CloakState != CloakState::Uncloaked) return false;
+    if (old->IronCurtainTimer.GetTimeLeft() > 0 || old->ForceShielded) return false;
+    if (old->TemporalTargetingMe || old->BeingWarpedOut) return false;
+    if (old->SpawnManager || old->SpawnOwner || old->SlaveManager || old->SlaveOwner) return false;
+    if (old->Airstrike) return false;
+
+    auto* foot = static_cast<FootClass*>(old);
+    if (foot->Team) return false;
+
+    if (old->WhatAmI() == UnitClass::AbsID) {
+        auto* unit = static_cast<UnitClass*>(old);
+        if (unit->Deployed || unit->Deploying || unit->Undeploying
+            || unit->IsHarvester || unit->IsFollowerCar || unit->FollowerCar) {
+            return false;
+        }
+    }
+    else if (old->WhatAmI() == InfantryClass::AbsID) {
+        auto* infantry = static_cast<InfantryClass*>(old);
+        if (infantry->IsDeployed() || infantry->Crawling) return false;
+    }
+    else {
+        return false;
+    }
+
+    return true;
+}
+
+bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
+{
+    if (!old || !type) return false;
+
+    const CoordStruct location = old->Location;
+    const DirStruct facing = old->PrimaryFacing.Current();
+    const Mission mission = old->GetCurrentMission();
+    const VeterancyStruct veterancy = old->Veterancy;
+    const int health = old->Health;
+    const int ammo = old->Ammo;
+    const int group = old->Group;
+    const bool selected = old->IsSelected;
+    TagClass* tag = old->AttachedTag;
+    const DWORD uniqueId = old->UniqueID;
+    AbstractClass* target = old->Target;
+    AbstractClass* archiveTarget = old->ArchiveTarget;
+
+    auto* oldFoot = static_cast<FootClass*>(old);
+    AbstractClass* destination = oldFoot->Destination;
+    AbstractClass* lastDestination = oldFoot->LastDestination;
+    AbstractClass* megaDestination = oldFoot->MegaDestination;
+    const int oldMaxHealth = old->GetTechnoType()->Strength;
+
+    ObjectClass* created = type->CreateObject(old->Owner);
+    if (!created) {
+        LogF("[rebuild] [%s] CreateObject failed", type->ID);
+        return false;
+    }
+
+    auto* fresh = static_cast<FootClass*>(created);
+    fresh->Veterancy = veterancy;
+    fresh->Ammo = ammo;
+    fresh->Group = group;
+    fresh->PrimaryFacing.SetCurrent(facing);
+
+    old->AttachedTag = nullptr;
+    if (!old->Limbo()) {
+        fresh->UnInit();
+        old->AttachedTag = tag;
+        return false;
+    }
+
+    ++Unsorted::ScenarioInit;
+    const bool placed = fresh->Unlimbo(location, facing.GetDir());
+    --Unsorted::ScenarioInit;
+
+    if (!placed) {
+        fresh->UnInit();
+        old->Unlimbo(location, facing.GetDir());
+        old->AttachedTag = tag;
+        if (selected) old->Select();
+        return false;
+    }
+
+    fresh->AttachedTag = tag;
+
+    int newHealth = health;
+    const int newMaxHealth = type->Strength;
+    if (oldMaxHealth > 0 && newMaxHealth > 0) {
+        newHealth = static_cast<int>(
+            (static_cast<long long>(health) * newMaxHealth + oldMaxHealth / 2) / oldMaxHealth);
+    }
+    fresh->Health = std::max(1, newHealth);
+    if (type->Ammo > 0) fresh->Ammo = std::min(ammo, type->Ammo);
+
+    fresh->Target = target;
+    fresh->ArchiveTarget = archiveTarget;
+    fresh->Destination = destination;
+    fresh->LastDestination = lastDestination;
+    fresh->MegaDestination = megaDestination;
+
+    if (selected) {
+        old->Deselect();
+        fresh->Select();
+    }
+
+    old->UnInit();
+    fresh->UniqueID = uniqueId;
+
+    Mission nextMission = mission;
+    if (nextMission == Mission::None) nextMission = Mission::Guard;
+    fresh->QueueMission(nextMission, false);
+    fresh->NextMission();
+    return true;
+}
+
+void ProcessRefreshRequests()
+{
+    std::vector<RefreshRequest> requests;
+    {
+        std::lock_guard<std::mutex> lock(g_refreshMutex);
+        requests.swap(g_refreshRequests);
+    }
+
+    for (const auto& request : requests) {
+        auto found = g_TechnoTypes.find(request.typeId);
+        if (found == g_TechnoTypes.end() || !found->second) continue;
+        TechnoTypeClass* type = found->second;
+
+        int rebuilt = 0;
+        int skipped = 0;
+        int failed = 0;
+        for (DWORD uniqueId : request.uniqueIds) {
+            TechnoClass* old = FindTechnoByUniqueId(uniqueId);
+            if (!old || old->GetTechnoType() != type || !CanRebuildExistingUnit(old)) {
+                ++skipped;
+                continue;
+            }
+            if (RebuildOneExistingUnit(old, type)) ++rebuilt;
+            else ++failed;
+        }
+        LogF("[rebuild] [%s] rebuilt=%d skipped=%d failed=%d",
+            request.typeId.c_str(), rebuilt, skipped, failed);
+    }
+}
+
+LRESULT CALLBACK GameWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    if (msg == g_refreshMessage) {
+        ProcessRefreshRequests();
+        return 0;
+    }
+    if (g_oldWndProc) {
+        return CallWindowProcW(g_oldWndProc, hwnd, msg, wparam, lparam);
+    }
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
+}
+
+void QueueExistingUnitRefresh(const std::string& section, TechnoTypeClass* type, const Config& cfg)
+{
+    if (!cfg.refreshExisting || !type) return;
+    const AbstractType what = type->WhatAmI();
+    if (what != InfantryTypeClass::AbsID && what != UnitTypeClass::AbsID) return;
+
+    std::vector<DWORD> uniqueIds;
+    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+        TechnoClass* object = TechnoClass::Array.Items[i];
+        if (!object || !object->IsAlive) continue;
+        if (object->GetTechnoType() != type) continue;
+        uniqueIds.push_back(object->UniqueID);
+    }
+    if (uniqueIds.empty()) return;
+
+    EnsureGameThreadDispatcher();
+    if (!g_gameWnd) return;
+
+    const std::string typeId = LowerAscii(section);
+    {
+        std::lock_guard<std::mutex> lock(g_refreshMutex);
+        RefreshRequest* request = nullptr;
+        for (auto& item : g_refreshRequests) {
+            if (item.typeId == typeId) {
+                request = &item;
+                break;
+            }
+        }
+        if (!request) {
+            g_refreshRequests.push_back(RefreshRequest{ typeId, {} });
+            request = &g_refreshRequests.back();
+        }
+        std::unordered_set<DWORD> known(request->uniqueIds.begin(), request->uniqueIds.end());
+        for (DWORD id : uniqueIds) {
+            if (known.insert(id).second) request->uniqueIds.push_back(id);
+        }
+    }
+
+    if (!PostMessageW(g_gameWnd, g_refreshMessage, 0, 0)) {
+        LogF("[rebuild] PostMessage failed (error %lu)", GetLastError());
+    }
+}
+
 bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcome)
 {
     auto started = std::chrono::steady_clock::now();
@@ -1443,6 +1761,9 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
                     }
 
                     SyncAttachEffectsForSection(section, ini, cfg, outcome);
+                    if (auto* refreshedType = FindTechnoTypeById(section)) {
+                        QueueExistingUnitRefresh(section, refreshedType, cfg);
+                    }
                 }
             }
         }
@@ -1579,8 +1900,8 @@ DWORD WINAPI MonitorThread(LPVOID)
     ToggleConsole(cfg.showConsole);
     DetectExtensions();
 
-    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d AutoSyncAE=%d",
-        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert, cfg.autoSyncAE);
+    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d AutoSyncAE=%d RefreshExisting=%d",
+        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert, cfg.autoSyncAE, cfg.refreshExisting);
     for (const auto& target : cfg.targets) {
         LogF("[config] target: %s", WideToUtf8(target.wstring()).c_str());
     }
@@ -1636,6 +1957,11 @@ DWORD WINAPI MonitorThread(LPVOID)
                     LogF("[ae-auto] AutoSyncAttachEffects is enabled but Phobos AE Interop "
                          "(v0.5-alpha1 / Interop 1.1+) is not available; existing-unit AE sync disabled");
                 }
+                if (cfg.refreshExisting) {
+                    EnsureGameThreadDispatcher();
+                    LogF("[rebuild] experimental RefreshExistingUnits enabled: "
+                         "Infantry/Unit on the map will be rebuilt on reload");
+                }
                 LogF("[system] engine ready; loaded units=%d", UnitTypeClass::Array.Count);
             } else {
                 Sleep(250);
@@ -1673,6 +1999,7 @@ DWORD WINAPI MonitorThread(LPVOID)
 
         Sleep(25);
     }
+    UninstallGameThreadDispatcher();
     return 0;
 }
 

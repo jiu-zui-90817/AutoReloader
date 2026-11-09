@@ -14,7 +14,8 @@
   - `ReplaceAE=M60:OLD_AE>NEW_AE`
   - `ReplaceAEGroup=M60:GROUP>NEW_AE`
 - **场景变量**：`SetLocalVar=5=1` / `SetGlobalVar=10=1` 运行时修改地图局部变量或战役全局变量，方便调试触发器/事件。
-- **已有单位 AE 自动同步**：只改单位节里的 `AttachEffect.AttachTypes` / `RemoveTypes` / `RemoveGroups` / `DurationOverrides` 等原有写法，重载时自动刷新场上已有单位。需要 Phobos **v0.5-alpha1+**（Interop API ≥ 1.1）；MO 3.3.6 默认无 Phobos，因此默认环境不生效。另提供 Ares/Phobos 源码补丁作为替代方案，见 `docs/patches/`。
+- **实验性：重载后重建已有单位**：`[Experimental] RefreshExistingUnits=true` 时，重载单位类型会重建场上已有的 Infantry/Unit，让**所有类型参数**（不只 AE）重新初始化；默认关闭，会跳过运输/小队/部署等复杂状态，并转移 Tag/UniqueID 等尽量保留触发器关联。不要用于联机。
+- **已有单位 AE 自动同步**：Phobos **v0.5-alpha1+（Interop 1.1+）** 可用时，只改单位节里的 `AttachEffect.AttachTypes` / `RemoveTypes` / `RemoveGroups` / `DurationOverrides` 等原有写法，重载时自动刷新场上已有单位；MO 3.3.6 默认无 Phobos，因此默认环境不生效。
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
@@ -41,6 +42,6 @@
 
 ---
 
-> **说明**：Ares 没有导出 API（全部为 Syringe hook），因此 Ares 扩展字段通过基础类型的 `LoadFromINI` hook 刷新；Ares 独有类型数组（如 AttachEffect 类型）与全局规则节（`[General]` 等）仍无法从外部 DLL 刷新。Phobos 集成要求 Interop API ≥ 1.0，转换仅支持 Unit / Infantry / Aircraft 且源目标类别一致。
+> **说明**：Ares 没有导出刷新 API（全部为 Syringe hook），因此 Ares 扩展字段通过基础类型的 `LoadFromINI` hook 刷新；Ares 独有类型数组（如 AttachEffect 类型）与全局规则节（`[General]` 等）仍无法从外部 DLL 刷新。Phobos 集成要求 Interop API ≥ 1.1（Phobos v0.5-alpha1+），转换仅支持 Unit / Infantry / Aircraft 且源目标类别一致。
 >
-> **版本**：v2.1.5（源码提交 `276fe3a`）
+> **版本**：v2.1.5（源码提交 `4c90ee9` 之后的实验性重建提交）

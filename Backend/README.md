@@ -151,6 +151,35 @@ AutoReloader 在类型重载后读取单位节里的：
 
 > MO 3.3.6 默认不提供 Phobos，因此默认环境只有 Ares，上表功能都不可用；MO 3.3.7 是否内置 Phobos、内置哪个版本，需要以实际发布包为准。
 
+### 实验性：重载后重建已有单位（默认关）
+
+如果目标不只是 AE，而是让**所有类型参数**（Ares/Phobos 扩展、武器、速度、血量、AE 等）都在老单位上生效，可以打开：
+
+```ini
+[Experimental]
+RefreshExistingUnits=false
+```
+
+改为 `true` 后，重载某个单位类型时，会把场上已有的 **Infantry / Unit** 重建一遍：
+
+- 新单位走完整创建流程，所有参数按新配置初始化；
+- 尽量保留：触发器 Tag、UniqueID、血量比例、经验、弹药、朝向、编队号、选中状态、当前任务/目标/目的地；
+- 会跳过复杂状态：运输中、载员、建筑内、被控制、隐身、铁幕/力场、超时空、小队成员、已部署步兵、矿车/部署车辆等；
+- 建筑和飞机暂不处理。
+
+**风险**：
+
+- 单位对象会被替换；地图触发器里如果保存的是**对象指针**而不是 Tag，仍可能失效（Tag 和 UniqueID 会转移）；
+- 编队/选中由工具尽量恢复，但不保证所有 UI 状态；
+- 联机可能不同步，**不要在多人大厅使用**；
+- 先备份存档，在测试地图验证。
+
+日志：
+
+```text
+[rebuild] [E2] rebuilt=3 skipped=1 failed=0
+```
+
 ### 运行时 AttachEffect（需要 Phobos，手动命令）
 
 Phobos Interop 提供 `AE_Attach` / `AE_Detach` / `AE_DetachByGroups`。可用 hotfix 指令：
@@ -207,6 +236,7 @@ SetGlobalVar=10=1
 | `[Logging] LogMaxKB` | 1024 | 日志轮转大小 |
 | `[Extensions] LiveConvert` | true | 允许 `[AutoReloader]` 转换 |
 | `[Extensions] AutoSyncAttachEffects` | true | 自动同步已有单位 AE（需 Phobos） |
+| `[Experimental] RefreshExistingUnits` | false | 重载后重建已有 Infantry/Unit，使所有参数生效 |
 
 ## 源码现状 / 限制
 
