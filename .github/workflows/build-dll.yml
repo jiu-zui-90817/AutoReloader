@@ -1,0 +1,53 @@
+name: Build DLL
+
+on:
+  push:
+    branches:
+      - main
+      - "engine/**"
+    paths:
+      - "Backend/**"
+      - "Config/**"
+      - ".github/workflows/build-dll.yml"
+  pull_request:
+    paths:
+      - "Backend/**"
+      - ".github/workflows/build-dll.yml"
+  workflow_dispatch:
+
+jobs:
+  build-dll:
+    name: AutoReloader.dll (x86)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+      - name: Clone YRpp
+        shell: pwsh
+        run: |
+          if (-not (Test-Path Backend/YRpp/.git)) {
+            git clone --depth 1 https://github.com/Phobos-developers/YRpp.git Backend/YRpp
+          }
+      - name: Configure & build
+        working-directory: Backend
+        shell: pwsh
+        run: |
+          cmake -B build -G "Visual Studio 17 2022" -A Win32
+          if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
+          cmake --build build --config Release -- /m
+          if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+      - name: Verify artifact
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem Backend -Recurse -Filter AutoReloader.dll |
+            Where-Object { $_.FullName -match 'Release' } |
+            Select-Object -First 1
+          if (-not $dll) { throw "AutoReloader.dll not found" }
+          Write-Host "Built: $($dll.FullName) ($($dll.Length) bytes)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoReloader-dll
+          path: Backend/build/bin/Release/AutoReloader.dll
+          if-no-files-found: error

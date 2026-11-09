@@ -1,39 +1,59 @@
 /**
  * =========================================================================================
- * Project Name: YR/MO Hot Reloader (独立热重载组件)
- * Description:  A standalone dynamic reloader for C&C Red Alert 2: Yuri's Revenge.
+ * AutoReloader.dll — YR / MO 热重载引擎
+ *
+ * 设计要点：
+ *  - 配置缓存：只在 ReloaderConfig.ini 变化时重读
+ *  - 节头解析：兼容 BOM / 行尾注释 / 节名内外空格
+ *  - 类型索引：引擎就绪后建立 ID -> 类型 的哈希索引，避免每次全表扫描
+ *  - 稳定读取：mtime + size 双采样，读失败重试
+ *  - 文件日志：Reloader_Log.txt（带轮转），不再依赖控制台
+ *  - 热键：边沿触发；AutoMonitor 下也可强制重载；可限制仅游戏前台
+ *  - 扩展集成：
+ *      Ares   —— 无导出 API；基础类型的 LoadFromINI hook 会自动读取 Ares 扩展字段
+ *      Phobos —— 通过其 Interop 导出调用 GetInteropAPIVersion / ConvertToType_Phobos
+ *  - [AutoReloader] 节：在 hotfix 中声明实时类型转换
+ *      [AutoReloader]
+ *      Convert=M60>MTNK
+ *    转换使用 Phobos 接口；若装有 Ares 3.0，Phobos 会转调 Ares 的转换实现。
  * =========================================================================================
  */
 
 // ---------- 务必放在所有包含之前 ----------
-// 1. 取消 Windows SDK 可能的 byte 宏
 #ifdef byte
 #undef byte
 #endif
 
-// 2. 包含 C++20 所需的标准库头文件（YRpp 依赖）
 #include <cstddef>
 #include <cstdint>
+#include <cstdarg>
 #include <concepts>
 #include <type_traits>
 #include <bit>
 #include <utility>
 
-// 3. 显式定义 byte 为 unsigned char（YRpp 期望）
 using byte = unsigned char;
 
-// 4. 包含 Windows 头（注意：WIN32_LEAN_AND_MEAN 由 CMake 定义，此处不再重复定义）
 #include <windows.h>
 #include <string>
-#include <iostream>
 #include <vector>
-#include <sstream>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
+#include <set>
 #include <fstream>
+#include <sstream>
+#include <iostream>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+#include <algorithm>
+#include <filesystem>
+#include <cstring>
+#include <cstdio>
+#include <ctime>
 
-// 5. YRpp 头文件 —— 去掉不存在的 YRpp.h，改为包含核心头
-#include "YRPPCore.h"          // 必须的基类定义
-// 然后包含具体需要使用的类
+#include "YRPPCore.h"
 #include "CCINIClass.h"
 #include "CCFileClass.h"
 #include "WeaponTypeClass.h"
@@ -49,290 +69,1016 @@ using byte = unsigned char;
 #include "ParticleSystemTypeClass.h"
 #include "VoxelAnimTypeClass.h"
 
-// ========================================================
-// Global Configuration Variables
-// ========================================================
-int g_HotKey = VK_F5;
-bool g_AutoMonitor = true;
-bool g_ShowConsole = true;
-bool g_ConsoleAllocated = false;
-std::vector<std::string> g_TargetINIs;
+namespace fs = std::filesystem;
+
+#define AUTORELOADER_VERSION "2.1.5"
+#define AR_LOG_NAME L"Reloader_Log.txt"
 
 // ========================================================
-// Module 1: Console Management
+// Globals
+// ========================================================
+bool g_ConsoleAllocated = false;
+std::atomic<bool> g_Stop{ false };
+std::atomic<bool> g_ForceReload{ false };
+
+namespace {
+
+// ========================================================
+// Small helpers
+// ========================================================
+std::string TrimA(const std::string& s)
+{
+    size_t a = s.find_first_not_of(" \t\r\n");
+    if (a == std::string::npos) return {};
+    size_t b = s.find_last_not_of(" \t\r\n");
+    return s.substr(a, b - a + 1);
+}
+
+std::wstring TrimW(const std::wstring& s)
+{
+    size_t a = s.find_first_not_of(L" \t\r\n");
+    if (a == std::wstring::npos) return {};
+    size_t b = s.find_last_not_of(L" \t\r\n");
+    return s.substr(a, b - a + 1);
+}
+
+std::string LowerAscii(const std::string& s)
+{
+    std::string out = s;
+    for (char& c : out) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+    return out;
+}
+
+std::string WideToUtf8(const std::wstring& w)
+{
+    if (w.empty()) return {};
+    int need = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    if (need <= 0) return {};
+    std::string out(static_cast<size_t>(need), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()), out.data(), need, nullptr, nullptr);
+    return out;
+}
+
+std::string WideToAnsi(const std::wstring& w)
+{
+    if (w.empty()) return {};
+    int need = WideCharToMultiByte(CP_ACP, 0, w.c_str(), static_cast<int>(w.size()), nullptr, 0, nullptr, nullptr);
+    if (need <= 0) return {};
+    std::string out(static_cast<size_t>(need), '\0');
+    WideCharToMultiByte(CP_ACP, 0, w.c_str(), static_cast<int>(w.size()), out.data(), need, nullptr, nullptr);
+    return out;
+}
+
+bool FileExistsW(const fs::path& p)
+{
+    DWORD attr = GetFileAttributesW(p.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+struct FileMeta
+{
+    bool exists = false;
+    FILETIME mtime{};
+    ULONGLONG size = 0;
+};
+
+bool GetFileMetaW(const fs::path& p, FileMeta& out)
+{
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(p.c_str(), GetFileExInfoStandard, &data)) {
+        out = FileMeta{};
+        return false;
+    }
+    out.exists = true;
+    out.mtime = data.ftLastWriteTime;
+    out.size = (static_cast<ULONGLONG>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+    return true;
+}
+
+bool SameMeta(const FileMeta& a, const FileMeta& b)
+{
+    return a.exists && b.exists
+        && CompareFileTime(&a.mtime, &b.mtime) == 0
+        && a.size == b.size;
+}
+
+FILETIME GetWriteTimeW(const fs::path& p)
+{
+    FileMeta m;
+    if (!GetFileMetaW(p, m)) {
+        FILETIME zero{};
+        return zero;
+    }
+    return m.mtime;
+}
+
+bool ReadAllBytesW(const fs::path& p, std::string& out)
+{
+    HANDLE h = CreateFileW(
+        p.c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(h, &size) || size.QuadPart < 0 || size.QuadPart > 64LL * 1024 * 1024) {
+        CloseHandle(h);
+        return false;
+    }
+
+    out.clear();
+    out.resize(static_cast<size_t>(size.QuadPart));
+    size_t total = 0;
+    while (total < out.size()) {
+        DWORD chunk = static_cast<DWORD>(std::min<size_t>(out.size() - total, 1u << 20));
+        DWORD read = 0;
+        if (!ReadFile(h, out.data() + total, chunk, &read, nullptr) || read == 0) break;
+        total += read;
+    }
+    CloseHandle(h);
+    out.resize(total);
+    return total == static_cast<size_t>(size.QuadPart);
+}
+
+bool WriteAllBytesW(const fs::path& p, const std::string& data)
+{
+    HANDLE h = CreateFileW(
+        p.c_str(), GENERIC_WRITE, FILE_SHARE_READ,
+        nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+
+    size_t total = 0;
+    bool ok = true;
+    while (total < data.size()) {
+        DWORD chunk = static_cast<DWORD>(std::min<size_t>(data.size() - total, 1u << 20));
+        DWORD written = 0;
+        if (!WriteFile(h, data.data() + total, chunk, &written, nullptr) || written == 0) {
+            ok = false;
+            break;
+        }
+        total += written;
+    }
+    FlushFileBuffers(h);
+    CloseHandle(h);
+    return ok && total == data.size();
+}
+
+bool AppendNewlineW(const fs::path& p)
+{
+    HANDLE h = CreateFileW(
+        p.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    const char crlf[2] = { '\r', '\n' };
+    bool ok = WriteFile(h, crlf, 2, &written, nullptr) != FALSE && written == 2;
+    CloseHandle(h);
+    return ok;
+}
+
+bool ReadAllBytesRetry(const fs::path& p, std::string& out, int attempts)
+{
+    for (int i = 0; i < attempts; ++i) {
+        if (ReadAllBytesW(p, out)) return true;
+        Sleep(60);
+    }
+    return false;
+}
+
+// ========================================================
+// Logger
+// ========================================================
+std::mutex g_LogMutex;
+std::ofstream g_LogFile;
+fs::path g_LogPath;
+bool g_LogEnabled = false;
+size_t g_LogMaxBytes = 1024 * 1024;
+
+std::string Timestamp()
+{
+    auto now = std::chrono::system_clock::now();
+    auto tt = std::chrono::system_clock::to_time_t(now);
+    tm local{};
+    localtime_s(&local, &tt);
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()).count() % 1000;
+    char buf[32];
+    strftime(buf, sizeof(buf), "%H:%M:%S", &local);
+    char full[48];
+    sprintf_s(full, sizeof(full), "[%s.%03d] ", buf, static_cast<int>(ms));
+    return full;
+}
+
+void LoggerInit(const fs::path& gameDir, bool enabled, int maxKB)
+{
+    std::lock_guard<std::mutex> lock(g_LogMutex);
+    if (g_LogFile.is_open()) g_LogFile.close();
+    g_LogEnabled = false;
+    g_LogPath = gameDir / AR_LOG_NAME;
+    g_LogMaxBytes = static_cast<size_t>(std::max(64, maxKB)) * 1024;
+    if (!enabled) return;
+
+    std::error_code ec;
+    auto size = fs::file_size(g_LogPath, ec);
+    if (!ec && size > g_LogMaxBytes) {
+        fs::path backup = g_LogPath;
+        backup += L".1";
+        fs::remove(backup, ec);
+        fs::rename(g_LogPath, backup, ec);
+    }
+    g_LogFile.open(g_LogPath, std::ios::out | std::ios::app | std::ios::binary);
+    g_LogEnabled = g_LogFile.is_open();
+}
+
+void WriteLog(const std::string& msg)
+{
+    std::lock_guard<std::mutex> lock(g_LogMutex);
+    std::string line = Timestamp() + msg + "\n";
+    if (g_LogEnabled && g_LogFile.is_open()) {
+        g_LogFile << line;
+        g_LogFile.flush();
+    }
+    if (g_ConsoleAllocated) {
+        std::cout << line;
+        std::cout.flush();
+    }
+}
+
+void LogF(const char* fmt, ...)
+{
+    char buf[2048];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf_s(buf, sizeof(buf), _TRUNCATE, fmt, args);
+    va_end(args);
+    WriteLog(buf);
+}
+
+// ========================================================
+// Console
 // ========================================================
 void ToggleConsole(bool show)
 {
     if (show && !g_ConsoleAllocated) {
         AllocConsole();
-        FILE* fDummy;
-        freopen_s(&fDummy, "CONOUT$", "w", stdout);
-        freopen_s(&fDummy, "CONIN$", "r", stdin);
-
-        SetConsoleTitleA("YR/MO Hot Reloader - Debug Console");
-        SetConsoleOutputCP(936);
-
-        std::cout << "========================================================" << std::endl;
-        std::cout << " [INFO] Hot Reloader Thread Injected Successfully!" << std::endl;
-        std::cout << "========================================================\n" << std::endl;
-
+        FILE* dummy = nullptr;
+        freopen_s(&dummy, "CONOUT$", "w", stdout);
+        freopen_s(&dummy, "CONIN$", "r", stdin);
+        SetConsoleTitleA("AutoReloader - Debug Console");
+        SetConsoleOutputCP(CP_UTF8);
         g_ConsoleAllocated = true;
+        LogF("[console] allocated");
     }
     else if (!show && g_ConsoleAllocated) {
+        LogF("[console] released");
         FreeConsole();
         g_ConsoleAllocated = false;
     }
 }
 
 // ========================================================
-// Module 2: Configuration Loader
+// Configuration
 // ========================================================
-void LoadReloaderConfig(const std::string& gameDir)
+struct Config
 {
-    std::string configPath = gameDir + "\\ReloaderConfig.ini";
+    int hotKey = VK_F5;
+    bool autoMonitor = true;
+    bool showConsole = false;
+    bool beep = true;
+    bool hotkeyOnlyInGame = true;
+    bool liveConvert = true;
+    bool logFile = true;
+    int logMaxKB = 1024;
+    int pollMs = 500;
+    std::vector<fs::path> targets;
+};
 
-    g_HotKey = GetPrivateProfileIntA("Settings", "HotKey", VK_F5, configPath.c_str());
+std::wstring IniStringW(const fs::path& path, const wchar_t* section, const wchar_t* key, const wchar_t* def, DWORD cap = 4096)
+{
+    std::vector<wchar_t> buf(static_cast<size_t>(cap), L'\0');
+    GetPrivateProfileStringW(section, key, def, buf.data(), cap, path.c_str());
+    return std::wstring(buf.data());
+}
 
-    char autoMonStr[16] = { 0 };
-    GetPrivateProfileStringA("Settings", "AutoMonitor", "true", autoMonStr, sizeof(autoMonStr), configPath.c_str());
-    g_AutoMonitor = (_stricmp(autoMonStr, "true") == 0 || _stricmp(autoMonStr, "1") == 0);
+int IniIntW(const fs::path& path, const wchar_t* section, const wchar_t* key, int def)
+{
+    return static_cast<int>(GetPrivateProfileIntW(section, key, def, path.c_str()));
+}
 
-    char consoleStr[16] = { 0 };
-    GetPrivateProfileStringA("Settings", "ShowConsole", "true", consoleStr, sizeof(consoleStr), configPath.c_str());
-    g_ShowConsole = (_stricmp(consoleStr, "true") == 0 || _stricmp(consoleStr, "1") == 0);
+bool ParseBoolW(const std::wstring& value, bool def)
+{
+    std::wstring v = TrimW(value);
+    if (v.empty()) return def;
+    return _wcsicmp(v.c_str(), L"true") == 0
+        || _wcsicmp(v.c_str(), L"yes") == 0
+        || v == L"1";
+}
 
-    char targetIniStr[1024] = { 0 };
-    GetPrivateProfileStringA("Settings", "TargetINI", "hotfix.ini", targetIniStr, sizeof(targetIniStr), configPath.c_str());
+Config LoadConfig(const fs::path& configPath, std::wstring& error)
+{
+    Config cfg;
+    error.clear();
+    if (!FileExistsW(configPath)) {
+        error = L"ReloaderConfig.ini not found, using defaults";
+    }
 
-    g_TargetINIs.clear();
-    std::stringstream ss(targetIniStr);
-    std::string item;
-    while (std::getline(ss, item, ',')) {
-        item.erase(0, item.find_first_not_of(" \t"));
-        item.erase(item.find_last_not_of(" \t") + 1);
-        if (!item.empty()) {
-            g_TargetINIs.push_back(item);
+    cfg.hotKey = IniIntW(configPath, L"Settings", L"HotKey", VK_F5);
+    if (cfg.hotKey <= 0 || cfg.hotKey > 255) cfg.hotKey = VK_F5;
+
+    cfg.autoMonitor = ParseBoolW(IniStringW(configPath, L"Settings", L"AutoMonitor", L"true"), true);
+    cfg.showConsole = ParseBoolW(IniStringW(configPath, L"Settings", L"ShowConsole", L"false"), false);
+    cfg.beep = ParseBoolW(IniStringW(configPath, L"Settings", L"Beep", L"true"), true);
+    cfg.hotkeyOnlyInGame = ParseBoolW(IniStringW(configPath, L"Settings", L"HotkeyOnlyInGame", L"true"), true);
+    cfg.pollMs = IniIntW(configPath, L"Settings", L"PollIntervalMs", 500);
+    if (cfg.pollMs < 100) cfg.pollMs = 100;
+    if (cfg.pollMs > 5000) cfg.pollMs = 5000;
+
+    cfg.logFile = ParseBoolW(IniStringW(configPath, L"Logging", L"LogFile", L"true"), true);
+    cfg.logMaxKB = IniIntW(configPath, L"Logging", L"LogMaxKB", 1024);
+    if (cfg.logMaxKB < 64) cfg.logMaxKB = 64;
+    if (cfg.logMaxKB > 10240) cfg.logMaxKB = 10240;
+
+    cfg.liveConvert = ParseBoolW(IniStringW(configPath, L"Extensions", L"LiveConvert", L"true"), true);
+
+    std::wstring list = IniStringW(configPath, L"Settings", L"TargetINI", L"hotfix.ini", 8192);
+    std::wstringstream ss(list);
+    std::wstring item;
+    while (std::getline(ss, item, L',')) {
+        std::wstring name = TrimW(item);
+        if (!name.empty()) cfg.targets.emplace_back(name);
+    }
+    if (cfg.targets.empty()) cfg.targets.emplace_back(L"hotfix.ini");
+    return cfg;
+}
+
+fs::path ResolveTarget(const fs::path& gameDir, const fs::path& target)
+{
+    if (target.is_absolute()) return target;
+    return gameDir / target;
+}
+
+// ========================================================
+// INI section scanner
+// ========================================================
+struct ScanResult
+{
+    std::vector<std::string> sections;
+    std::vector<std::pair<std::string, std::string>> convertCommands;
+};
+
+void NormalizeTextEncoding(std::string& data)
+{
+    if (data.size() >= 2
+        && static_cast<unsigned char>(data[0]) == 0xFF
+        && static_cast<unsigned char>(data[1]) == 0xFE) {
+        std::wstring wide((data.size() - 2) / sizeof(wchar_t), L'\0');
+        if (!wide.empty()) {
+            std::memcpy(wide.data(), data.data() + 2, wide.size() * sizeof(wchar_t));
+        }
+        data = WideToUtf8(wide);
+        return;
+    }
+    if (data.size() >= 3
+        && static_cast<unsigned char>(data[0]) == 0xEF
+        && static_cast<unsigned char>(data[1]) == 0xBB
+        && static_cast<unsigned char>(data[2]) == 0xBF) {
+        data.erase(0, 3);
+    }
+}
+
+void ScanIniText(std::string data, ScanResult& out)
+{
+    NormalizeTextEncoding(data);
+
+    bool inAutoSection = false;
+    std::unordered_set<std::string> seen;
+    size_t pos = 0;
+    while (pos < data.size()) {
+        size_t end = data.find('\n', pos);
+        std::string line = data.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+        pos = (end == std::string::npos) ? data.size() : end + 1;
+
+        line = TrimA(line);
+        if (line.empty() || line[0] == ';' || line[0] == '#') continue;
+
+        if (line[0] == '[') {
+            size_t close = line.find(']');
+            if (close == std::string::npos) continue;
+            std::string name = TrimA(line.substr(1, close - 1));
+            if (name.empty()) continue;
+            inAutoSection = (LowerAscii(name) == "autoreloader");
+            if (!inAutoSection && name[0] != '#') {
+                if (seen.insert(LowerAscii(name)).second) {
+                    out.sections.push_back(name);
+                }
+            }
+            continue;
+        }
+
+        if (inAutoSection) {
+            size_t eq = line.find('=');
+            if (eq == std::string::npos) continue;
+            std::string key = LowerAscii(TrimA(line.substr(0, eq)));
+            if (key.rfind("convert", 0) != 0) continue;
+            std::string value = TrimA(line.substr(eq + 1));
+            size_t semi = value.find(';');
+            if (semi != std::string::npos) value = TrimA(value.substr(0, semi));
+            if (!value.empty()) out.convertCommands.emplace_back(key, value);
         }
     }
-
-    if (g_TargetINIs.empty()) {
-        g_TargetINIs.push_back("hotfix.ini");
-    }
 }
 
 // ========================================================
-// Module 3: File Utilities
-// ========================================================
-FILETIME GetFileLastWriteTime(const std::string& path)
-{
-    WIN32_FILE_ATTRIBUTE_DATA fileInfo;
-    if (GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fileInfo)) {
-        return fileInfo.ftLastWriteTime;
-    }
-    FILETIME emptyTime = { 0 };
-    return emptyTime;
-}
-
-// EOF 吞噬陷阱拦截器
-void EnsureTrailingNewline(const std::string& path) {
-    std::fstream file(path, std::ios::in | std::ios::out | std::ios::binary | std::ios::ate);
-    if (!file.is_open()) return;
-
-    std::streampos size = file.tellg();
-    if (size > 0) {
-        file.seekg(-1, std::ios::end);
-        char lastChar;
-        file.get(lastChar);
-
-        if (lastChar != '\n' && lastChar != '\r') {
-            file.clear();
-            file.seekp(0, std::ios::end);
-            file.write("\r\n", 2);
-        }
-    }
-    file.close();
-}
-
-// ========================================================
-// Module 4: Core Injection Engine
+// Type registry / index
 // ========================================================
 template <typename T>
-bool TryReloadType(const std::string& targetID, CCINIClass* pINI, const char* typeName) {
-    for (int i = 0; i < T::Array.Count; ++i) {
-        auto pItem = T::Array.Items[i];
-        if (pItem && _stricmp(pItem->ID, targetID.c_str()) == 0) {
-            pItem->LoadFromINI(pINI);
-            if (g_ConsoleAllocated) {
-                std::cout << "  -> Reloaded [" << typeName << "]: " << targetID << std::endl;
-            }
-            return true;
-        }
-    }
-    return false;
+int TypeCount() { return T::Array.Count; }
+
+template <typename T>
+void* TypeAt(int index) { return T::Array.Items[index]; }
+
+template <typename T>
+const char* TypeId(void* item) { return static_cast<T*>(item)->ID; }
+
+template <typename T>
+bool TypeLoad(void* item, CCINIClass* ini) { return static_cast<T*>(item)->LoadFromINI(ini); }
+
+template <typename T>
+TechnoTypeClass* TypeAsTechno(void* item) { return static_cast<T*>(item); }
+
+struct TypeSlot
+{
+    const char* name;
+    int (*count)();
+    void* (*at)(int);
+    const char* (*id)(void*);
+    bool (*load)(void*, CCINIClass*);
+    TechnoTypeClass* (*asTechno)(void*);
+};
+
+const TypeSlot kTypeSlots[] = {
+    { "Vehicle",      &TypeCount<UnitTypeClass>,           &TypeAt<UnitTypeClass>,           &TypeId<UnitTypeClass>,           &TypeLoad<UnitTypeClass>,           &TypeAsTechno<UnitTypeClass> },
+    { "Infantry",     &TypeCount<InfantryTypeClass>,       &TypeAt<InfantryTypeClass>,       &TypeId<InfantryTypeClass>,       &TypeLoad<InfantryTypeClass>,       &TypeAsTechno<InfantryTypeClass> },
+    { "Building",     &TypeCount<BuildingTypeClass>,       &TypeAt<BuildingTypeClass>,       &TypeId<BuildingTypeClass>,       &TypeLoad<BuildingTypeClass>,       &TypeAsTechno<BuildingTypeClass> },
+    { "Aircraft",     &TypeCount<AircraftTypeClass>,       &TypeAt<AircraftTypeClass>,       &TypeId<AircraftTypeClass>,       &TypeLoad<AircraftTypeClass>,       &TypeAsTechno<AircraftTypeClass> },
+    { "Weapon",       &TypeCount<WeaponTypeClass>,         &TypeAt<WeaponTypeClass>,         &TypeId<WeaponTypeClass>,         &TypeLoad<WeaponTypeClass>,         nullptr },
+    { "Warhead",      &TypeCount<WarheadTypeClass>,        &TypeAt<WarheadTypeClass>,        &TypeId<WarheadTypeClass>,        &TypeLoad<WarheadTypeClass>,        nullptr },
+    { "Projectile",   &TypeCount<BulletTypeClass>,         &TypeAt<BulletTypeClass>,         &TypeId<BulletTypeClass>,         &TypeLoad<BulletTypeClass>,         nullptr },
+    { "SuperWeapon",  &TypeCount<SuperWeaponTypeClass>,    &TypeAt<SuperWeaponTypeClass>,    &TypeId<SuperWeaponTypeClass>,    &TypeLoad<SuperWeaponTypeClass>,    nullptr },
+    { "Animation",    &TypeCount<AnimTypeClass>,           &TypeAt<AnimTypeClass>,           &TypeId<AnimTypeClass>,           &TypeLoad<AnimTypeClass>,           nullptr },
+    { "Particle",     &TypeCount<ParticleTypeClass>,       &TypeAt<ParticleTypeClass>,       &TypeId<ParticleTypeClass>,       &TypeLoad<ParticleTypeClass>,       nullptr },
+    { "ParticleSys",  &TypeCount<ParticleSystemTypeClass>, &TypeAt<ParticleSystemTypeClass>, &TypeId<ParticleSystemTypeClass>, &TypeLoad<ParticleSystemTypeClass>, nullptr },
+    { "VoxelAnim",    &TypeCount<VoxelAnimTypeClass>,      &TypeAt<VoxelAnimTypeClass>,      &TypeId<VoxelAnimTypeClass>,      &TypeLoad<VoxelAnimTypeClass>,      nullptr },
+};
+
+struct TypeEntry
+{
+    const TypeSlot* slot;
+    void* item;
+};
+
+std::unordered_map<std::string, std::vector<TypeEntry>> g_TypeIndex;
+std::unordered_map<std::string, TechnoTypeClass*> g_TechnoTypes;
+int g_TypeTotal = 0;
+
+int CurrentTypeTotal()
+{
+    int total = 0;
+    for (const auto& slot : kTypeSlots) total += slot.count();
+    return total;
 }
 
-void ExecuteUniversalHotReload(const std::string& iniPath, const std::string& fileName)
+void BuildTypeIndex()
 {
-    EnsureTrailingNewline(iniPath);
+    g_TypeIndex.clear();
+    g_TechnoTypes.clear();
+    g_TypeTotal = 0;
 
-    std::vector<std::string> targetSections;
-    std::ifstream fileStream(iniPath);
-    if (fileStream.is_open()) {
-        std::string line;
-        while (std::getline(fileStream, line)) {
-            line.erase(0, line.find_first_not_of(" \t\r\n"));
-            line.erase(line.find_last_not_of(" \t\r\n") + 1);
-
-            if (!line.empty() && line.front() == '[' && line.back() == ']') {
-                targetSections.push_back(line.substr(1, line.length() - 2));
+    for (const auto& slot : kTypeSlots) {
+        int count = slot.count();
+        for (int i = 0; i < count; ++i) {
+            void* item = slot.at(i);
+            if (!item) continue;
+            const char* id = slot.id(item);
+            if (!id || !*id) continue;
+            std::string key = LowerAscii(id);
+            g_TypeIndex[key].push_back(TypeEntry{ &slot, item });
+            if (slot.asTechno) {
+                if (auto type = slot.asTechno(item)) g_TechnoTypes[key] = type;
             }
+            ++g_TypeTotal;
         }
-        fileStream.close();
     }
 
-    if (targetSections.empty()) return;
+    LogF("[types] indexed %d types (%zu IDs, %zu techno types)",
+        g_TypeTotal, g_TypeIndex.size(), g_TechnoTypes.size());
+}
 
-    CCFileClass file(iniPath.c_str());
-    CCINIClass ini;
+// ========================================================
+// Phobos / Ares integration
+// ========================================================
+struct InteropVersion
+{
+    unsigned int major = 0;
+    unsigned int minor = 0;
+    unsigned int patch = 0;
+};
 
-    if (ini.ReadCCFile(&file))
-    {
-        if (g_ConsoleAllocated) {
-            std::cout << "[PARSE] Capturing data stream from: " << fileName << std::endl;
-        }
+using GetInteropVersionFn = HRESULT(__stdcall*)(InteropVersion*);
+using ConvertTypeFn = HRESULT(__stdcall*)(FootClass*, TechnoTypeClass*);
 
-        for (const std::string& targetID : targetSections)
-        {
-            bool matched =
-                TryReloadType<UnitTypeClass>(targetID, &ini, "Vehicle") ||
-                TryReloadType<InfantryTypeClass>(targetID, &ini, "Infantry") ||
-                TryReloadType<BuildingTypeClass>(targetID, &ini, "Building") ||
-                TryReloadType<AircraftTypeClass>(targetID, &ini, "Aircraft") ||
-                TryReloadType<WeaponTypeClass>(targetID, &ini, "Weapon") ||
-                TryReloadType<WarheadTypeClass>(targetID, &ini, "Warhead") ||
-                TryReloadType<BulletTypeClass>(targetID, &ini, "Projectile") ||
-                TryReloadType<SuperWeaponTypeClass>(targetID, &ini, "SuperWeapon") ||
-                TryReloadType<AnimTypeClass>(targetID, &ini, "Animation") ||
-                TryReloadType<ParticleTypeClass>(targetID, &ini, "Particle") ||
-                TryReloadType<ParticleSystemTypeClass>(targetID, &ini, "ParticleSys") ||
-                TryReloadType<VoxelAnimTypeClass>(targetID, &ini, "VoxelAnim");
+struct ExtensionInfo
+{
+    bool ares = false;
+    bool phobos = false;
+    bool interop = false;
+    InteropVersion version{};
+    ConvertTypeFn convertToType = nullptr;
+};
 
-            if (!matched && g_ConsoleAllocated) {
-                std::cout << "  [WARN] Entity ID not found in memory: " << targetID << std::endl;
+ExtensionInfo g_Extensions;
+
+template <typename Fn>
+Fn ResolveExport(HMODULE module, const char* name, const char* decorated)
+{
+    if (!module || !name) return nullptr;
+    Fn fn = reinterpret_cast<Fn>(GetProcAddress(module, name));
+    if (!fn && decorated) fn = reinterpret_cast<Fn>(GetProcAddress(module, decorated));
+    return fn;
+}
+
+void DetectExtensions()
+{
+    g_Extensions = ExtensionInfo{};
+
+    if (GetModuleHandleW(L"Ares.dll")) {
+        g_Extensions.ares = true;
+    }
+
+    HMODULE phobos = GetModuleHandleW(L"Phobos.dll");
+    if (phobos) {
+        g_Extensions.phobos = true;
+
+        auto getVersion = ResolveExport<GetInteropVersionFn>(
+            phobos, "GetInteropAPIVersion", "_GetInteropAPIVersion@4");
+        if (getVersion) {
+            InteropVersion version{};
+            if (SUCCEEDED(getVersion(&version))) {
+                g_Extensions.interop = true;
+                g_Extensions.version = version;
             }
         }
 
-        if (g_ConsoleAllocated) {
-            std::cout << "[OK] " << fileName << " injection completed.\n" << std::endl;
+        g_Extensions.convertToType = ResolveExport<ConvertTypeFn>(
+            phobos, "ConvertToType_Phobos", "_ConvertToType_Phobos@8");
+    }
+
+    if (g_Extensions.ares) {
+        LogF("[ext] Ares.dll detected. Ares has no exported reload API; base-type LoadFromINI hooks are used, "
+             "so Ares-extended fields on existing types refresh with the normal reload. "
+             "Ares-only type arrays (e.g. AttachEffect types) are not accessible.");
+    }
+    if (g_Extensions.phobos) {
+        if (g_Extensions.interop) {
+            LogF("[ext] Phobos.dll detected, Interop API %u.%u.%u, ConvertToType=%s",
+                g_Extensions.version.major, g_Extensions.version.minor,
+                g_Extensions.version.patch,
+                g_Extensions.convertToType ? "yes" : "no");
+        } else {
+            LogF("[ext] Phobos.dll detected but its Interop API was not found (old Phobos?)");
         }
+    }
+    if (!g_Extensions.ares && !g_Extensions.phobos) {
+        LogF("[ext] Neither Ares.dll nor Phobos.dll is loaded; vanilla reload only");
     }
 }
 
 // ========================================================
-// Module 5: Thread Monitor
+// Reload engine
 // ========================================================
-DWORD WINAPI HotReloadMonitorThread(LPVOID lpParam)
+struct ReloadOutcome
 {
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    std::string pathStr = exePath;
-    std::string gameDir = pathStr.substr(0, pathStr.find_last_of("\\/"));
+    bool ok = false;
+    int sections = 0;
+    int matchedTypes = 0;
+    int unmatchedSections = 0;
+    int failedLoads = 0;
+    int conversions = 0;
+    int conversionFailures = 0;
+    std::string error;
+    long long durationMs = 0;
+};
 
-    LoadReloaderConfig(gameDir);
-    ToggleConsole(g_ShowConsole);
-
-    if (g_ConsoleAllocated) {
-        std::cout << "[SYSTEM] Waiting for Yuri's Revenge Engine to initialize..." << std::endl;
+int ApplyConversions(const std::vector<std::pair<std::string, std::string>>& commands, ReloadOutcome& outcome)
+{
+    if (!g_Extensions.convertToType) {
+        LogF("[convert] skipped: Phobos ConvertToType_Phobos not available");
+        return 0;
     }
 
-    bool engineReady = false;
-    bool lastMonitorState = g_AutoMonitor;
-    std::map<std::string, FILETIME> fileTimes;
+    int totalConverted = 0;
+    for (const auto& [key, value] : commands) {
+        (void)key;
+        size_t arrow = value.find("->");
+        size_t arrowLen = 2;
+        if (arrow == std::string::npos) {
+            arrow = value.find('>');
+            arrowLen = 1;
+        }
+        if (arrow == std::string::npos) {
+            LogF("[convert] invalid mapping: %s", value.c_str());
+            continue;
+        }
 
-    while (true)
-    {
-        if (!engineReady) {
-            if (UnitTypeClass::Array.Count > 0) {
-                engineReady = true;
-                if (g_ConsoleAllocated) {
-                    std::cout << "[SYSTEM] Engine Ready! Loaded Entities: " << UnitTypeClass::Array.Count << std::endl;
-                    std::cout << "[SYSTEM] Protocol Mode: " << (g_AutoMonitor ? "Auto-Monitor" : "Manual Hotkey") << std::endl;
-                }
-                if (g_AutoMonitor) {
-                    for (const auto& fileName : g_TargetINIs) {
-                        fileTimes[fileName] = GetFileLastWriteTime(gameDir + "\\" + fileName);
+        std::string from = TrimA(value.substr(0, arrow));
+        std::string to = TrimA(value.substr(arrow + arrowLen));
+        if (from.empty() || to.empty()) {
+            LogF("[convert] invalid mapping: %s", value.c_str());
+            continue;
+        }
+
+        auto itFrom = g_TechnoTypes.find(LowerAscii(from));
+        auto itTo = g_TechnoTypes.find(LowerAscii(to));
+        if (itFrom == g_TechnoTypes.end()) {
+            LogF("[convert] source type not found: %s", from.c_str());
+            continue;
+        }
+        if (itTo == g_TechnoTypes.end()) {
+            LogF("[convert] target type not found: %s", to.c_str());
+            continue;
+        }
+
+        TechnoTypeClass* fromType = itFrom->second;
+        TechnoTypeClass* toType = itTo->second;
+        if (!fromType || !toType) continue;
+
+        if (fromType->WhatAmI() != toType->WhatAmI()) {
+            LogF("[convert] incompatible types: %s -> %s", from.c_str(), to.c_str());
+            continue;
+        }
+
+        int converted = 0;
+        int failed = 0;
+        for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+            TechnoClass* object = TechnoClass::Array.Items[i];
+            if (!object || !object->IsAlive) continue;
+            if (object->GetTechnoType() != fromType) continue;
+
+            FootClass* foot = nullptr;
+            switch (object->WhatAmI()) {
+                case AbstractType::Unit:
+                    foot = static_cast<UnitClass*>(object);
+                    break;
+                case AbstractType::Infantry:
+                    foot = static_cast<InfantryClass*>(object);
+                    break;
+                case AbstractType::Aircraft:
+                    foot = static_cast<AircraftClass*>(object);
+                    break;
+                default:
+                    continue;
+            }
+
+            HRESULT hr = g_Extensions.convertToType(foot, toType);
+            if (SUCCEEDED(hr)) ++converted;
+            else ++failed;
+        }
+
+        totalConverted += converted;
+        outcome.conversions += converted;
+        outcome.conversionFailures += failed;
+        LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
+    }
+    return totalConverted;
+}
+
+bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcome)
+{
+    auto started = std::chrono::steady_clock::now();
+    outcome = ReloadOutcome{};
+
+    std::string bytes;
+    if (!ReadAllBytesRetry(target, bytes, 3)) {
+        outcome.error = "cannot read file";
+        LogF("[reload] %s: cannot read file", WideToUtf8(target.wstring()).c_str());
+        return false;
+    }
+
+    ScanResult scan;
+    ScanIniText(bytes, scan);
+    if (scan.sections.empty() && scan.convertCommands.empty()) {
+        outcome.ok = true;
+        LogF("[reload] %s: no sections", WideToUtf8(target.wstring()).c_str());
+        return true;
+    }
+
+    fs::path parsePath = target;
+    fs::path tempPath;
+    bool tempUsed = false;
+    bool needNewline = !bytes.empty() && bytes.back() != '\n' && bytes.back() != '\r';
+
+    if (!scan.sections.empty() && needNewline) {
+        tempPath = target;
+        tempPath += L".ar_tmp";
+        std::string data = bytes;
+        data += "\r\n";
+        if (WriteAllBytesW(tempPath, data)) {
+            parsePath = tempPath;
+            tempUsed = true;
+        } else if (AppendNewlineW(target)) {
+            LogF("[reload] %s: appended trailing newline in place", WideToUtf8(target.wstring()).c_str());
+        }
+    }
+
+    bool ok = true;
+    if (!scan.sections.empty()) {
+        std::string ansiPath = WideToAnsi(parsePath.wstring());
+        if (ansiPath.empty()) {
+            outcome.error = "path conversion failed";
+            ok = false;
+        } else {
+            CCFileClass file(ansiPath.c_str());
+            CCINIClass ini;
+            if (!ini.ReadCCFile(&file)) {
+                outcome.error = "CCINIClass::ReadCCFile failed";
+                LogF("[reload] %s: ReadCCFile failed", WideToUtf8(parsePath.wstring()).c_str());
+                ok = false;
+            } else {
+                outcome.sections = static_cast<int>(scan.sections.size());
+                for (const auto& section : scan.sections) {
+                    std::string key = LowerAscii(section);
+                    auto found = g_TypeIndex.find(key);
+                    if (found == g_TypeIndex.end()) {
+                        ++outcome.unmatchedSections;
+                        LogF("[reload]   [%s] -> not found", section.c_str());
+                        continue;
+                    }
+
+                    for (const auto& entry : found->second) {
+                        bool loaded = entry.slot->load(entry.item, &ini);
+                        ++outcome.matchedTypes;
+                        if (!loaded) {
+                            ++outcome.failedLoads;
+                            LogF("[reload]   [%s] -> %s: LoadFromINI failed",
+                                section.c_str(), entry.slot->name);
+                        } else {
+                            LogF("[reload]   [%s] -> %s", section.c_str(), entry.slot->name);
+                        }
                     }
                 }
             }
-            else {
-                Sleep(500);
+        }
+    }
+
+    if (ok && !scan.convertCommands.empty()) {
+        if (!cfg.liveConvert) {
+            LogF("[convert] skipped: LiveConvert=false");
+        } else if (!g_Extensions.convertToType) {
+            LogF("[convert] skipped: Phobos is not loaded or Interop ConvertToType is unavailable");
+        } else {
+            ApplyConversions(scan.convertCommands, outcome);
+        }
+    }
+
+    if (tempUsed) {
+        std::error_code ec;
+        fs::remove(tempPath, ec);
+    }
+
+    outcome.ok = ok;
+    outcome.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started).count();
+    LogF("[reload] %s: sections=%d types=%d unmatched=%d failed=%d convert=%d/%d time=%lldms",
+        WideToUtf8(target.wstring()).c_str(),
+        outcome.sections, outcome.matchedTypes, outcome.unmatchedSections,
+        outcome.failedLoads, outcome.conversions, outcome.conversionFailures,
+        outcome.durationMs);
+    return ok;
+}
+
+// ========================================================
+// Monitor
+// ========================================================
+struct FileState
+{
+    bool valid = false;
+    FileMeta meta{};
+};
+
+fs::path g_GameDir;
+fs::path g_ConfigPath;
+
+bool IsGameForeground()
+{
+    HWND hwnd = GetForegroundWindow();
+    if (!hwnd) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    return pid == GetCurrentProcessId();
+}
+
+void InitFileStates(const Config& cfg, std::map<std::wstring, FileState>& states)
+{
+    states.clear();
+    for (const auto& target : cfg.targets) {
+        fs::path full = ResolveTarget(g_GameDir, target);
+        FileState state;
+        state.valid = GetFileMetaW(full, state.meta);
+        states[full.wstring()] = state;
+    }
+}
+
+void ReloadAll(const Config& cfg, std::map<std::wstring, FileState>& states, const char* reason)
+{
+    LogF("[reload] triggered by %s", reason);
+    bool anyOk = false;
+    for (const auto& target : cfg.targets) {
+        fs::path full = ResolveTarget(g_GameDir, target);
+        if (!FileExistsW(full)) continue;
+
+        ReloadOutcome outcome;
+        bool ok = ReloadFile(full, cfg, outcome);
+        anyOk = anyOk || ok;
+
+        FileState state;
+        state.valid = GetFileMetaW(full, state.meta);
+        states[full.wstring()] = state;
+    }
+    if (anyOk && cfg.beep) MessageBeep(MB_ICONINFORMATION);
+}
+
+void PollFiles(const Config& cfg, std::map<std::wstring, FileState>& states)
+{
+    bool anyOk = false;
+
+    for (const auto& target : cfg.targets) {
+        fs::path full = ResolveTarget(g_GameDir, target);
+        std::wstring key = full.wstring();
+
+        FileMeta first;
+        if (!GetFileMetaW(full, first)) {
+            states[key].valid = false;
+            continue;
+        }
+
+        FileState& state = states[key];
+        if (state.valid && SameMeta(state.meta, first)) continue;
+
+        // 等写入稳定：两次采样一致再读，避免读到半截文件
+        Sleep(80);
+        FileMeta second;
+        if (!GetFileMetaW(full, second) || !SameMeta(first, second)) continue;
+
+        ReloadOutcome outcome;
+        bool ok = ReloadFile(full, cfg, outcome);
+        anyOk = anyOk || ok;
+
+        FileMeta after;
+        if (GetFileMetaW(full, after)) {
+            state.valid = true;
+            state.meta = after;
+        } else {
+            state.valid = false;
+        }
+    }
+
+    if (anyOk && cfg.beep) MessageBeep(MB_ICONINFORMATION);
+}
+
+DWORD WINAPI MonitorThread(LPVOID)
+{
+    wchar_t exePath[32768] = {};
+    DWORD len = GetModuleFileNameW(nullptr, exePath, static_cast<DWORD>(std::size(exePath)));
+    if (len == 0) return 0;
+    g_GameDir = fs::path(std::wstring(exePath, len)).parent_path();
+    g_ConfigPath = g_GameDir / L"ReloaderConfig.ini";
+
+    std::wstring configError;
+    Config cfg = LoadConfig(g_ConfigPath, configError);
+    LoggerInit(g_GameDir, cfg.logFile, cfg.logMaxKB);
+
+    LogF("========================================================");
+    LogF("[system] AutoReloader v%s", AUTORELOADER_VERSION);
+    LogF("[system] game dir: %s", WideToUtf8(g_GameDir.wstring()).c_str());
+    LogF("[system] config: %s", WideToUtf8(g_ConfigPath.wstring()).c_str());
+    if (!configError.empty()) LogF("[system] config note: %s", WideToUtf8(configError).c_str());
+
+    ToggleConsole(cfg.showConsole);
+    DetectExtensions();
+
+    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d",
+        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert);
+    for (const auto& target : cfg.targets) {
+        LogF("[config] target: %s", WideToUtf8(target.wstring()).c_str());
+    }
+
+    bool engineReady = false;
+    bool keyWasDown = false;
+    std::map<std::wstring, FileState> states;
+    FILETIME configTime = GetWriteTimeW(g_ConfigPath);
+    ULONGLONG lastPoll = 0;
+
+    while (!g_Stop.load()) {
+        // config hot reload
+        FILETIME nowConfig = GetWriteTimeW(g_ConfigPath);
+        if (CompareFileTime(&nowConfig, &configTime) != 0) {
+            configTime = nowConfig;
+            std::wstring error;
+            Config next = LoadConfig(g_ConfigPath, error);
+
+            bool targetsChanged = (next.targets.size() != cfg.targets.size());
+            if (!targetsChanged) {
+                for (size_t i = 0; i < next.targets.size(); ++i) {
+                    if (next.targets[i] != cfg.targets[i]) {
+                        targetsChanged = true;
+                        break;
+                    }
+                }
+            }
+            bool consoleChanged = (next.showConsole != cfg.showConsole);
+            bool logChanged = (next.logFile != cfg.logFile) || (next.logMaxKB != cfg.logMaxKB);
+
+            cfg = next;
+            if (consoleChanged) ToggleConsole(cfg.showConsole);
+            if (logChanged) LoggerInit(g_GameDir, cfg.logFile, cfg.logMaxKB);
+            if (engineReady && targetsChanged) InitFileStates(cfg, states);
+
+            LogF("[config] reloaded; AutoMonitor=%d HotKey=%d Poll=%dms targets=%zu",
+                cfg.autoMonitor, cfg.hotKey, cfg.pollMs, cfg.targets.size());
+        }
+
+        if (!engineReady) {
+            if (UnitTypeClass::Array.Count > 0) {
+                engineReady = true;
+                BuildTypeIndex();
+                InitFileStates(cfg, states);
+                DetectExtensions();
+                LogF("[system] engine ready; loaded units=%d", UnitTypeClass::Array.Count);
+            } else {
+                Sleep(250);
                 continue;
             }
         }
 
-        LoadReloaderConfig(gameDir);
+        if (CurrentTypeTotal() != g_TypeTotal) {
+            BuildTypeIndex();
+        }
 
-        if (lastMonitorState != g_AutoMonitor) {
-            lastMonitorState = g_AutoMonitor;
-            if (g_ConsoleAllocated) {
-                std::cout << "[SYSTEM] Protocol Mode Switched -> "
-                    << (g_AutoMonitor ? "Auto-Monitor" : "Manual Hotkey") << std::endl;
-            }
-            if (g_AutoMonitor) {
-                for (const auto& fileName : g_TargetINIs) {
-                    fileTimes[fileName] = GetFileLastWriteTime(gameDir + "\\" + fileName);
-                }
+        bool forced = g_ForceReload.exchange(false);
+
+        bool keyDown = (GetAsyncKeyState(cfg.hotKey) & 0x8000) != 0;
+        bool keyPressed = keyDown && !keyWasDown;
+        keyWasDown = keyDown;
+        if (keyPressed && (!cfg.hotkeyOnlyInGame || IsGameForeground())) {
+            ReloadAll(cfg, states, "hotkey");
+            lastPoll = GetTickCount64();
+            forced = false;
+        }
+
+        if (forced) {
+            ReloadAll(cfg, states, "external trigger");
+            lastPoll = GetTickCount64();
+        }
+
+        if (cfg.autoMonitor) {
+            ULONGLONG now = GetTickCount64();
+            if (now - lastPoll >= static_cast<ULONGLONG>(cfg.pollMs)) {
+                lastPoll = now;
+                PollFiles(cfg, states);
             }
         }
 
-        if (g_AutoMonitor)
-        {
-            bool anyFileReloaded = false;
-            for (const auto& fileName : g_TargetINIs)
-            {
-                std::string fullPath = gameDir + "\\" + fileName;
-                FILETIME currentWriteTime = GetFileLastWriteTime(fullPath);
-
-                if (fileTimes[fileName].dwLowDateTime == 0 && fileTimes[fileName].dwHighDateTime == 0) {
-                    fileTimes[fileName] = currentWriteTime;
-                }
-                else if (CompareFileTime(&fileTimes[fileName], &currentWriteTime) != 0) {
-                    fileTimes[fileName] = currentWriteTime;
-                    Sleep(100);
-                    ExecuteUniversalHotReload(fullPath, fileName);
-                    anyFileReloaded = true;
-                }
-            }
-            if (anyFileReloaded) MessageBeep(MB_ICONINFORMATION);
-            Sleep(500);
-        }
-        else
-        {
-            if (GetAsyncKeyState(g_HotKey) & 0x8000)
-            {
-                if (g_ConsoleAllocated) std::cout << "\n[>>>] Manual reload triggered via Hotkey!" << std::endl;
-                for (const auto& fileName : g_TargetINIs) {
-                    std::string fullPath = gameDir + "\\" + fileName;
-                    ExecuteUniversalHotReload(fullPath, fileName);
-                }
-                MessageBeep(MB_ICONWARNING);
-                Sleep(500);
-            }
-            Sleep(50);
-        }
+        Sleep(25);
     }
     return 0;
 }
 
+} // namespace
+
 // ========================================================
-// Standard Entry Point
+// Exports (optional integration points)
 // ========================================================
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved)
+extern "C" __declspec(dllexport) void __cdecl AutoReloader_TriggerReload()
 {
-    if (ul_reason_for_call == DLL_PROCESS_ATTACH)
-    {
+    g_ForceReload.store(true);
+}
+
+extern "C" __declspec(dllexport) const char* __cdecl AutoReloader_GetVersion()
+{
+    return AUTORELOADER_VERSION;
+}
+
+// ========================================================
+// Entry point
+// ========================================================
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(hModule);
-        CreateThread(NULL, 0, HotReloadMonitorThread, NULL, 0, NULL);
+        CreateThread(nullptr, 0, MonitorThread, nullptr, 0, nullptr);
+    }
+    else if (reason == DLL_PROCESS_DETACH) {
+        g_Stop.store(true);
     }
     return TRUE;
 }
