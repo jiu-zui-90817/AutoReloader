@@ -1561,15 +1561,32 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     // already marked the cell and joined the logic collection.
     old->UnInit();
 
+    CoordStruct createAt = location;
     ++Unsorted::ScenarioInit;
-    const bool placed = fresh->Unlimbo(location, facing.GetDir());
+    bool placed = fresh->ForceCreate(createAt, 0);
     --Unsorted::ScenarioInit;
+
+    if (!placed) {
+        ++Unsorted::ScenarioInit;
+        placed = fresh->Unlimbo(location, facing.GetDir());
+        --Unsorted::ScenarioInit;
+        if (placed) {
+            LogF("[rebuild] [%s] ForceCreate failed; Unlimbo fallback used", type->ID);
+        }
+    }
 
     if (!placed) {
         fresh->UnInit();
         LogF("[rebuild] [%s] replacement placement failed; old unit already removed", type->ID);
         return false;
     }
+
+    fresh->IsInitiated = true;
+    LogF("[rebuild] [%s] placed: logic=%d initiated=%d locomotor=%d",
+        type->ID,
+        fresh->IsInLogic ? 1 : 0,
+        fresh->IsInitiated ? 1 : 0,
+        fresh->Locomotor ? 1 : 0);
 
     fresh->AttachedTag = tag;
     fresh->Veterancy = veterancy;
