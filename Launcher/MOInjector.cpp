@@ -13,7 +13,6 @@
 #include <shellapi.h>
 #include <fstream>
 #include <string>
-#include <vector>
 
 #include "SyringeCompat.h"
 
@@ -119,111 +118,6 @@ bool IsLobbyRunning() {
         IsProcessRunning(L"clientogl.exe");
 }
 
-static bool FileExistsW(const std::wstring& path)
-{
-    const DWORD attrs = GetFileAttributesW(path.c_str());
-    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-static bool InjectDll(HANDLE process, const std::wstring& dllPath)
-{
-    const SIZE_T size = (dllPath.size() + 1) * sizeof(wchar_t);
-    void* remote = VirtualAllocEx(process, nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-    if (!remote)
-    {
-        WriteLog("[Hook] VirtualAllocEx 失败");
-        return false;
-    }
-
-    if (!WriteProcessMemory(process, remote, dllPath.c_str(), size, nullptr))
-    {
-        WriteLog("[Hook] WriteProcessMemory 失败");
-        VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-        return false;
-    }
-
-    HMODULE kernel32 = GetModuleHandleW(L"kernel32.dll");
-    FARPROC loadLibrary = GetProcAddress(kernel32, "LoadLibraryW");
-    HANDLE thread = CreateRemoteThread(process, nullptr, 0,
-        reinterpret_cast<LPTHREAD_START_ROUTINE>(loadLibrary), remote, 0, nullptr);
-    if (!thread)
-    {
-        WriteLog("[Hook] CreateRemoteThread 失败");
-        VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-        return false;
-    }
-
-    const DWORD wait = WaitForSingleObject(thread, 10000);
-    DWORD module = 0;
-    GetExitCodeThread(thread, &module);
-    CloseHandle(thread);
-    VirtualFreeEx(process, remote, 0, MEM_RELEASE);
-
-    if (wait != WAIT_OBJECT_0 || module == 0 || module == STILL_ACTIVE)
-    {
-        WriteLog("[Hook] LoadLibrary 注入失败");
-        return false;
-    }
-
-    WriteLog("[Hook] Hook DLL 注入成功");
-    return true;
-}
-
-static bool LaunchClientWithHook(const std::wstring& directory)
-{
-    const std::wstring clientPath = directory + L"\\MentalOmegaClient.exe";
-    const std::wstring hookPath = directory + L"\\AutoReloader.SyringeHook.dll";
-
-    if (!FileExistsW(clientPath))
-    {
-        WriteLog("[Hook] 找不到 MentalOmegaClient.exe");
-        return false;
-    }
-    if (!FileExistsW(hookPath))
-    {
-        WriteLog("[Hook] 找不到 AutoReloader.SyringeHook.dll");
-        return false;
-    }
-
-    HANDLE ready = CreateEventW(nullptr, TRUE, FALSE, AUTORELOADER_HOOK_READY_EVENT);
-    if (ready)
-        ResetEvent(ready);
-
-    std::wstring command = L"\"" + clientPath + L"\"";
-    std::vector<wchar_t> commandBuffer(command.begin(), command.end());
-    commandBuffer.push_back(L'\0');
-
-    STARTUPINFOW startup{};
-    startup.cb = sizeof(startup);
-    startup.dwFlags = STARTF_USESHOWWINDOW;
-    startup.wShowWindow = SW_SHOW;
-
-    PROCESS_INFORMATION process{};
-    if (!CreateProcessW(clientPath.c_str(), commandBuffer.data(), nullptr, nullptr,
-                        FALSE, CREATE_SUSPENDED, nullptr, directory.c_str(),
-                        &startup, &process))
-    {
-        WriteLog("[Hook] 启动 MentalOmegaClient.exe 失败");
-        if (ready) CloseHandle(ready);
-        return false;
-    }
-
-    const bool injected = InjectDll(process.hProcess, hookPath);
-    if (injected && ready)
-    {
-        const DWORD wait = WaitForSingleObject(ready, 5000);
-        if (wait != WAIT_OBJECT_0)
-            WriteLog("[Hook] 等待 Hook 安装超时，继续启动客户端");
-    }
-
-    ResumeThread(process.hThread);
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    if (ready) CloseHandle(ready);
-
-    return true;
-}
-
 int main()
 {
     EnsureAdminOrRelaunch();
@@ -256,35 +150,8 @@ int main()
             WriteLog("[环境] 检测到旧版 Syringe 或未找到 Syringe.exe");
     }
 
-    const std::wstring configPath = std::wstring(currentDir) + L"\\ReloaderConfig.ini";
-    wchar_t hookValue[32]{};
-    GetPrivateProfileStringW(L"Launcher", L"HookSyringeLaunch", L"false",
-                             hookValue,
-                             static_cast<DWORD>(sizeof(hookValue) / sizeof(hookValue[0])),
-                             configPath.c_str());
-    const bool hookSyringe =
-        _wcsicmp(hookValue, L"true") == 0
-        || _wcsicmp(hookValue, L"yes") == 0
-        || wcscmp(hookValue, L"1") == 0;
-
-    char hookLog[160]{};
-    sprintf_s(hookLog, "[配置] HookSyringeLaunch=%ls (%d)", hookValue, hookSyringe ? 1 : 0);
-    WriteLog(hookLog);
-
     WriteLog("[流程] 正在呼叫 MentalOmegaClient.exe...");
-    if (hookSyringe)
-    {
-        WriteLog("[Hook] ReloaderConfig.ini: HookSyringeLaunch=true（实验性，仅建议单机）");
-        if (!LaunchClientWithHook(currentDir))
-        {
-            WriteLog("[Hook] Hook 启动失败，回退普通启动");
-            ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, currentDir, SW_SHOW);
-        }
-    }
-    else
-    {
-        ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, currentDir, SW_SHOW);
-    }
+    ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, currentDir, SW_SHOW);
 
     // ==========================================
     // 智能雷达：等待任意版本大厅载入

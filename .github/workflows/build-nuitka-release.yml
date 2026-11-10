@@ -65,11 +65,8 @@ jobs:
         run: |
           $dll = Get-ChildItem Backend -Recurse -Filter AutoReloader.dll | Select-Object -First 1
           if (-not $dll) { throw "AutoReloader.dll not found" }
-          $hook = Get-ChildItem Backend -Recurse -Filter AutoReloader.SyringeHook.dll | Select-Object -First 1
-          if (-not $hook) { throw "AutoReloader.SyringeHook.dll not found" }
           New-Item -ItemType Directory -Force -Path dist/engine | Out-Null
           Copy-Item $dll.FullName dist/engine/AutoReloader.dll
-          Copy-Item $hook.FullName dist/engine/AutoReloader.SyringeHook.dll
           if (Test-Path Config/ReloaderConfig.ini) { Copy-Item Config/ReloaderConfig.ini dist/engine/ }
       - uses: actions/upload-artifact@v4
         with:
