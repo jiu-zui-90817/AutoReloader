@@ -80,6 +80,7 @@ using byte = unsigned char;
 #include "InfantryClass.h"
 #include "AircraftClass.h"
 #include "BuildingClass.h"
+#include "HouseClass.h"
 
 namespace fs = std::filesystem;
 
