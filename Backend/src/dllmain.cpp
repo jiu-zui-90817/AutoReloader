@@ -1518,7 +1518,6 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
 
     const CoordStruct location = old->Location;
     const DirStruct facing = old->PrimaryFacing.Current();
-    const Mission mission = old->GetCurrentMission();
     const VeterancyStruct veterancy = old->Veterancy;
     const int health = old->Health;
     const int ammo = old->Ammo;
@@ -1526,13 +1525,6 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     const bool selected = old->IsSelected;
     TagClass* tag = old->AttachedTag;
     const DWORD uniqueId = old->UniqueID;
-    AbstractClass* target = old->Target;
-    AbstractClass* archiveTarget = old->ArchiveTarget;
-
-    auto* oldFoot = static_cast<FootClass*>(old);
-    AbstractClass* destination = oldFoot->Destination;
-    AbstractClass* lastDestination = oldFoot->LastDestination;
-    AbstractClass* megaDestination = oldFoot->MegaDestination;
     const int oldMaxHealth = old->GetTechnoType()->Strength;
 
     ObjectClass* created = type->CreateObject(old->Owner);
@@ -1603,20 +1595,21 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     fresh->Health = std::max(1, newHealth);
     if (type->Ammo > 0) fresh->Ammo = std::min(ammo, type->Ammo);
 
-    fresh->Target = target;
-    fresh->ArchiveTarget = archiveTarget;
-    fresh->Destination = destination;
-    fresh->LastDestination = lastDestination;
-    fresh->MegaDestination = megaDestination;
+    fresh->Target = nullptr;
+    fresh->ArchiveTarget = nullptr;
+    fresh->Destination = nullptr;
+    fresh->LastDestination = nullptr;
+    fresh->MegaDestination = nullptr;
 
     if (selected) fresh->Select();
 
     fresh->UniqueID = uniqueId;
 
-    Mission nextMission = mission;
-    if (nextMission == Mission::None) nextMission = Mission::Guard;
-    fresh->QueueMission(nextMission, false);
-    fresh->NextMission();
+    // Do not queue the old mission: a stale Move/Attack with no path can block
+    // every new player order behind it. Reset the mission state completely.
+    fresh->AbortMotion();
+    fresh->ForceMission(Mission::Guard);
+    LogF("[rebuild] [%s] mission reset to Guard", type->ID);
     return true;
 }
 
