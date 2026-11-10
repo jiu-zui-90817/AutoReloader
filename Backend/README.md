@@ -249,6 +249,8 @@ AutoReloader.SyringeLauncher.exe gamemd.exe -SPAWN -CD ...
 
 改回 `GameLauncherExecutableName=Syringe.exe` 即可完全恢复原状。
 
+发布时建议不直接附带修改过的 `ClientDefinitions.ini`，而是附带可选的 `Tools\Enable-SyringeExCompat.cmd` / `Disable-SyringeExCompat.cmd`，由用户自己决定是否启用，并自动备份/恢复。详细说明见 [docs/syringe-ex-mo-config.md](../docs/syringe-ex-mo-config.md)。
+
 ## 源码现状 / 限制
 
 `dllmain.cpp` 实现：配置热更新、文件监控、稳定读取、类型索引、日志、热键边沿触发、`[AutoReloader]` 转换、Phobos 具名 AE 的已有单位自动同步，以及 Ares/Phobos 探测与 Interop 调用。

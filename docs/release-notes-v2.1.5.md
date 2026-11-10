@@ -18,7 +18,7 @@
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **Syringe 版本自适应**：启动前检测 `Syringe.exe` 是新版 SyringeEx 还是旧版 Syringe，分别使用 `--args="..."` 或旧参数形式；不替换/改名任何文件，也不修改 `MOLauncher.exe` / `gamemd.exe`。`MOLauncher` 日志会记录检测结果。
-- **MO 客户端配置适配**：新增 `AutoReloader.SyringeLauncher.exe`。把 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 指向它，客户端就会经包装器按 Syringe 版本生成正确参数。只改一行配置，不注入、不替换 MO 文件。
+- **MO 客户端配置适配**：新增 `AutoReloader.SyringeLauncher.exe`。把 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 指向它，客户端就会经包装器按 Syringe 版本生成正确参数。只改一行配置，不注入、不替换 MO 文件。发布包同时提供可选的 `Tools\Enable-SyringeExCompat.cmd` / `Disable-SyringeExCompat.cmd`，自动备份/恢复该行，默认不启用。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复
