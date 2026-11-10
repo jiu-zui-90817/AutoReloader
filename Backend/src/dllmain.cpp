@@ -81,6 +81,7 @@ using byte = unsigned char;
 #include "AircraftClass.h"
 #include "BuildingClass.h"
 #include "HouseClass.h"
+#include "MapClass.h"
 
 namespace fs = std::filesystem;
 
@@ -1619,6 +1620,15 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
         fresh->Locomotor ? 1 : 0,
         hadTechnoEntry ? 1 : 0,
         hadTypeEntry ? 1 : 0);
+
+    // IsInLogic can be set even when the object never made it into the logic
+    // layer. Re-register unconditionally so the object receives AI/orders and
+    // is included in shutdown cleanup.
+    LogicClass::Instance.RemoveObject(fresh);
+    fresh->IsInLogic = false;
+    const bool logicAdded = LogicClass::Instance.AddObject(fresh, false);
+    fresh->IsInLogic = logicAdded;
+    LogF("[rebuild] [%s] logic forced=%d", type->ID, logicAdded ? 1 : 0);
 
     fresh->AttachedTag = tag;
     fresh->Veterancy = veterancy;
