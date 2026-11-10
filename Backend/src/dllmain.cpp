@@ -1574,11 +1574,27 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     }
 
     fresh->IsInitiated = true;
-    LogF("[rebuild] [%s] placed: logic=%d initiated=%d locomotor=%d",
+
+    const bool hadTechnoEntry = TechnoClass::Array.FindItemIndex(fresh) >= 0;
+    if (!hadTechnoEntry) TechnoClass::Array.AddUnique(fresh);
+
+    bool hadTypeEntry = false;
+    if (fresh->WhatAmI() == UnitClass::AbsID) {
+        hadTypeEntry = UnitClass::Array.FindItemIndex(static_cast<UnitClass*>(fresh)) >= 0;
+        if (!hadTypeEntry) UnitClass::Array.AddUnique(static_cast<UnitClass*>(fresh));
+    }
+    else if (fresh->WhatAmI() == InfantryClass::AbsID) {
+        hadTypeEntry = InfantryClass::Array.FindItemIndex(static_cast<InfantryClass*>(fresh)) >= 0;
+        if (!hadTypeEntry) InfantryClass::Array.AddUnique(static_cast<InfantryClass*>(fresh));
+    }
+
+    LogF("[rebuild] [%s] placed: logic=%d initiated=%d locomotor=%d technoArray=%d typeArray=%d",
         type->ID,
         fresh->IsInLogic ? 1 : 0,
         fresh->IsInitiated ? 1 : 0,
-        fresh->Locomotor ? 1 : 0);
+        fresh->Locomotor ? 1 : 0,
+        hadTechnoEntry ? 1 : 0,
+        hadTypeEntry ? 1 : 0);
 
     fresh->AttachedTag = tag;
     fresh->Veterancy = veterancy;
