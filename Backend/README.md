@@ -218,6 +218,37 @@ SetGlobalVar=10=1
 
 检测代码在 `Launcher/SyringeCompat.h`，由 `YRLauncher` 使用。
 
+### MO 客户端配置适配（推荐，无注入）
+
+MO 客户端通过 `Resources\ClientDefinitions.ini` 决定用哪个程序启动游戏：
+
+```ini
+GameLauncherExecutableName=Syringe.exe
+```
+
+把它改成：
+
+```ini
+GameLauncherExecutableName=AutoReloader.SyringeLauncher.exe
+```
+
+并将 `AutoReloader.SyringeLauncher.exe` 放在游戏根目录（和 `Syringe.exe` 同目录）。客户端会调用：
+
+```text
+AutoReloader.SyringeLauncher.exe gamemd.exe -SPAWN -CD ...
+```
+
+包装器自动检测 Syringe 版本：
+
+- 新版 SyringeEx → `Syringe.exe gamemd.exe --args="-SPAWN -CD ..."`
+- 旧版 Syringe → `Syringe.exe gamemd.exe -SPAWN -CD ...`
+
+它只启动 Syringe 并等待退出，不注入、不替换、不改名任何 MO 文件；只改了客户端的一行配置。
+
+日志：`SyringeLauncher_Log.txt`。
+
+改回 `GameLauncherExecutableName=Syringe.exe` 即可完全恢复原状。
+
 ## 源码现状 / 限制
 
 `dllmain.cpp` 实现：配置热更新、文件监控、稳定读取、类型索引、日志、热键边沿触发、`[AutoReloader]` 转换、Phobos 具名 AE 的已有单位自动同步，以及 Ares/Phobos 探测与 Interop 调用。

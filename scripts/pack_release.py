@@ -208,6 +208,11 @@ def pack(
         raise SystemExit("no launcher exe found")
     shutil.copy2(launcher_src, root / launcher_dst)
 
+    syringe_launcher = launchers / "AutoReloader.SyringeLauncher.exe"
+    if not syringe_launcher.is_file():
+        raise SystemExit("AutoReloader.SyringeLauncher.exe missing")
+    shutil.copy2(syringe_launcher, root / "AutoReloader.SyringeLauncher.exe")
+
     shutil.copy2("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
     for src in (Path("bins/engine/ReloaderConfig.ini"), Path("Config/ReloaderConfig.ini")):
         if src.is_file():

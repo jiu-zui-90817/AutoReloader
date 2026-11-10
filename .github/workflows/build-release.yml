@@ -87,6 +87,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/launchers | Out-Null
           cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib version.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/AutoReloader.SyringeLauncher.exe" Launcher/SyringeLauncher.cpp user32.lib shell32.lib version.lib /link /SUBSYSTEM:WINDOWS
+          if ($LASTEXITCODE -ne 0) { throw "SyringeLauncher failed" }
           cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib version.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
       - uses: actions/upload-artifact@v4
