@@ -179,15 +179,6 @@ namespace
         return L"--args=\"" + SyringeCompat::EscapeInsideQuotes(blob) + L"\"";
     }
 
-    std::wstring BuildSyringeExParameters(const std::wstring& parameters)
-    {
-        if (parameters.empty())
-            return parameters;
-        if (parameters.find(L"--args=") != std::wstring::npos)
-            return parameters;
-        return L"--args=\"" + SyringeCompat::EscapeInsideQuotes(parameters) + L"\"";
-    }
-
     // Returns true if the command line was rewritten.
     bool RewriteCreateProcessCommand(const std::wstring& applicationName,
                                      const std::wstring& commandLine,
@@ -305,6 +296,8 @@ namespace
         const std::wstring directory = currentDirectory ? currentDirectory : L"";
         std::wstring rewritten;
 
+        LogLine(L"CreateProcessW app=" + app + L" cmd=" + cmd);
+
         if (RewriteCreateProcessCommand(app, cmd, directory, rewritten))
         {
             LogLine(L"CreateProcessW rewritten: " + rewritten);
@@ -331,6 +324,8 @@ namespace
         std::wstring cmd = WideFromAnsi(commandLine);
         std::wstring directory = WideFromAnsi(currentDirectory);
         std::wstring rewritten;
+
+        LogLine(L"CreateProcessA app=" + app + L" cmd=" + cmd);
 
         if (RewriteCreateProcessCommand(app, cmd, directory, rewritten))
         {
@@ -361,7 +356,51 @@ namespace
         if (!SyringeCompat::DetectSyringeEx(syringePath))
             return parameters;
 
-        return BuildSyringeExParameters(parameters);
+        const std::vector<std::wstring> args = ParseArguments(parameters.c_str());
+        if (args.empty())
+            return parameters;
+
+        for (const auto& arg : args)
+        {
+            if (arg.rfind(L"--args=", 0) == 0)
+                return parameters;
+        }
+
+        // ShellExecute parameters usually look like:
+        //   "gamemd.exe" -SPAWN -CD ...
+        // The first non-flag is the game executable, not a game argument.
+        size_t targetIndex = 0;
+        bool targetFound = false;
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            if (!args[i].empty() && args[i][0] != L'-')
+            {
+                targetIndex = i;
+                targetFound = true;
+                break;
+            }
+        }
+        if (!targetFound)
+            return parameters;
+
+        std::vector<std::wstring> flags;
+        std::vector<std::wstring> gameArgs;
+        for (size_t i = 0; i < args.size(); ++i)
+        {
+            if (i == targetIndex)
+                continue;
+            if (IsSyringeExFlag(args[i]))
+                flags.push_back(args[i]);
+            else
+                gameArgs.push_back(args[i]);
+        }
+
+        std::wstring rewritten = SyringeCompat::Quote(args[targetIndex]);
+        for (const auto& flag : flags)
+            rewritten += L" " + SyringeCompat::Quote(flag);
+        if (!gameArgs.empty())
+            rewritten += L" " + BuildArgsFlag(gameArgs);
+        return rewritten;
     }
 
     BOOL WINAPI HookShellExecuteExW(LPSHELLEXECUTEINFOW info)
@@ -370,6 +409,7 @@ namespace
         {
             const std::wstring directory = info->lpDirectory ? info->lpDirectory : L"";
             const std::wstring parameters = info->lpParameters ? info->lpParameters : L"";
+            LogLine(L"ShellExecuteExW file=" + std::wstring(info->lpFile) + L" params=" + parameters);
             const std::wstring rewritten = RewriteShellParameters(info->lpFile, parameters, directory);
             if (rewritten != parameters)
             {
@@ -408,6 +448,7 @@ namespace
         const std::wstring fileValue = file ? file : L"";
         const std::wstring parametersValue = parameters ? parameters : L"";
         const std::wstring directoryValue = directory ? directory : L"";
+        LogLine(L"ShellExecuteW file=" + fileValue + L" params=" + parametersValue);
         const std::wstring rewritten = RewriteShellParameters(fileValue, parametersValue, directoryValue);
         if (rewritten != parametersValue)
         {
@@ -460,20 +501,37 @@ namespace
 
         LoadLibraryW(L"shell32.dll");
 
-        MH_CreateHookApi(L"kernel32.dll", "CreateProcessW", reinterpret_cast<LPVOID>(&HookCreateProcessW),
-                         reinterpret_cast<LPVOID*>(&RealCreateProcessW));
-        MH_CreateHookApi(L"kernel32.dll", "CreateProcessA", reinterpret_cast<LPVOID>(&HookCreateProcessA),
-                         reinterpret_cast<LPVOID*>(&RealCreateProcessA));
-        MH_CreateHookApi(L"shell32.dll", "ShellExecuteExW", reinterpret_cast<LPVOID>(&HookShellExecuteExW),
-                         reinterpret_cast<LPVOID*>(&RealShellExecuteExW));
-        MH_CreateHookApi(L"shell32.dll", "ShellExecuteExA", reinterpret_cast<LPVOID>(&HookShellExecuteExA),
-                         reinterpret_cast<LPVOID*>(&RealShellExecuteExA));
-        MH_CreateHookApi(L"shell32.dll", "ShellExecuteW", reinterpret_cast<LPVOID>(&HookShellExecuteW),
-                         reinterpret_cast<LPVOID*>(&RealShellExecuteW));
-        MH_CreateHookApi(L"shell32.dll", "ShellExecuteA", reinterpret_cast<LPVOID>(&HookShellExecuteA),
-                         reinterpret_cast<LPVOID*>(&RealShellExecuteA));
-        MH_CreateHookApi(L"kernel32.dll", "WinExec", reinterpret_cast<LPVOID>(&HookWinExec),
-                         reinterpret_cast<LPVOID*>(&RealWinExec));
+        const auto install = [](const wchar_t* module, const char* name,
+                                LPVOID detour, LPVOID* original)
+        {
+            const MH_STATUS status = MH_CreateHookApi(module, name, detour, original);
+            wchar_t buffer[256]{};
+            swprintf_s(buffer, L"hook %s!%S status=%d", module, name,
+                       static_cast<int>(status));
+            LogLine(buffer);
+        };
+
+        install(L"kernel32.dll", "CreateProcessW",
+                reinterpret_cast<LPVOID>(&HookCreateProcessW),
+                reinterpret_cast<LPVOID*>(&RealCreateProcessW));
+        install(L"kernel32.dll", "CreateProcessA",
+                reinterpret_cast<LPVOID>(&HookCreateProcessA),
+                reinterpret_cast<LPVOID*>(&RealCreateProcessA));
+        install(L"shell32.dll", "ShellExecuteExW",
+                reinterpret_cast<LPVOID>(&HookShellExecuteExW),
+                reinterpret_cast<LPVOID*>(&RealShellExecuteExW));
+        install(L"shell32.dll", "ShellExecuteExA",
+                reinterpret_cast<LPVOID>(&HookShellExecuteExA),
+                reinterpret_cast<LPVOID*>(&RealShellExecuteExA));
+        install(L"shell32.dll", "ShellExecuteW",
+                reinterpret_cast<LPVOID>(&HookShellExecuteW),
+                reinterpret_cast<LPVOID*>(&RealShellExecuteW));
+        install(L"shell32.dll", "ShellExecuteA",
+                reinterpret_cast<LPVOID>(&HookShellExecuteA),
+                reinterpret_cast<LPVOID*>(&RealShellExecuteA));
+        install(L"kernel32.dll", "WinExec",
+                reinterpret_cast<LPVOID>(&HookWinExec),
+                reinterpret_cast<LPVOID*>(&RealWinExec));
 
         const MH_STATUS status = MH_EnableHook(MH_ALL_HOOKS);
         LogLine(L"MH_EnableHook status=" + std::to_wstring(status));
