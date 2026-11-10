@@ -1548,11 +1548,18 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     fresh->PrimaryFacing.SetCurrent(facing);
 
     old->AttachedTag = nullptr;
+    if (selected) old->Deselect();
     if (!old->Limbo()) {
         fresh->UnInit();
         old->AttachedTag = tag;
+        if (selected) old->Select();
         return false;
     }
+
+    // Remove the old object completely before placing the replacement at the
+    // same cell. Its UnInit/Cell cleanup must not run after the new object has
+    // already marked the cell and joined the logic collection.
+    old->UnInit();
 
     ++Unsorted::ScenarioInit;
     const bool placed = fresh->Unlimbo(location, facing.GetDir());
@@ -1560,9 +1567,7 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
 
     if (!placed) {
         fresh->UnInit();
-        old->Unlimbo(location, facing.GetDir());
-        old->AttachedTag = tag;
-        if (selected) old->Select();
+        LogF("[rebuild] [%s] replacement placement failed; old unit already removed", type->ID);
         return false;
     }
 
@@ -1587,12 +1592,8 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     fresh->LastDestination = lastDestination;
     fresh->MegaDestination = megaDestination;
 
-    if (selected) {
-        old->Deselect();
-        fresh->Select();
-    }
+    if (selected) fresh->Select();
 
-    old->UnInit();
     fresh->UniqueID = uniqueId;
 
     Mission nextMission = mission;
