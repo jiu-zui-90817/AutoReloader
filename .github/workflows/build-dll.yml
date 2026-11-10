@@ -44,9 +44,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path build-launchers | Out-Null
-          cl /nologo /EHsc /O2 /Fe:"build-launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          cl /nologo /EHsc /O2 /Fe:"build-launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib version.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "MOLauncher build failed" }
-          cl /nologo /EHsc /O2 /Fe:"build-launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          cl /nologo /EHsc /O2 /Fe:"build-launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib version.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
           if ($LASTEXITCODE -ne 0) { throw "YRLauncher build failed" }
       - name: Verify artifact
         shell: pwsh

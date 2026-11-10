@@ -92,9 +92,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "MO rc failed" }
           rc /nologo /fo dist/launchers/yr_launcher.res Launcher/yr_launcher.rc
           if ($LASTEXITCODE -ne 0) { throw "YR rc failed" }
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/mo_launcher.res
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib version.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/mo_launcher.res
           if ($LASTEXITCODE -ne 0) { throw "MO launcher failed" }
-          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/yr_launcher.res
+          cl /nologo /EHsc /O2 /Fe:"dist/launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib version.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO dist/launchers/yr_launcher.res
           if ($LASTEXITCODE -ne 0) { throw "YR launcher failed" }
       - uses: actions/upload-artifact@v4
         with:
