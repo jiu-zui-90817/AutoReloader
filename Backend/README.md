@@ -103,12 +103,11 @@ Convert=OLD_TYPE->NEW_TYPE
 
 ```ini
 [AutoReloader]
-; 方式一：同类型重初始化（不需要临时单位）
-RefreshExisting=1
-
-; 方式二：专用临时单位，顺序为 Infantry,Unit,Aircraft
+; 专用临时单位，顺序为 Infantry,Unit,Aircraft
 RefreshExisting=AR_TMP_INF,AR_TMP_UNIT,AR_TMP_AIR
 ```
+
+Phobos 的 `ConvertToType` **不接受同类型转换**，所以不要写 `RefreshExisting=1`；必须提供同类别的临时类型。
 
 执行顺序：
 

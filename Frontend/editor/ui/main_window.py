@@ -2260,9 +2260,9 @@ class MainWindow(QMainWindow):
         value, ok = QInputDialog.getText(
             self, "刷新已有单位",
             "RefreshExisting 值：\n"
-            "  1 = 同类型重初始化（不需要临时单位）\n"
-            "  或 Infantry,Unit,Aircraft 三个临时类型 ID",
-            text="1",
+            "  Infantry,Unit,Aircraft 三个临时类型 ID\n"
+            "  Phobos 不支持同类型转换，不能写 1",
+            text="",
         )
         if not ok:
             return
