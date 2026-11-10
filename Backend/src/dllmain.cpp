@@ -1665,7 +1665,18 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     // every new player order behind it. Reset the mission state completely.
     fresh->AbortMotion();
     fresh->ForceMission(Mission::Guard);
-    LogF("[rebuild] [%s] mission reset to Guard", type->ID);
+    LogF("[rebuild] [%s] mission reset to Guard (status=%d start=%d acc=%d queued=%d suspended=%d)",
+        type->ID,
+        fresh->MissionStatus,
+        fresh->CurrentMissionStartTime,
+        fresh->MissionAccumulateTime,
+        static_cast<int>(fresh->QueuedMission),
+        static_cast<int>(fresh->SuspendedMission));
+    fresh->QueuedMission = Mission::None;
+    fresh->SuspendedMission = Mission::None;
+    fresh->MissionStatus = 0;
+    fresh->CurrentMissionStartTime = 0;
+    fresh->MissionAccumulateTime = 0;
     return true;
 }
 
