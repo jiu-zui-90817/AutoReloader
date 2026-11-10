@@ -1526,8 +1526,9 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     TagClass* tag = old->AttachedTag;
     const DWORD uniqueId = old->UniqueID;
     const int oldMaxHealth = old->GetTechnoType()->Strength;
+    HouseClass* owner = old->Owner;
 
-    ObjectClass* created = type->CreateObject(old->Owner);
+    ObjectClass* created = type->CreateObject(owner);
     if (!created) {
         LogF("[rebuild] [%s] CreateObject failed", type->ID);
         return false;
@@ -1574,6 +1575,28 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     }
 
     fresh->IsInitiated = true;
+    fresh->IsAlive = true;
+    fresh->Owner = owner;
+
+    LogF("[rebuild] [%s] state: owner=%p player=%d human=%d controlled=%d alive=%d onMap=%d inLimbo=%d mission=%d queued=%d target=%d dest=%d deact=%d immobile=%d cloak=%d team=%p ownedUnits=%d ownedInf=%d",
+        type->ID,
+        owner,
+        (owner && owner == HouseClass::CurrentPlayer) ? 1 : 0,
+        (owner && owner->IsHumanPlayer) ? 1 : 0,
+        (owner && owner->IsControlledByCurrentPlayer()) ? 1 : 0,
+        fresh->IsAlive ? 1 : 0,
+        fresh->IsOnMap ? 1 : 0,
+        fresh->InLimbo ? 1 : 0,
+        static_cast<int>(fresh->CurrentMission),
+        static_cast<int>(fresh->QueuedMission),
+        fresh->Target ? 1 : 0,
+        fresh->Destination ? 1 : 0,
+        fresh->Deactivated ? 1 : 0,
+        fresh->IsImmobilized ? 1 : 0,
+        static_cast<int>(fresh->CloakState),
+        static_cast<void*>(fresh->Team),
+        owner ? owner->OwnedUnits : -1,
+        owner ? owner->OwnedInfantry : -1);
 
     const bool hadTechnoEntry = TechnoClass::Array.FindItemIndex(fresh) >= 0;
     if (!hadTechnoEntry) TechnoClass::Array.AddUnique(fresh);
