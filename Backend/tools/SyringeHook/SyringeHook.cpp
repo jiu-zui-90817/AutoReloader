@@ -481,8 +481,30 @@ namespace
             return false;
         }
 
-        InjectDllIntoProcess(process.hProcess,
-                             g_dir + L"\\AutoReloader.SyringeHook.dll");
+        const std::wstring hookPath = g_dir + L"\\AutoReloader.SyringeHook.dll";
+        HMODULE hookModule = GetModuleHandleW(L"AutoReloader.SyringeHook.dll");
+        if (!hookModule)
+            hookModule = LoadLibraryW(hookPath.c_str());
+
+        HOOKPROC hookProc = hookModule
+            ? reinterpret_cast<HOOKPROC>(GetProcAddress(hookModule, "AutoReloaderHookProc"))
+            : nullptr;
+
+        HHOOK hook = hookProc
+            ? SetWindowsHookExW(WH_GETMESSAGE, hookProc, hookModule, process.dwThreadId)
+            : nullptr;
+
+        if (hook)
+        {
+            LogLine(L"host hook installed via SetWindowsHookEx: " + file);
+        }
+        else
+        {
+            LogLine(L"SetWindowsHookEx failed error=" + std::to_wstring(GetLastError()) +
+                    L"; falling back to remote thread");
+            InjectDllIntoProcess(process.hProcess, hookPath);
+        }
+
         ResumeThread(process.hThread);
         LogLine(L"host launched suspended and resumed: " + file);
         return true;
@@ -696,6 +718,12 @@ namespace
         InstallHooks();
         return 0;
     }
+}
+
+extern "C" __declspec(dllexport) LRESULT CALLBACK AutoReloaderHookProc(
+    int code, WPARAM wParam, LPARAM lParam)
+{
+    return CallNextHookEx(nullptr, code, wParam, lParam);
 }
 
 BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
