@@ -164,13 +164,13 @@ namespace
         void* remote = VirtualAllocEx(process, nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
         if (!remote)
         {
-            LogLine(L"child inject: VirtualAllocEx failed");
+            LogLine(L"child inject: VirtualAllocEx failed error=" + std::to_wstring(GetLastError()));
             return false;
         }
 
         if (!WriteProcessMemory(process, remote, dllPath.c_str(), size, nullptr))
         {
-            LogLine(L"child inject: WriteProcessMemory failed");
+            LogLine(L"child inject: WriteProcessMemory failed error=" + std::to_wstring(GetLastError()));
             VirtualFreeEx(process, remote, 0, MEM_RELEASE);
             return false;
         }
@@ -180,7 +180,7 @@ namespace
             reinterpret_cast<LPTHREAD_START_ROUTINE>(loadLibrary), remote, 0, nullptr);
         if (!thread)
         {
-            LogLine(L"child inject: CreateRemoteThread failed");
+            LogLine(L"child inject: CreateRemoteThread failed error=" + std::to_wstring(GetLastError()));
             VirtualFreeEx(process, remote, 0, MEM_RELEASE);
             return false;
         }
@@ -193,7 +193,7 @@ namespace
 
         if (module == 0 || module == STILL_ACTIVE)
         {
-            LogLine(L"child inject: LoadLibrary failed");
+            LogLine(L"child inject: LoadLibrary failed module=" + std::to_wstring(module));
             return false;
         }
 
@@ -454,6 +454,40 @@ namespace
         return rewritten;
     }
 
+    bool LaunchHookHost(const std::wstring& file,
+                        const std::wstring& parameters,
+                        const std::wstring& directory,
+                        int show,
+                        PROCESS_INFORMATION& process)
+    {
+        std::wstring command = SyringeCompat::Quote(file);
+        if (!parameters.empty())
+            command += L" " + parameters;
+
+        std::vector<wchar_t> buffer(command.begin(), command.end());
+        buffer.push_back(L'\0');
+
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESHOWWINDOW;
+        startup.wShowWindow = static_cast<WORD>(show);
+
+        const wchar_t* cwd = directory.empty() ? g_dir.c_str() : directory.c_str();
+        if (!CreateProcessW(file.c_str(), buffer.data(), nullptr, nullptr, FALSE,
+                            CREATE_SUSPENDED, nullptr, cwd, &startup, &process))
+        {
+            LogLine(L"host launch failed: " + file +
+                    L" error=" + std::to_wstring(GetLastError()));
+            return false;
+        }
+
+        InjectDllIntoProcess(process.hProcess,
+                             g_dir + L"\\AutoReloader.SyringeHook.dll");
+        ResumeThread(process.hThread);
+        LogLine(L"host launched suspended and resumed: " + file);
+        return true;
+    }
+
     BOOL WINAPI HookShellExecuteExW(LPSHELLEXECUTEINFOW info)
     {
         if (info && info->lpFile)
@@ -464,6 +498,24 @@ namespace
 
             if (IsHookHostPath(info->lpFile))
             {
+                if (!info->lpVerb || _wcsicmp(info->lpVerb, L"runas") != 0)
+                {
+                    PROCESS_INFORMATION process{};
+                    if (LaunchHookHost(info->lpFile,
+                                       info->lpParameters ? info->lpParameters : L"",
+                                       info->lpDirectory ? info->lpDirectory : L"",
+                                       info->nShow, process))
+                    {
+                        if (info->fMask & SEE_MASK_NOCLOSEPROCESS)
+                            info->hProcess = process.hProcess;
+                        else
+                            CloseHandle(process.hProcess);
+                        CloseHandle(process.hThread);
+                        info->hInstApp = reinterpret_cast<HINSTANCE>(33);
+                        return TRUE;
+                    }
+                }
+
                 SHELLEXECUTEINFOW copy = *info;
                 copy.fMask |= SEE_MASK_NOCLOSEPROCESS;
                 const BOOL ok = RealShellExecuteExW(&copy);
@@ -521,6 +573,17 @@ namespace
 
         if (IsHookHostPath(fileValue))
         {
+            if (!operation || _wcsicmp(operation, L"runas") != 0)
+            {
+                PROCESS_INFORMATION process{};
+                if (LaunchHookHost(fileValue, parametersValue, directoryValue, show, process))
+                {
+                    CloseHandle(process.hThread);
+                    CloseHandle(process.hProcess);
+                    return reinterpret_cast<HINSTANCE>(33);
+                }
+            }
+
             SHELLEXECUTEINFOW info{};
             info.cbSize = sizeof(info);
             info.fMask = SEE_MASK_NOCLOSEPROCESS;
