@@ -1542,6 +1542,12 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     fresh->Group = group;
     fresh->PrimaryFacing.SetCurrent(facing);
 
+    // ForceCreate/Unlimbo only place the object; they do not run the full
+    // TechnoClass initialization chain (including Ares/Phobos Init hooks).
+    using TechnoClassInitFn = void(__thiscall*)(TechnoClass*);
+    reinterpret_cast<TechnoClassInitFn>(0x6F3F40)(fresh);
+    LogF("[rebuild] [%s] TechnoClass::Init called", type->ID);
+
     old->AttachedTag = nullptr;
     if (selected) old->Deselect();
     if (!old->Limbo()) {
