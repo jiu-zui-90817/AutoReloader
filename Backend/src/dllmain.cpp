@@ -81,6 +81,7 @@ using byte = unsigned char;
 #include "AircraftClass.h"
 #include "BuildingClass.h"
 #include "LocomotionClass.h"
+#include "MapClass.h"
 
 namespace fs = std::filesystem;
 
@@ -1528,7 +1529,6 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     const DWORD uniqueId = old->UniqueID;
 
     auto* oldFoot = static_cast<FootClass*>(old);
-    const bool oldInitiated = oldFoot->IsInitiated;
     const int oldMaxHealth = old->GetTechnoType()->Strength;
 
     ObjectClass* created = type->CreateObject(old->Owner);
@@ -1567,7 +1567,7 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     fresh->Ammo = ammo;
     fresh->Group = group;
     fresh->PrimaryFacing.SetCurrent(facing);
-    fresh->IsInitiated = oldInitiated;
+    fresh->IsInitiated = true;
 
     int newHealth = health;
     const int newMaxHealth = type->Strength;
@@ -1588,7 +1588,10 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
 
     // Unlimbo does not always create a locomotor for a freshly constructed
     // object; without it the unit renders but cannot move.
-    if (!fresh->Locomotor) {
+    if (fresh->Locomotor) {
+        fresh->Locomotor->Link_To_Object(fresh);
+        fresh->Locomotor->Unlimbo();
+    } else {
         const CLSID& locomotorClass = reinterpret_cast<const CLSID&>(type->Locomotor);
         auto locomotor = LocomotionClass::CreateInstance(locomotorClass);
         if (locomotor) {
@@ -1598,6 +1601,19 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
             LogF("[rebuild] [%s] locomotor created", type->ID);
         } else {
             LogF("[rebuild] [%s] locomotor creation failed", type->ID);
+        }
+    }
+
+    // A constructed object placed with Unlimbo is not guaranteed to join the
+    // logic collection. Without this it can be selected, but it never receives
+    // movement/attack orders (and can hang engine shutdown).
+    if (!fresh->IsInLogic) {
+        const bool added = LogicClass::Instance->AddObject(fresh, false);
+        if (added) {
+            fresh->IsInLogic = true;
+            LogF("[rebuild] [%s] added to logic", type->ID);
+        } else {
+            LogF("[rebuild] [%s] failed to add to logic", type->ID);
         }
     }
 
