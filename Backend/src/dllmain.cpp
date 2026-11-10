@@ -1608,7 +1608,7 @@ bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
     // logic collection. Without this it can be selected, but it never receives
     // movement/attack orders (and can hang engine shutdown).
     if (!fresh->IsInLogic) {
-        const bool added = LogicClass::Instance->AddObject(fresh, false);
+        const bool added = LogicClass::Instance.AddObject(fresh, false);
         if (added) {
             fresh->IsInLogic = true;
             LogF("[rebuild] [%s] added to logic", type->ID);
