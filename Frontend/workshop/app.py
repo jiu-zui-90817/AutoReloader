@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
-    QStatusBar, QSizePolicy, QCheckBox,
+    QStatusBar, QSizePolicy, QCheckBox, QInputDialog,
 )
 
 from fields import (
@@ -126,6 +126,7 @@ from shared.hotfix_io import (
     normalize_section_body,
     read_text,
     encode_ini_bytes,
+    append_autoreloader_commands,
 )  # noqa: E402
 from shared.codex_builder import build_codex, load_codex, save_codex  # noqa: E402
 
@@ -435,6 +436,10 @@ class WorkshopWindow(QMainWindow):
         act_rst = QAction("恢复默认", self)
         act_rst.triggered.connect(self.restore_default)
         tb.addAction(act_rst)
+        act_conv = QAction("单位转换指令…", self)
+        act_conv.setToolTip("向 hotfix 的 [AutoReloader] 写入 Convert=源>目标（可往返）")
+        act_conv.triggered.connect(self.convert_command)
+        tb.addAction(act_conv)
 
         act_copy = QAction("复制代码", self)
         act_copy.triggered.connect(self.copy_full_code)
@@ -1169,6 +1174,59 @@ class WorkshopWindow(QMainWindow):
         self._switching = False
 
     # ---------- deploy / restore（对齐旧版 TacticalConsole 行为）----------
+    def convert_command(self):
+        """把当前单位作为源类型，向 hotfix 写入 Convert 指令。"""
+        if not self.current_id:
+            QMessageBox.information(self, "单位转换", "请先选择单位")
+            return
+        if getattr(self, "current_kind", "unit") != "unit":
+            QMessageBox.information(self, "单位转换", "单位转换只支持步兵/载具/飞行器")
+            return
+        if not self.hotfix_path:
+            QMessageBox.information(self, "单位转换", "请先绑定工程文件（hotfix.ini）")
+            return
+
+        target, ok = QInputDialog.getText(
+            self, "单位转换",
+            f"源类型：[{self.current_id}]\n目标类型 ID（必须同类别）：",
+            text="",
+        )
+        if not ok:
+            return
+        target = target.strip()
+        if not target:
+            return
+        if target.lower() == self.current_id.lower():
+            QMessageBox.warning(self, "单位转换", "目标类型不能和源类型相同")
+            return
+
+        round_trip = QMessageBox.question(
+            self, "单位转换",
+            f"是否同时写入反向转换？\n\n"
+            f"Convert={self.current_id}>{target}\n"
+            f"Convert={target}>{self.current_id}\n\n"
+            "反向转换可让已有单位重新读取配置，并保留编组/指令。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        ) == QMessageBox.StandardButton.Yes
+
+        commands = [f"Convert={self.current_id}>{target}"]
+        if round_trip:
+            commands.append(f"Convert={target}>{self.current_id}")
+
+        result = append_autoreloader_commands(
+            self.hotfix_path, commands,
+            backup_root=self.hotfix_path.parent / "backups",
+        )
+        if result.get("ok"):
+            QMessageBox.information(
+                self, "单位转换",
+                f"已写入 {self.hotfix_path}\n\n" + "\n".join(commands) +
+                "\n\n回到游戏热重载；日志会显示 [convert]。",
+            )
+        else:
+            QMessageBox.warning(self, "单位转换", result.get("message") or "写入失败")
+
     def deploy(self):
         """把当前预览写入 hotfix，并瘦身与 rules 相同的键（旧版 clean_ini）。"""
         if not self.current_id:

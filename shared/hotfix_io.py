@@ -200,3 +200,44 @@ def save_section_to_file(
         result["message"] = f"写入失败: {e}"
 
     return result
+
+
+def append_autoreloader_commands(
+    filepath: Path,
+    commands: List[str],
+    backup_root: Optional[Path] = None,
+) -> dict:
+    """Append AutoReloader commands to the [AutoReloader] section.
+
+    Used by the editor and workshop for Convert=... generation. Existing
+    commands are preserved; duplicate lines are skipped case-insensitively.
+    """
+    filepath = Path(filepath)
+    backup_root = Path(backup_root) if backup_root else filepath.parent / "backups"
+    wanted = [c.strip() for c in commands if c and c.strip()]
+    if not wanted:
+        return {"ok": False, "message": "没有可写入的指令", "path": str(filepath)}
+
+    text = ""
+    if filepath.exists():
+        text, _ = read_text(filepath)
+    span = find_section_span(text, "AutoReloader")
+    body = ""
+    if span:
+        block = text[span[0]:span[1]]
+        lines = block.splitlines()
+        body = "\n".join(lines[1:]).strip("\n")
+
+    existing = {line.strip().lower() for line in body.splitlines() if line.strip()}
+    added = [c for c in wanted if c.lower() not in existing]
+    if not added:
+        return {"ok": True, "message": "指令已存在，未重复写入", "path": str(filepath)}
+
+    new_body = body + ("\n" if body else "") + "\n".join(added)
+    return save_section_to_file(
+        filepath,
+        "AutoReloader",
+        new_body,
+        backup_root=backup_root,
+        is_new=span is None,
+    )

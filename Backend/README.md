@@ -218,7 +218,9 @@ SetGlobalVar=10=1
 
 检测代码在 `Launcher/SyringeCompat.h`，由 `YRLauncher` 使用。
 
-### MO 客户端配置适配（推荐，无注入）
+### MO 客户端配置适配（临时补丁，无注入）
+
+> **这不是长期方案。** 仅用于“旧 MO 客户端 + 新版 SyringeEx”的过渡期；MO 客户端原生支持 `--args` 或官方提供启动器参数接口后应删除。
 
 MO 客户端通过 `Resources\ClientDefinitions.ini` 决定用哪个程序启动游戏：
 

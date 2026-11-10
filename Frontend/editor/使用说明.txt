@@ -54,3 +54,10 @@
   · 超武 / 动画 / 粒子 / AttachEffect.Types：引用存在性（动画类多为 warning）
   · Owner 空、TechLevel 格式与范围；同名节多源为 info
   · 未知扩展键默认不报，避免误杀
+
+【单位转换 / 已有单位刷新】
+  · 工具 →「生成单位转换指令（Convert）…」：当前单位作为源类型
+  · 写入 hotfix 的 [AutoReloader]：Convert=源>目标
+  · 可同时选择写入反向转换；两条一起用，已有单位会重新读取配置
+  · 实测编组和当前移动/攻击指令会保留
+  · 目标必须同类别（Infantry / Unit / Aircraft），且类型已存在

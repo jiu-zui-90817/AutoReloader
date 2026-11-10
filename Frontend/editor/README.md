@@ -23,6 +23,7 @@ python Frontend/editor/main.py
 - 代码区自动换行（编辑菜单）；查找替换
 - 保存当前 / 保存全部；删除 section（带备份）
 - 调试窗口 → 部署 `hotfix.ini` 配合 AutoReloader
+- 工具 →「生成单位转换指令（Convert）…」：当前单位作为源类型，写入 `Convert=源>目标`；可同时写反向转换，让已有单位重新读取配置并保留编组/指令
 
 ## 配置与词典
 

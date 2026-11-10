@@ -78,6 +78,27 @@
    - 发布压缩包名：`AutoReloader-MO-*.zip` / `AutoReloader-YR-*.zip`
 5. **必须用配套启动器启动游戏**（会请求管理员权限），不要直接双击原客户端后指望注入成功。
 
+
+### SyringeEx / MO 客户端：临时兼容补丁
+
+如果 MO 客户端仍按旧参数调用新版 SyringeEx，正式包额外提供：
+
+```text
+AutoReloader.SyringeLauncher.exe
+Tools\Enable-SyringeExCompat.cmd
+Tools\Disable-SyringeExCompat.cmd
+```
+
+它是**临时兼容补丁**：
+
+- 只改 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 一行；
+- 自动备份，可一键恢复；
+- 不替换/改名/注入任何 MO 文件；
+- 默认不启用，需要用户自行运行 `Enable` 脚本；
+- 联机/社区规则风险自负，MO 更新可能覆盖配置。
+
+**不要**把它当成长期修复。详细适用场景、验证方法、回滚与风险见 [docs/syringe-ex-mo-config.md](docs/syringe-ex-mo-config.md)。
+
 上述安装包由 **GitHub Actions** 自动构建；过程说明见上一节「构建与发布说明」。
 
 源码运行见下文「开发者」。

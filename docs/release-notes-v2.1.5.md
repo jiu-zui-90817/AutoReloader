@@ -18,7 +18,8 @@
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **Syringe 版本自适应**：启动前检测 `Syringe.exe` 是新版 SyringeEx 还是旧版 Syringe，分别使用 `--args="..."` 或旧参数形式；不替换/改名任何文件，也不修改 `MOLauncher.exe` / `gamemd.exe`。`MOLauncher` 日志会记录检测结果。
-- **MO 客户端配置适配**：新增 `AutoReloader.SyringeLauncher.exe`。把 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 指向它，客户端就会经包装器按 Syringe 版本生成正确参数。只改一行配置，不注入、不替换 MO 文件。发布包同时提供可选的 `Tools\Enable-SyringeExCompat.cmd` / `Disable-SyringeExCompat.cmd`，自动备份/恢复该行，默认不启用。
+- **MO 客户端配置适配（临时补丁）**：新增 `AutoReloader.SyringeLauncher.exe`。把 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 指向它，客户端就会经包装器按 Syringe 版本生成正确参数。只改一行配置，不注入、不替换 MO 文件。发布包同时提供可选的 `Tools\Enable-SyringeExCompat.cmd` / `Disable-SyringeExCompat.cmd`，自动备份/恢复该行，默认不启用。**它不是长期方案**，MO 客户端原生支持 `--args` 后应回滚；联机规则风险自负。
+- **单位转换指令生成**：编辑器和战术工坊都可以把当前单位作为源类型，生成 `Convert=源>目标`；可选同时写入反向转换，用于让已有单位重新读取配置并保留编组/指令。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复
@@ -44,5 +45,7 @@
 ---
 
 > **说明**：Ares 没有导出刷新 API（全部为 Syringe hook），因此 Ares 扩展字段通过基础类型的 `LoadFromINI` hook 刷新；Ares 独有类型数组（如 AttachEffect 类型）与全局规则节（`[General]` 等）仍无法从外部 DLL 刷新。Phobos 集成要求 Interop API ≥ 1.1（Phobos v0.5-alpha1+），转换仅支持 Unit / Infantry / Aircraft 且源目标类别一致。
+>
+> **SyringeEx / MO 兼容（临时补丁）**：`AutoReloader.SyringeLauncher.exe` 只解决旧 MO 客户端按旧参数调用 SyringeEx 的问题。它需要用户显式运行 `Tools\Enable-SyringeExCompat.cmd`，会备份并修改 `Resources\ClientDefinitions.ini` 的一行启动器配置；不注入、不替换/改名 MO 文件。默认关闭，可一键回滚。MO 客户端更新可能覆盖配置，原生支持 `--args` 后应停用；联机/社区规则风险自负。详见 `docs/syringe-ex-mo-config.md`。
 >
 > **版本**：v2.1.5（含 Syringe 版本自适应）

@@ -2149,6 +2149,11 @@ class MainWindow(QMainWindow):
             self._tool_open_hotfix,
             "打开 hotfix 文件",
         )
+        self.register_tool(
+            "convert_command",
+            self._tool_convert_command,
+            "生成单位转换指令（Convert）…",
+        )
     def _tool_reload_csf(self):
         if not self.project.project_dir:
             QMessageBox.information(self, "CSF", "请先打开工程目录（CSF 从工程加载）")
@@ -2212,6 +2217,86 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._update_chrome()
         self.refresh_tree()
+
+    def _append_autoreloader_commands(self, path: Path, commands: list[str]) -> dict:
+        from core.save_util import read_text, find_section_span, save_section_to_file
+
+        path = Path(path)
+        text = ""
+        if path.exists():
+            text, _ = read_text(path)
+        span = find_section_span(text, "AutoReloader")
+        body = ""
+        if span:
+            block = text[span[0]:span[1]]
+            lines = block.splitlines()
+            body = "\n".join(lines[1:]).strip("\n")
+
+        existing = {line.strip().lower() for line in body.splitlines() if line.strip()}
+        added = [c.strip() for c in commands if c.strip() and c.strip().lower() not in existing]
+        if not added:
+            return {"ok": True, "message": "指令已存在，未重复写入"}
+        new_body = body + ("\n" if body else "") + "\n".join(added)
+        return save_section_to_file(
+            path, "AutoReloader", new_body,
+            backup_root=path.parent / "backups",
+            is_new=span is None,
+        )
+
+    def _tool_convert_command(self):
+        """把 Convert=源>目标 写入 hotfix 的 [AutoReloader]。"""
+        sid = (self.current_section_id or "").strip()
+        if not sid:
+            QMessageBox.information(self, "单位转换", "请先选择一个单位/section 作为源类型")
+            return
+        path = self._hotfix_path()
+        if path is None:
+            QMessageBox.information(self, "单位转换", "请先设置 hotfix 路径")
+            return
+
+        target, ok = QInputDialog.getText(
+            self, "单位转换",
+            f"源类型：[{sid}]\n目标类型 ID（必须同类别：Infantry/Unit/Aircraft）：",
+            text="",
+        )
+        if not ok:
+            return
+        target = target.strip()
+        if not target:
+            return
+        if target.lower() == sid.lower():
+            QMessageBox.warning(self, "单位转换", "目标类型不能和源类型相同")
+            return
+        if not self.project.get_section(target):
+            QMessageBox.warning(
+                self, "单位转换",
+                f"工程里没有找到 [{target}]。\n"
+                "如果它是 hotfix/临时类型，可以继续；否则请先确认 ID。",
+            )
+
+        round_trip = QMessageBox.question(
+            self, "单位转换",
+            f"是否同时写入反向转换？\n\n"
+            f"Convert={sid}>{target}\n"
+            f"Convert={target}>{sid}\n\n"
+            "反向转换可让已有单位重新读取配置，并保留编组/指令。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        ) == QMessageBox.StandardButton.Yes
+
+        commands = [f"Convert={sid}>{target}"]
+        if round_trip:
+            commands.append(f"Convert={target}>{sid}")
+
+        result = self._append_autoreloader_commands(path, commands)
+        if result.get("ok"):
+            QMessageBox.information(
+                self, "单位转换",
+                f"已写入 {path}\n\n" + "\n".join(commands) +
+                "\n\n回到游戏热重载；日志会显示 [convert] converted/failed。",
+            )
+        else:
+            QMessageBox.warning(self, "单位转换", result.get("message") or "写入失败")
 
     def _tool_deploy_hotfix(self):
         """把当前节部署到 hotfix.ini（AutoReloader TargetINI），不改工程源文件。"""
