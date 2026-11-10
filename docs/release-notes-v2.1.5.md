@@ -14,10 +14,10 @@
   - `ReplaceAE=M60:OLD_AE>NEW_AE`
   - `ReplaceAEGroup=M60:GROUP>NEW_AE`
 - **场景变量**：`SetLocalVar=5=1` / `SetGlobalVar=10=1` 运行时修改地图局部变量或战役全局变量，方便调试触发器/事件。
-- **实验性：重载后重建已有单位**：`[Experimental] RefreshExistingUnits=true` 时，重载单位类型会重建场上已有的 Infantry/Unit，让**所有类型参数**（不只 AE）重新初始化；默认关闭，会跳过运输/小队/部署等复杂状态，并转移 Tag/UniqueID 等尽量保留触发器关联。不要用于联机。
 - **已有单位 AE 自动同步**：Phobos **v0.5-alpha1+（Interop 1.1+）** 可用时，只改单位节里的 `AttachEffect.AttachTypes` / `RemoveTypes` / `RemoveGroups` / `DurationOverrides` 等原有写法，重载时自动刷新场上已有单位；MO 3.3.6 默认无 Phobos，因此默认环境不生效。
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
+- **SyringeEx 启动兼容层**：新增 `AutoReloader.SyringeShim.exe`，顶替 `Syringe.exe` 后可同时兼容老 Syringe 与 Phobos 0.5+ 的 SyringeEx；自动把 MO 启动器的老参数翻译成 `--args="..."`，不修改 `MOLauncher.exe` / `gamemd.exe`。见 `docs/syringe-ex-shim.md`。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复

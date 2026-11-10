@@ -416,7 +416,8 @@ Config LoadConfig(const fs::path& configPath, std::wstring& error)
 
     cfg.liveConvert = ParseBoolW(IniStringW(configPath, L"Extensions", L"LiveConvert", L"true"), true);
     cfg.autoSyncAE = ParseBoolW(IniStringW(configPath, L"Extensions", L"AutoSyncAttachEffects", L"true"), true);
-    cfg.refreshExisting = ParseBoolW(IniStringW(configPath, L"Experimental", L"RefreshExistingUnits", L"false"), false);
+    // Engine-only experimental code kept for history; not exposed in the INI.
+    cfg.refreshExisting = false;
 
     std::wstring list = IniStringW(configPath, L"Settings", L"TargetINI", L"hotfix.ini", 8192);
     std::wstringstream ss(list);
@@ -1959,8 +1960,8 @@ DWORD WINAPI MonitorThread(LPVOID)
     ToggleConsole(cfg.showConsole);
     DetectExtensions();
 
-    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d AutoSyncAE=%d RefreshExisting=%d",
-        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert, cfg.autoSyncAE, cfg.refreshExisting);
+    LogF("[config] AutoMonitor=%d HotKey=%d ShowConsole=%d Beep=%d Poll=%dms LiveConvert=%d AutoSyncAE=%d",
+        cfg.autoMonitor, cfg.hotKey, cfg.showConsole, cfg.beep, cfg.pollMs, cfg.liveConvert, cfg.autoSyncAE);
     for (const auto& target : cfg.targets) {
         LogF("[config] target: %s", WideToUtf8(target.wstring()).c_str());
     }
@@ -2015,11 +2016,6 @@ DWORD WINAPI MonitorThread(LPVOID)
                 } else if (cfg.autoSyncAE) {
                     LogF("[ae-auto] AutoSyncAttachEffects is enabled but Phobos AE Interop "
                          "(v0.5-alpha1 / Interop 1.1+) is not available; existing-unit AE sync disabled");
-                }
-                if (cfg.refreshExisting) {
-                    EnsureGameThreadDispatcher();
-                    LogF("[rebuild] experimental RefreshExistingUnits enabled: "
-                         "Infantry/Unit on the map will be rebuilt on reload");
                 }
                 LogF("[system] engine ready; loaded units=%d", UnitTypeClass::Array.Count);
             } else {

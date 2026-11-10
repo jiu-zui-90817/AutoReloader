@@ -37,3 +37,28 @@ set_target_properties(AutoReloader PROPERTIES
   OUTPUT_NAME "AutoReloader"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
+
+# Launcher compatibility shim. Installed as Syringe.exe; picks the real loader
+# (SyringeEx.exe for Phobos 0.5+, SyringeLegacy.exe for old Syringe).
+add_executable(SyringeShim WIN32 tools/SyringeShim.cpp)
+target_link_libraries(SyringeShim PRIVATE shell32)
+if(MSVC)
+  target_compile_options(SyringeShim PRIVATE
+    /std:c++latest
+    /permissive-
+    /utf-8
+    $<$<CONFIG:Release>:/O2 /GL>
+  )
+  target_link_options(SyringeShim PRIVATE
+    $<$<CONFIG:Release>:/LTCG /INCREMENTAL:NO>
+  )
+  target_compile_definitions(SyringeShim PRIVATE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    _WIN32_WINNT=0x0601
+  )
+endif()
+set_target_properties(SyringeShim PROPERTIES
+  OUTPUT_NAME "AutoReloader.SyringeShim"
+  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)

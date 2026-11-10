@@ -46,8 +46,15 @@ jobs:
             Select-Object -First 1
           if (-not $dll) { throw "AutoReloader.dll not found" }
           Write-Host "Built: $($dll.FullName) ($($dll.Length) bytes)"
+          $shim = Get-ChildItem Backend -Recurse -Filter AutoReloader.SyringeShim.exe |
+            Where-Object { $_.FullName -match 'Release' } |
+            Select-Object -First 1
+          if (-not $shim) { throw "AutoReloader.SyringeShim.exe not found" }
+          Write-Host "Built: $($shim.FullName) ($($shim.Length) bytes)"
       - uses: actions/upload-artifact@v4
         with:
           name: AutoReloader-dll
-          path: Backend/build/bin/Release/AutoReloader.dll
+          path: |
+            Backend/build/bin/Release/AutoReloader.dll
+            Backend/build/bin/Release/AutoReloader.SyringeShim.exe
           if-no-files-found: error
