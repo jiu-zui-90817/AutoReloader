@@ -194,11 +194,6 @@ def pack(
         shutil.rmtree(root)
     tools = root / "Tools"
     tools.mkdir(parents=True)
-    for compat_script in ("Enable-SyringeExCompat.cmd", "Disable-SyringeExCompat.cmd"):
-        compat_src = Path("scripts") / compat_script
-        if compat_src.is_file():
-            shutil.copy2(compat_src, tools / compat_script)
-
     launchers = Path("bins/launchers")
     launcher_src = None
     for name in launcher_src_names:
@@ -288,6 +283,11 @@ def pack(
                 pass
 
     _nest_nuitka_like_pyinstaller(tools)
+
+    for compat_script in ("Enable-SyringeExCompat.cmd", "Disable-SyringeExCompat.cmd"):
+        compat_src = Path("scripts") / compat_script
+        if compat_src.is_file():
+            shutil.copy2(compat_src, tools / compat_script)
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
