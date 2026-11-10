@@ -17,7 +17,7 @@
 - **已有单位 AE 自动同步**：Phobos **v0.5-alpha1+（Interop 1.1+）** 可用时，只改单位节里的 `AttachEffect.AttachTypes` / `RemoveTypes` / `RemoveGroups` / `DurationOverrides` 等原有写法，重载时自动刷新场上已有单位；MO 3.3.6 默认无 Phobos，因此默认环境不生效。
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
-- **SyringeEx 启动兼容层**：新增 `AutoReloader.SyringeShim.exe`，顶替 `Syringe.exe` 后可同时兼容老 Syringe 与 Phobos 0.5+ 的 SyringeEx；自动把 MO 启动器的老参数翻译成 `--args="..."`，不修改 `MOLauncher.exe` / `gamemd.exe`。见 `docs/syringe-ex-shim.md`。
+- **Syringe 版本自适应**：启动前检测 `Syringe.exe` 是新版 SyringeEx 还是旧版 Syringe，分别使用 `--args="..."` 或旧参数形式；不替换/改名任何文件，也不修改 `MOLauncher.exe` / `gamemd.exe`。`MOLauncher` 日志会记录检测结果。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复
@@ -44,4 +44,4 @@
 
 > **说明**：Ares 没有导出刷新 API（全部为 Syringe hook），因此 Ares 扩展字段通过基础类型的 `LoadFromINI` hook 刷新；Ares 独有类型数组（如 AttachEffect 类型）与全局规则节（`[General]` 等）仍无法从外部 DLL 刷新。Phobos 集成要求 Interop API ≥ 1.1（Phobos v0.5-alpha1+），转换仅支持 Unit / Infantry / Aircraft 且源目标类别一致。
 >
-> **版本**：v2.1.5（含 Syringe / SyringeEx 启动兼容层）
+> **版本**：v2.1.5（含 Syringe 版本自适应）

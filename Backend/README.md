@@ -210,16 +210,13 @@ SetGlobalVar=10=1
 
 ### 启动器 / SyringeEx 兼容
 
-Phobos 0.5+ 的 SyringeEx 改了命令行语法，MO 启动器仍按老 Syringe 传参，会丢失 `-SPAWN` 等参数并触发 CnCNet 提示。
+启动器会在调用 `Syringe.exe` 前读取其版本：
 
-仓库提供启动兼容层 `AutoReloader.SyringeShim.exe`：
+- 检测到 SyringeEx / 支持 `--args` 的新版 → 使用 `--args="..."`；
+- 检测到旧版 Syringe → 使用旧参数形式；
+- 不替换、不改名、不修改 `Syringe.exe` / `MOLauncher.exe` / `gamemd.exe`。
 
-- 改名为 `Syringe.exe` 使用；
-- 自动识别 `SyringeEx.exe`（新）或 `SyringeLegacy.exe`（旧）；
-- 新 loader 自动翻译成 `--args="..."`，旧 loader 原样转发；
-- 不修改 `MOLauncher.exe` / `gamemd.exe`。
-
-安装与回滚见 [`docs/syringe-ex-shim.md`](../docs/syringe-ex-shim.md)。
+检测代码在 `Launcher/SyringeCompat.h`，由 `YRLauncher` 使用。
 
 ## 源码现状 / 限制
 

@@ -14,6 +14,8 @@
 #include <fstream>
 #include <string>
 
+#include "SyringeCompat.h"
+
  // ==========================================
  // 探针：日志记录功能
  // ==========================================
@@ -138,6 +140,14 @@ int main()
     wchar_t* lastSlash = wcsrchr(currentDir, L'\\');
     if (lastSlash) *lastSlash = L'\0';
     WriteLog("[环境] 已锁定工作目录");
+
+    {
+        const std::wstring syringePath = std::wstring(currentDir) + L"\\Syringe.exe";
+        if (SyringeCompat::DetectSyringeEx(syringePath))
+            WriteLog("[环境] 检测到 SyringeEx（新版注射器）");
+        else
+            WriteLog("[环境] 检测到旧版 Syringe 或未找到 Syringe.exe");
+    }
 
     WriteLog("[流程] 正在呼叫 MentalOmegaClient.exe...");
     ShellExecuteW(NULL, L"open", L"MentalOmegaClient.exe", NULL, currentDir, SW_SHOW);

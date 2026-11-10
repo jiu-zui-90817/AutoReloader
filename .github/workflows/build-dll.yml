@@ -7,11 +7,13 @@ on:
       - "engine/**"
     paths:
       - "Backend/**"
+      - "Launcher/**"
       - "Config/**"
       - ".github/workflows/build-dll.yml"
   pull_request:
     paths:
       - "Backend/**"
+      - "Launcher/**"
       - ".github/workflows/build-dll.yml"
   workflow_dispatch:
 
@@ -38,6 +40,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
           cmake --build build --config Release -- /m
           if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+      - name: Compile launchers
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build-launchers | Out-Null
+          cl /nologo /EHsc /O2 /Fe:"build-launchers/MOLauncher.exe" Launcher/MOInjector.cpp user32.lib advapi32.lib shell32.lib /link /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          if ($LASTEXITCODE -ne 0) { throw "MOLauncher build failed" }
+          cl /nologo /EHsc /O2 /Fe:"build-launchers/YRLauncher.exe" Launcher/YRInjector.cpp user32.lib advapi32.lib shell32.lib gdi32.lib comctl32.lib /link /SUBSYSTEM:WINDOWS /MANIFEST:EMBED /MANIFESTINPUT:"Launcher/app.manifest" /MANIFESTUAC:NO
+          if ($LASTEXITCODE -ne 0) { throw "YRLauncher build failed" }
       - name: Verify artifact
         shell: pwsh
         run: |
@@ -46,15 +56,13 @@ jobs:
             Select-Object -First 1
           if (-not $dll) { throw "AutoReloader.dll not found" }
           Write-Host "Built: $($dll.FullName) ($($dll.Length) bytes)"
-          $shim = Get-ChildItem Backend -Recurse -Filter AutoReloader.SyringeShim.exe |
-            Where-Object { $_.FullName -match 'Release' } |
-            Select-Object -First 1
-          if (-not $shim) { throw "AutoReloader.SyringeShim.exe not found" }
-          Write-Host "Built: $($shim.FullName) ($($shim.Length) bytes)"
       - uses: actions/upload-artifact@v4
         with:
           name: AutoReloader-dll
-          path: |
-            Backend/build/bin/Release/AutoReloader.dll
-            Backend/build/bin/Release/AutoReloader.SyringeShim.exe
+          path: Backend/build/bin/Release/AutoReloader.dll
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoReloader-launchers
+          path: build-launchers/*.exe
           if-no-files-found: error

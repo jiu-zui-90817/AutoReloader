@@ -1,4 +1,4 @@
-﻿/**
+/**
  * =========================================================================================
  * 项目名称: AutoReloader - YR/Ares 独立可视化启动器
  * =========================================================================================
@@ -8,6 +8,9 @@
 #include <shellapi.h>
 #include <tlhelp32.h>
 #include <string>
+#include <vector>
+
+#include "SyringeCompat.h"
 
  // 启用现代 Windows 视觉样式
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
@@ -131,15 +134,25 @@ DWORD WINAPI LaunchThread(LPVOID lpParam) {
         WritePrivateProfileStringW(L"ddraw", L"windowed", L"false", iniPath);
     }
 
-    SetStatusText(L"状态: 正在呼叫 Syringe 启动引擎...");
+    // 3. 检测 Syringe 版本，按新/旧语法构造启动参数（不改动任何原文件）
+    const std::wstring syringePath = std::wstring(currentDir) + L"\\Syringe.exe";
+    const bool syringeEx = SyringeCompat::DetectSyringeEx(syringePath);
 
-    // 3. 统一使用纯净的启动参数
-    wchar_t cmdArgs[] = L"Syringe.exe \"gamemd.exe\" -nospawn";
+    std::vector<std::wstring> gameArgs{ L"-nospawn" };
+    const std::wstring cmdLine = SyringeCompat::BuildCommandLine(
+        syringePath, L"gamemd.exe", gameArgs, syringeEx);
+
+    SetStatusText(syringeEx
+        ? L"状态: 检测到 SyringeEx，使用 --args 启动..."
+        : L"状态: 检测到旧版 Syringe，使用旧参数启动...");
+
+    std::vector<wchar_t> cmdBuffer(cmdLine.begin(), cmdLine.end());
+    cmdBuffer.push_back(L'\0');
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
 
-    if (!CreateProcessW(NULL, cmdArgs, NULL, NULL, FALSE, 0, NULL, currentDir, &si, &pi)) {
+    if (!CreateProcessW(NULL, cmdBuffer.data(), NULL, NULL, FALSE, 0, NULL, currentDir, &si, &pi)) {
         SetStatusText(L"状态: [错误] 找不到 Syringe.exe！请放在游戏根目录。");
         EnableWindow(hBtnLaunch, TRUE);
         return 1;
