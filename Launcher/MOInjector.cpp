@@ -234,6 +234,7 @@ int main()
     clearLog.close();
 
     WriteLog("========== 战术工坊 MO 引导器启动 ==========");
+    WriteLog("[版本] MOLauncher build " __DATE__ " " __TIME__);
 
     HWND hwnd = GetConsoleWindow();
     if (hwnd) ShowWindow(hwnd, SW_HIDE);
@@ -258,6 +259,9 @@ int main()
     const std::wstring configPath = std::wstring(currentDir) + L"\\ReloaderConfig.ini";
     const bool hookSyringe = GetPrivateProfileIntW(
         L"Launcher", L"HookSyringeLaunch", 0, configPath.c_str()) != 0;
+    WriteLog(hookSyringe
+        ? "[配置] HookSyringeLaunch=true"
+        : "[配置] HookSyringeLaunch=false");
 
     WriteLog("[流程] 正在呼叫 MentalOmegaClient.exe...");
     if (hookSyringe)
