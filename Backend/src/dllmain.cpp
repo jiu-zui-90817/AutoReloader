@@ -992,6 +992,101 @@ void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
     LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
 }
 
+void ApplyRefreshExisting(const std::string& value, ReloadOutcome& outcome)
+{
+    if (!g_Extensions.convertToType) {
+        LogF("[refresh] skipped: Phobos ConvertToType_Phobos not available");
+        return;
+    }
+
+    const std::vector<std::string> temps = SplitCsv(value);
+    const bool sameType = value.empty()
+        || _stricmp(value.c_str(), "1") == 0
+        || _stricmp(value.c_str(), "same") == 0;
+
+    auto tempFor = [&](AbstractType what) -> TechnoTypeClass* {
+        if (sameType) return nullptr;
+        size_t index = 0;
+        switch (what) {
+            case AbstractType::Infantry: index = 0; break;
+            case AbstractType::Unit:     index = 1; break;
+            case AbstractType::Aircraft: index = 2; break;
+            default: return nullptr;
+        }
+        if (index >= temps.size() || temps[index].empty())
+            return nullptr;
+        return FindTechnoTypeById(temps[index]);
+    };
+
+    std::vector<std::pair<TechnoClass*, TechnoTypeClass*>> converted;
+    int failed = 0;
+
+    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
+        TechnoClass* object = TechnoClass::Array.Items[i];
+        if (!object || !object->IsAlive) continue;
+
+        const AbstractType what = object->WhatAmI();
+        if (what != AbstractType::Unit
+            && what != AbstractType::Infantry
+            && what != AbstractType::Aircraft) {
+            continue;
+        }
+
+        TechnoTypeClass* original = object->GetTechnoType();
+        TechnoTypeClass* target = sameType ? original : tempFor(what);
+        if (!original || !target) {
+            if (!sameType) ++failed;
+            continue;
+        }
+        if (original->WhatAmI() != target->WhatAmI()) {
+            LogF("[refresh] category mismatch: %s -> %s",
+                 original->ID, target->ID);
+            ++failed;
+            continue;
+        }
+
+        FootClass* foot = nullptr;
+        switch (what) {
+            case AbstractType::Unit:     foot = static_cast<UnitClass*>(object); break;
+            case AbstractType::Infantry: foot = static_cast<InfantryClass*>(object); break;
+            case AbstractType::Aircraft: foot = static_cast<AircraftClass*>(object); break;
+            default: break;
+        }
+        if (!foot) { ++failed; continue; }
+
+        const HRESULT hr = g_Extensions.convertToType(foot, target);
+        if (FAILED(hr)) {
+            ++failed;
+            continue;
+        }
+        converted.emplace_back(object, original);
+    }
+
+    int restored = 0;
+    int restoreFailed = 0;
+    for (auto& [object, original] : converted) {
+        const AbstractType what = object->WhatAmI();
+        FootClass* foot = nullptr;
+        switch (what) {
+            case AbstractType::Unit:     foot = static_cast<UnitClass*>(object); break;
+            case AbstractType::Infantry: foot = static_cast<InfantryClass*>(object); break;
+            case AbstractType::Aircraft: foot = static_cast<AircraftClass*>(object); break;
+            default: break;
+        }
+        if (!foot) { ++restoreFailed; continue; }
+
+        const HRESULT hr = g_Extensions.convertToType(foot, original);
+        if (SUCCEEDED(hr)) ++restored;
+        else ++restoreFailed;
+    }
+
+    outcome.conversions += restored;
+    outcome.conversionFailures += failed + restoreFailed;
+    LogF("[refresh] existing units: converted %d, restored %d, failed %d, restoreFailed %d%s",
+         static_cast<int>(converted.size()), restored, failed, restoreFailed,
+         sameType ? " (same-type)" : "");
+}
+
 bool HasAEAttach()
 {
     return g_Extensions.aeAttachV1 != nullptr || g_Extensions.aeAttachV2 != nullptr;
@@ -1244,6 +1339,13 @@ void ApplyCommands(const std::vector<std::pair<std::string, std::string>>& comma
                 LogF("[convert] skipped: LiveConvert=false");
             } else {
                 ApplyConvert(value, outcome);
+            }
+        }
+        else if (key == "refreshexisting") {
+            if (!cfg.liveConvert) {
+                LogF("[refresh] skipped: LiveConvert=false");
+            } else {
+                ApplyRefreshExisting(value, outcome);
             }
         }
         else if (key == "attachae") {
