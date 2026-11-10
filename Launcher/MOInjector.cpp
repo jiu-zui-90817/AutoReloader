@@ -257,11 +257,19 @@ int main()
     }
 
     const std::wstring configPath = std::wstring(currentDir) + L"\\ReloaderConfig.ini";
-    const bool hookSyringe = GetPrivateProfileIntW(
-        L"Launcher", L"HookSyringeLaunch", 0, configPath.c_str()) != 0;
-    WriteLog(hookSyringe
-        ? "[配置] HookSyringeLaunch=true"
-        : "[配置] HookSyringeLaunch=false");
+    wchar_t hookValue[32]{};
+    GetPrivateProfileStringW(L"Launcher", L"HookSyringeLaunch", L"false",
+                             hookValue,
+                             static_cast<DWORD>(sizeof(hookValue) / sizeof(hookValue[0])),
+                             configPath.c_str());
+    const bool hookSyringe =
+        _wcsicmp(hookValue, L"true") == 0
+        || _wcsicmp(hookValue, L"yes") == 0
+        || wcscmp(hookValue, L"1") == 0;
+
+    char hookLog[160]{};
+    sprintf_s(hookLog, "[配置] HookSyringeLaunch=%ls (%d)", hookValue, hookSyringe ? 1 : 0);
+    WriteLog(hookLog);
 
     WriteLog("[流程] 正在呼叫 MentalOmegaClient.exe...");
     if (hookSyringe)
