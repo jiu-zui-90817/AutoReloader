@@ -97,41 +97,6 @@ Convert=OLD_TYPE->NEW_TYPE
 
 转换在本次 section 重载完成后执行，日志会记录 `converted / failed` 数量。
 
-### 刷新已有单位实例（Phobos v0.5-alpha1+）
-
-`Convert` 可以只转换一次；如果要让**地图上已经存在的单位**重新按新类型数据初始化，用 `RefreshExisting`：
-
-```ini
-[AutoReloader]
-; 专用临时单位，顺序为 Infantry,Unit,Aircraft
-RefreshExisting=AR_TMP_INF,AR_TMP_UNIT,AR_TMP_AIR
-```
-
-Phobos 的 `ConvertToType` **不接受同类型转换**，所以不要写 `RefreshExisting=1`；必须提供同类别的临时类型。
-
-执行顺序：
-
-1. 先记录每个对象的原始类型；
-2. 转到临时类型（或同类型）；
-3. 再转回原始类型。
-
-这样会走 Phobos 的转换路径重新初始化实例，同时保留编组和当前指令（实测）。日志：
-
-```text
-[refresh] existing units: converted N, restored N, failed 0, restoreFailed 0
-```
-
-临时单位建议用编辑器「克隆单位」生成同类别、隐藏的副本：
-
-```ini
-TechLevel=-1
-Owner=
-Prerequisite=
-Cameo=
-```
-
-新增类型/注册表需要重启游戏后才会进入类型索引，不能在运行中热添加。
-
 ### 自动同步已有单位 AE（Phobos v0.5-alpha1+）
 
 这是给“只改原版 INI 的用户”用的：不需要写 `[AutoReloader]` 命令。
@@ -294,7 +259,7 @@ AutoReloader.SyringeLauncher.exe gamemd.exe -SPAWN -CD ...
 
 - 只能重载**已在内存中存在**的类型；新增/删除类型仍无法靠热重载完成（引擎未注册新类型）。
 - `[General]`、`[CombatDamage]` 等全局规则节不会重载（当前只对类型对象调用 `LoadFromINI`）。
-- 已放置单位的实例数据（当前生命、经验、弹药等）不会因类型重载而自动改变；可用 `[AutoReloader]` 的 `RefreshExisting`（或 `Convert`）通过 Phobos 转换路径重新初始化；生命会按百分比换算。
+- 已放置单位的实例数据（当前生命、经验、弹药等）不会因类型重载而自动改变；可用 `[AutoReloader]` 的 `Convert` 通过 Phobos 转换路径换到同类新类型；生命会按百分比换算。
 - Ares/Phobos 独有的新类型数组（AttachEffect、LaserTrail 等）没有公开 API，无法从外部 DLL 直接刷新。
 - 路径过长（> MAX_PATH）时 `CCFileClass` 可能无法读取。
 

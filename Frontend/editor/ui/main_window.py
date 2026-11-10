@@ -667,14 +667,6 @@ class CloneUnitDialog(QDialog):
         self.rewrite_identity.setChecked(True)
         layout.addRow(self.rewrite_identity)
 
-        self.refresh_temp = QCheckBox(
-            "作为刷新临时单位（隐藏：TechLevel=-1，清空 Owner/Prerequisite/Cameo）"
-        )
-        self.refresh_temp.setChecked(False)
-        self.refresh_temp.setToolTip(
-            "用于 RefreshExisting 的临时类型；新增类型/注册表后需重启游戏。"
-        )
-        layout.addRow(self.refresh_temp)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._try_accept)
@@ -818,7 +810,6 @@ class CloneUnitDialog(QDialog):
             "rewrite_identity": self.rewrite_identity.isChecked(),
             "write_csf": bool(self.write_csf.isChecked()),
             "csf_text": self.csf_zh_edit.text().strip(),
-            "refresh_temp": bool(self.refresh_temp.isChecked()),
         }
 
 
@@ -2158,18 +2149,6 @@ class MainWindow(QMainWindow):
             self._tool_open_hotfix,
             "打开 hotfix 文件",
         )
-        self.menu_tools.addSeparator()
-        self.register_tool(
-            "clone_refresh_temp",
-            self._tool_clone_refresh_temp,
-            "克隆刷新临时单位…",
-        )
-        self.register_tool(
-            "refresh_existing",
-            self._tool_refresh_existing,
-            "生成已有单位刷新配置（RefreshExisting）…",
-        )
-
     def _tool_reload_csf(self):
         if not self.project.project_dir:
             QMessageBox.information(self, "CSF", "请先打开工程目录（CSF 从工程加载）")
@@ -2233,81 +2212,6 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._update_chrome()
         self.refresh_tree()
-
-    def _tool_clone_refresh_temp(self):
-        """打开克隆向导，用当前单位生成一个同类别临时刷新单位。"""
-        if not self.current_section_id:
-            QMessageBox.information(self, "临时刷新单位", "请先选择一个单位/section")
-            return
-        QMessageBox.information(
-            self, "临时刷新单位",
-            "接下来用克隆向导生成同类别临时单位。\n"
-            "建议设置：\n"
-            "  TechLevel=-1\n"
-            "  Owner=\n"
-            "  Prerequisite=\n"
-            "  Cameo=\n\n"
-            "新增类型/注册表后需要重启游戏，不能运行中热添加。",
-        )
-        self.on_clone_unit()
-
-    def _tool_refresh_existing(self):
-        """把 RefreshExisting 指令写入 hotfix 的 [AutoReloader]。"""
-        path = self._hotfix_path()
-        if path is None:
-            QMessageBox.information(self, "刷新已有单位", "请先设置 hotfix 路径")
-            return
-        value, ok = QInputDialog.getText(
-            self, "刷新已有单位",
-            "RefreshExisting 值：\n"
-            "  Infantry,Unit,Aircraft 三个临时类型 ID\n"
-            "  Phobos 不支持同类型转换，不能写 1",
-            text="",
-        )
-        if not ok:
-            return
-        value = value.strip()
-        if not value:
-            return
-
-        from core.save_util import read_text, find_section_span, save_section_to_file
-
-        text = ""
-        if path.exists():
-            try:
-                text, _ = read_text(path)
-            except Exception as exc:
-                QMessageBox.warning(self, "刷新已有单位", f"读取失败：{exc}")
-                return
-
-        section_body = ""
-        span = find_section_span(text, "AutoReloader")
-        if span:
-            block = text[span[0]:span[1]]
-            lines = block.splitlines()
-            section_body = "\n".join(lines[1:]).strip("\n")
-
-        line = f"RefreshExisting={value}"
-        if line.lower() in section_body.lower():
-            QMessageBox.information(self, "刷新已有单位", "该指令已存在")
-            return
-
-        new_body = section_body + ("\n" if section_body else "") + line
-        result = save_section_to_file(
-            path,
-            "AutoReloader",
-            new_body,
-            backup_root=path.parent / "backups",
-            is_new=span is None,
-        )
-        if result.get("ok"):
-            QMessageBox.information(
-                self, "刷新已有单位",
-                f"已写入 {path}\n{line}\n\n"
-                "回到游戏按热重载键；日志会显示 [refresh] converted/restored。",
-            )
-        else:
-            QMessageBox.warning(self, "刷新已有单位", result.get("message") or "写入失败")
 
     def _tool_deploy_hotfix(self):
         """把当前节部署到 hotfix.ini（AutoReloader TargetINI），不改工程源文件。"""
@@ -5504,24 +5408,6 @@ class MainWindow(QMainWindow):
             f"请检查后点「保存当前」才会写入文件并备份。",
         )
 
-    def _apply_refresh_temp_flags(self, body: str) -> str:
-        """把克隆体改成不可建造的隐藏临时刷新单位。"""
-        header: list[str] = []
-        rest: list[str] = []
-        hide_keys = {"techlevel", "owner", "prerequisite", "cameo"}
-        for line in body.splitlines():
-            stripped = line.strip()
-            if not header and stripped.startswith("["):
-                header.append(line)
-                continue
-            if "=" in stripped and not stripped.startswith(";"):
-                key = stripped.split("=", 1)[0].strip().lower()
-                if key in hide_keys:
-                    continue
-            rest.append(line)
-        flags = ["TechLevel=-1", "Owner=", "Prerequisite=", "Cameo="]
-        return "\n".join(header + flags + rest).rstrip("\n") + "\n"
-
     def _rewrite_clone_body(self, src_id: str, new_id: str, body: str, *, name: str = "", rewrite_identity: bool = True) -> str:
         """把模板节改成新 ID；可选改写 Image/UIName/Name 中的模板名。"""
         from core.save_util import normalize_section_body
@@ -5574,8 +5460,6 @@ class MainWindow(QMainWindow):
             name=data.get("name") or "",
             rewrite_identity=bool(data.get("rewrite_identity")),
         )
-        if data.get("refresh_temp"):
-            body = self._apply_refresh_temp_flags(body)
         path_str = data.get("path") or ""
         if not path_str:
             src_path = self.project.get_source_path_for_section(src_id)

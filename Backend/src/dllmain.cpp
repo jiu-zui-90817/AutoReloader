@@ -362,7 +362,6 @@ struct Config
     bool hotkeyOnlyInGame = true;
     bool liveConvert = true;
     bool autoSyncAE = true;
-    bool refreshExisting = false;
     bool logFile = true;
     int logMaxKB = 1024;
     int pollMs = 500;
@@ -416,8 +415,6 @@ Config LoadConfig(const fs::path& configPath, std::wstring& error)
 
     cfg.liveConvert = ParseBoolW(IniStringW(configPath, L"Extensions", L"LiveConvert", L"true"), true);
     cfg.autoSyncAE = ParseBoolW(IniStringW(configPath, L"Extensions", L"AutoSyncAttachEffects", L"true"), true);
-    // Engine-only experimental code kept for history; not exposed in the INI.
-    cfg.refreshExisting = false;
 
     std::wstring list = IniStringW(configPath, L"Settings", L"TargetINI", L"hotfix.ini", 8192);
     std::wstringstream ss(list);
@@ -560,20 +557,6 @@ std::unordered_map<std::string, TechnoTypeClass*> g_TechnoTypes;
 // Section(lower) -> last known "AttachEffect.AttachTypes" list.
 std::unordered_map<std::string, std::vector<std::string>> g_typeAECache;
 int g_TypeTotal = 0;
-
-// Experimental: rebuild existing objects on the game thread after a type reload.
-HWND g_gameWnd = nullptr;
-WNDPROC g_oldWndProc = nullptr;
-UINT g_refreshMessage = 0;
-std::mutex g_refreshMutex;
-struct RefreshRequest
-{
-    std::string typeId;
-    std::vector<DWORD> uniqueIds;
-};
-std::vector<RefreshRequest> g_refreshRequests;
-std::atomic<bool> g_refreshWindowMissingLogged{ false };
-bool g_refreshDispatcherReady = false;
 
 int CurrentTypeTotal()
 {
@@ -992,106 +975,6 @@ void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
     LogF("[convert] %s -> %s: converted %d, failed %d", from.c_str(), to.c_str(), converted, failed);
 }
 
-void ApplyRefreshExisting(const std::string& value, ReloadOutcome& outcome)
-{
-    if (!g_Extensions.convertToType) {
-        LogF("[refresh] skipped: Phobos ConvertToType_Phobos not available");
-        return;
-    }
-
-    const std::vector<std::string> temps = SplitCsv(value);
-    const bool sameType = value.empty()
-        || _stricmp(value.c_str(), "1") == 0
-        || _stricmp(value.c_str(), "same") == 0;
-
-    if (sameType) {
-        LogF("[refresh] same-type mode is not supported by Phobos; use temp types");
-        return;
-    }
-
-    auto tempFor = [&](AbstractType what) -> TechnoTypeClass* {
-        if (sameType) return nullptr;
-        size_t index = 0;
-        switch (what) {
-            case AbstractType::Infantry: index = 0; break;
-            case AbstractType::Unit:     index = 1; break;
-            case AbstractType::Aircraft: index = 2; break;
-            default: return nullptr;
-        }
-        if (index >= temps.size() || temps[index].empty())
-            return nullptr;
-        return FindTechnoTypeById(temps[index]);
-    };
-
-    std::vector<std::pair<TechnoClass*, TechnoTypeClass*>> converted;
-    int failed = 0;
-
-    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
-        TechnoClass* object = TechnoClass::Array.Items[i];
-        if (!object || !object->IsAlive) continue;
-
-        const AbstractType what = object->WhatAmI();
-        if (what != AbstractType::Unit
-            && what != AbstractType::Infantry
-            && what != AbstractType::Aircraft) {
-            continue;
-        }
-
-        TechnoTypeClass* original = object->GetTechnoType();
-        TechnoTypeClass* target = sameType ? original : tempFor(what);
-        if (!original || !target) {
-            if (!sameType) ++failed;
-            continue;
-        }
-        if (original->WhatAmI() != target->WhatAmI()) {
-            LogF("[refresh] category mismatch: %s -> %s",
-                 original->ID, target->ID);
-            ++failed;
-            continue;
-        }
-
-        FootClass* foot = nullptr;
-        switch (what) {
-            case AbstractType::Unit:     foot = static_cast<UnitClass*>(object); break;
-            case AbstractType::Infantry: foot = static_cast<InfantryClass*>(object); break;
-            case AbstractType::Aircraft: foot = static_cast<AircraftClass*>(object); break;
-            default: break;
-        }
-        if (!foot) { ++failed; continue; }
-
-        const HRESULT hr = g_Extensions.convertToType(foot, target);
-        if (FAILED(hr)) {
-            ++failed;
-            continue;
-        }
-        converted.emplace_back(object, original);
-    }
-
-    int restored = 0;
-    int restoreFailed = 0;
-    for (auto& [object, original] : converted) {
-        const AbstractType what = object->WhatAmI();
-        FootClass* foot = nullptr;
-        switch (what) {
-            case AbstractType::Unit:     foot = static_cast<UnitClass*>(object); break;
-            case AbstractType::Infantry: foot = static_cast<InfantryClass*>(object); break;
-            case AbstractType::Aircraft: foot = static_cast<AircraftClass*>(object); break;
-            default: break;
-        }
-        if (!foot) { ++restoreFailed; continue; }
-
-        const HRESULT hr = g_Extensions.convertToType(foot, original);
-        if (SUCCEEDED(hr)) ++restored;
-        else ++restoreFailed;
-    }
-
-    outcome.conversions += restored;
-    outcome.conversionFailures += failed + restoreFailed;
-    LogF("[refresh] existing units: converted %d, restored %d, failed %d, restoreFailed %d%s",
-         static_cast<int>(converted.size()), restored, failed, restoreFailed,
-         sameType ? " (same-type)" : "");
-}
-
 bool HasAEAttach()
 {
     return g_Extensions.aeAttachV1 != nullptr || g_Extensions.aeAttachV2 != nullptr;
@@ -1346,13 +1229,6 @@ void ApplyCommands(const std::vector<std::pair<std::string, std::string>>& comma
                 ApplyConvert(value, outcome);
             }
         }
-        else if (key == "refreshexisting") {
-            if (!cfg.liveConvert) {
-                LogF("[refresh] skipped: LiveConvert=false");
-            } else {
-                ApplyRefreshExisting(value, outcome);
-            }
-        }
         else if (key == "attachae") {
             ApplyAEAttach(value, outcome);
         }
@@ -1497,362 +1373,6 @@ void SyncAttachEffectsForSection(
         removedTotal, attachedTotal, detachFailures + attachFailures + removeFailures);
 }
 
-LRESULT CALLBACK GameWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-
-struct WindowSearch
-{
-    DWORD processId;
-    HWND best;
-    long area;
-};
-
-BOOL CALLBACK FindGameWindowProc(HWND hwnd, LPARAM lparam)
-{
-    auto* search = reinterpret_cast<WindowSearch*>(lparam);
-    DWORD processId = 0;
-    GetWindowThreadProcessId(hwnd, &processId);
-    if (processId != search->processId || !IsWindowVisible(hwnd)) return TRUE;
-
-    wchar_t className[128] = {};
-    wchar_t title[256] = {};
-    GetClassNameW(hwnd, className, 128);
-    GetWindowTextW(hwnd, title, 256);
-
-    RECT rect = {};
-    GetWindowRect(hwnd, &rect);
-    const long area = (rect.right - rect.left) * (rect.bottom - rect.top);
-    const bool likely = _wcsicmp(className, L"Game") == 0
-        || wcsstr(title, L"Mental Omega") != nullptr
-        || wcsstr(title, L"Yuri") != nullptr
-        || wcsstr(title, L"Command") != nullptr;
-
-    if (likely) {
-        search->best = hwnd;
-        search->area = area;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-void UninstallGameThreadDispatcher()
-{
-    if (g_gameWnd && g_oldWndProc && IsWindow(g_gameWnd)) {
-        SetWindowLongPtrW(g_gameWnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_oldWndProc));
-    }
-    g_gameWnd = nullptr;
-    g_oldWndProc = nullptr;
-    g_refreshDispatcherReady = false;
-}
-
-void EnsureGameThreadDispatcher()
-{
-    if (g_refreshDispatcherReady && g_gameWnd && IsWindow(g_gameWnd)) return;
-
-    if (!g_refreshMessage) {
-        g_refreshMessage = RegisterWindowMessageW(L"AutoReloader_RefreshExistingUnits");
-    }
-    if (!g_refreshMessage) return;
-
-    WindowSearch search{ GetCurrentProcessId(), nullptr, 0 };
-    EnumWindows(FindGameWindowProc, reinterpret_cast<LPARAM>(&search));
-    if (!search.best) {
-        if (!g_refreshWindowMissingLogged.exchange(true)) {
-            LogF("[rebuild] game window not found yet; existing-unit rebuild will retry on next reload");
-        }
-        return;
-    }
-
-    SetLastError(0);
-    WNDPROC oldProc = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(search.best, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GameWndProc)));
-    if (!oldProc && GetLastError() != 0) {
-        LogF("[rebuild] could not subclass game window (error %lu)", GetLastError());
-        return;
-    }
-
-    g_gameWnd = search.best;
-    g_oldWndProc = oldProc;
-    g_refreshDispatcherReady = true;
-    g_refreshWindowMissingLogged = false;
-
-    wchar_t className[128] = {};
-    GetClassNameW(g_gameWnd, className, 128);
-    LogF("[rebuild] game-thread dispatcher installed (window class=%s)", WideToUtf8(std::wstring(className)).c_str());
-}
-
-TechnoClass* FindTechnoByUniqueId(DWORD uniqueId)
-{
-    for (int i = 0; i < TechnoClass::Array.Count; ++i) {
-        TechnoClass* object = TechnoClass::Array.Items[i];
-        if (object && object->UniqueID == uniqueId) return object;
-    }
-    return nullptr;
-}
-
-bool CanRebuildExistingUnit(TechnoClass* old)
-{
-    if (!old || !old->IsAlive || old->InLimbo || old->Health <= 0) return false;
-    if (old->Transporter || old->Passengers.NumPassengers > 0) return false;
-    if (old->MindControlledBy || old->BunkerLinkedItem) return false;
-    if (old->IsSinking || old->Deactivated) return false;
-    if (old->CloakState != CloakState::Uncloaked) return false;
-    if (old->IronCurtainTimer.GetTimeLeft() > 0 || old->ForceShielded) return false;
-    if (old->TemporalTargetingMe || old->BeingWarpedOut) return false;
-    if (old->SpawnManager || old->SpawnOwner || old->SlaveManager || old->SlaveOwner) return false;
-    if (old->Airstrike) return false;
-
-    auto* foot = static_cast<FootClass*>(old);
-    if (foot->Team) return false;
-
-    if (old->WhatAmI() == UnitClass::AbsID) {
-        auto* unit = static_cast<UnitClass*>(old);
-        if (unit->Deployed || unit->Deploying || unit->Undeploying
-            || unit->IsHarvesting || unit->IsFollowerCar || unit->FollowerCar) {
-            return false;
-        }
-    }
-    else if (old->WhatAmI() == InfantryClass::AbsID) {
-        auto* infantry = static_cast<InfantryClass*>(old);
-        if (infantry->IsDeployed() || infantry->Crawling) return false;
-    }
-    else {
-        return false;
-    }
-
-    return true;
-}
-
-bool RebuildOneExistingUnit(TechnoClass* old, TechnoTypeClass* type)
-{
-    if (!old || !type) return false;
-
-    const CoordStruct location = old->Location;
-    const DirStruct facing = old->PrimaryFacing.Current();
-    const VeterancyStruct veterancy = old->Veterancy;
-    const int health = old->Health;
-    const int ammo = old->Ammo;
-    const int group = old->Group;
-    const bool selected = old->IsSelected;
-    TagClass* tag = old->AttachedTag;
-    const DWORD uniqueId = old->UniqueID;
-    const int oldMaxHealth = old->GetTechnoType()->Strength;
-    HouseClass* owner = old->Owner;
-
-    ObjectClass* created = type->CreateObject(owner);
-    if (!created) {
-        LogF("[rebuild] [%s] CreateObject failed", type->ID);
-        return false;
-    }
-
-    auto* fresh = static_cast<FootClass*>(created);
-    fresh->Veterancy = veterancy;
-    fresh->Ammo = ammo;
-    fresh->Group = group;
-    fresh->PrimaryFacing.SetCurrent(facing);
-
-    // ForceCreate/Unlimbo only place the object; they do not run the full
-    // TechnoClass initialization chain (including Ares/Phobos Init hooks).
-    using TechnoClassInitFn = void(__thiscall*)(TechnoClass*);
-    reinterpret_cast<TechnoClassInitFn>(0x6F3F40)(fresh);
-    LogF("[rebuild] [%s] TechnoClass::Init called", type->ID);
-
-    old->AttachedTag = nullptr;
-    if (selected) old->Deselect();
-    if (!old->Limbo()) {
-        fresh->UnInit();
-        old->AttachedTag = tag;
-        if (selected) old->Select();
-        return false;
-    }
-
-    // Remove the old object completely before placing the replacement at the
-    // same cell. Its UnInit/Cell cleanup must not run after the new object has
-    // already marked the cell and joined the logic collection.
-    old->UnInit();
-
-    CoordStruct createAt = location;
-    ++Unsorted::ScenarioInit;
-    bool placed = fresh->ForceCreate(createAt, 0);
-    --Unsorted::ScenarioInit;
-
-    if (!placed) {
-        ++Unsorted::ScenarioInit;
-        placed = fresh->Unlimbo(location, facing.GetDir());
-        --Unsorted::ScenarioInit;
-        if (placed) {
-            LogF("[rebuild] [%s] ForceCreate failed; Unlimbo fallback used", type->ID);
-        }
-    }
-
-    if (!placed) {
-        fresh->UnInit();
-        LogF("[rebuild] [%s] replacement placement failed; old unit already removed", type->ID);
-        return false;
-    }
-
-    fresh->IsInitiated = true;
-    fresh->IsAlive = true;
-    fresh->Owner = owner;
-
-    LogF("[rebuild] [%s] state: owner=%p player=%d human=%d controlled=%d alive=%d onMap=%d inLimbo=%d mission=%d queued=%d target=%d dest=%d deact=%d immobile=%d cloak=%d team=%p ownedUnits=%d ownedInf=%d",
-        type->ID,
-        owner,
-        (owner && owner == HouseClass::CurrentPlayer) ? 1 : 0,
-        (owner && owner->IsHumanPlayer) ? 1 : 0,
-        (owner && owner->IsControlledByCurrentPlayer()) ? 1 : 0,
-        fresh->IsAlive ? 1 : 0,
-        fresh->IsOnMap ? 1 : 0,
-        fresh->InLimbo ? 1 : 0,
-        static_cast<int>(fresh->CurrentMission),
-        static_cast<int>(fresh->QueuedMission),
-        fresh->Target ? 1 : 0,
-        fresh->Destination ? 1 : 0,
-        fresh->Deactivated ? 1 : 0,
-        fresh->IsImmobilized ? 1 : 0,
-        static_cast<int>(fresh->CloakState),
-        static_cast<void*>(fresh->Team),
-        owner ? owner->OwnedUnits : -1,
-        owner ? owner->OwnedInfantry : -1);
-
-    const bool hadTechnoEntry = TechnoClass::Array.FindItemIndex(fresh) >= 0;
-    if (!hadTechnoEntry) TechnoClass::Array.AddUnique(fresh);
-
-    bool hadTypeEntry = false;
-    if (fresh->WhatAmI() == UnitClass::AbsID) {
-        hadTypeEntry = UnitClass::Array.FindItemIndex(static_cast<UnitClass*>(fresh)) >= 0;
-        if (!hadTypeEntry) UnitClass::Array.AddUnique(static_cast<UnitClass*>(fresh));
-    }
-    else if (fresh->WhatAmI() == InfantryClass::AbsID) {
-        hadTypeEntry = InfantryClass::Array.FindItemIndex(static_cast<InfantryClass*>(fresh)) >= 0;
-        if (!hadTypeEntry) InfantryClass::Array.AddUnique(static_cast<InfantryClass*>(fresh));
-    }
-
-    LogF("[rebuild] [%s] placed: logic=%d initiated=%d locomotor=%d technoArray=%d typeArray=%d",
-        type->ID,
-        fresh->IsInLogic ? 1 : 0,
-        fresh->IsInitiated ? 1 : 0,
-        fresh->Locomotor ? 1 : 0,
-        hadTechnoEntry ? 1 : 0,
-        hadTypeEntry ? 1 : 0);
-
-    // IsInLogic can be set even when the object never made it into the logic
-    // layer. Re-register unconditionally so the object receives AI/orders and
-    // is included in shutdown cleanup.
-    LogicClass::Instance.RemoveObject(fresh);
-    fresh->IsInLogic = false;
-    const bool logicAdded = LogicClass::Instance.AddObject(fresh, false);
-    fresh->IsInLogic = logicAdded;
-    LogF("[rebuild] [%s] logic forced=%d", type->ID, logicAdded ? 1 : 0);
-
-    fresh->AttachedTag = tag;
-    fresh->Veterancy = veterancy;
-    fresh->Ammo = ammo;
-    fresh->Group = group;
-    fresh->PrimaryFacing.SetCurrent(facing);
-
-    int newHealth = health;
-    const int newMaxHealth = type->Strength;
-    if (oldMaxHealth > 0 && newMaxHealth > 0) {
-        newHealth = static_cast<int>(
-            (static_cast<long long>(health) * newMaxHealth + oldMaxHealth / 2) / oldMaxHealth);
-    }
-    fresh->Health = std::max(1, newHealth);
-    if (type->Ammo > 0) fresh->Ammo = std::min(ammo, type->Ammo);
-
-    fresh->Target = nullptr;
-    fresh->ArchiveTarget = nullptr;
-    fresh->Destination = nullptr;
-    fresh->LastDestination = nullptr;
-    fresh->MegaDestination = nullptr;
-
-    if (selected) fresh->Select();
-
-    fresh->UniqueID = uniqueId;
-
-    // Do not queue the old mission: a stale Move/Attack with no path can block
-    // every new player order behind it. Reset the mission state completely.
-    fresh->AbortMotion();
-    fresh->ForceMission(Mission::Guard);
-    LogF("[rebuild] [%s] mission reset to Guard", type->ID);
-    return true;
-}
-
-void ProcessRefreshRequests()
-{
-    std::vector<RefreshRequest> requests;
-    {
-        std::lock_guard<std::mutex> lock(g_refreshMutex);
-        requests.swap(g_refreshRequests);
-    }
-
-    for (const auto& request : requests) {
-        auto found = g_TechnoTypes.find(request.typeId);
-        if (found == g_TechnoTypes.end() || !found->second) continue;
-        TechnoTypeClass* type = found->second;
-
-        int rebuilt = 0;
-        int skipped = 0;
-        int failed = 0;
-
-        std::vector<DWORD> uniqueIds = request.uniqueIds;
-        if (uniqueIds.empty()) {
-            for (int i = 0; i < TechnoClass::Array.Count; ++i) {
-                TechnoClass* object = TechnoClass::Array.Items[i];
-                if (!object || !object->IsAlive) continue;
-                if (object->GetTechnoType() != type) continue;
-                uniqueIds.push_back(object->UniqueID);
-            }
-        }
-
-        for (DWORD uniqueId : uniqueIds) {
-            TechnoClass* old = FindTechnoByUniqueId(uniqueId);
-            if (!old || old->GetTechnoType() != type || !CanRebuildExistingUnit(old)) {
-                ++skipped;
-                continue;
-            }
-            if (RebuildOneExistingUnit(old, type)) ++rebuilt;
-            else ++failed;
-        }
-        LogF("[rebuild] [%s] rebuilt=%d skipped=%d failed=%d",
-            request.typeId.c_str(), rebuilt, skipped, failed);
-    }
-}
-
-LRESULT CALLBACK GameWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
-{
-    if (msg == g_refreshMessage) {
-        ProcessRefreshRequests();
-        return 0;
-    }
-    if (g_oldWndProc) {
-        return CallWindowProcW(g_oldWndProc, hwnd, msg, wparam, lparam);
-    }
-    return DefWindowProcW(hwnd, msg, wparam, lparam);
-}
-
-void QueueExistingUnitRefresh(const std::string& section, TechnoTypeClass* type, const Config& cfg)
-{
-    if (!cfg.refreshExisting || !type) return;
-    const AbstractType what = type->WhatAmI();
-    if (what != InfantryTypeClass::AbsID && what != UnitTypeClass::AbsID) return;
-
-    EnsureGameThreadDispatcher();
-    if (!g_gameWnd) return;
-
-    const std::string typeId = LowerAscii(section);
-    {
-        std::lock_guard<std::mutex> lock(g_refreshMutex);
-        for (const auto& item : g_refreshRequests) {
-            if (item.typeId == typeId) return;
-        }
-        g_refreshRequests.push_back(RefreshRequest{ typeId, {} });
-    }
-
-    if (!PostMessageW(g_gameWnd, g_refreshMessage, 0, 0)) {
-        LogF("[rebuild] PostMessage failed (error %lu)", GetLastError());
-    }
-}
-
 bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcome)
 {
     auto started = std::chrono::steady_clock::now();
@@ -1928,9 +1448,6 @@ bool ReloadFile(const fs::path& target, const Config& cfg, ReloadOutcome& outcom
                     }
 
                     SyncAttachEffectsForSection(section, ini, cfg, outcome);
-                    if (auto* refreshedType = FindTechnoTypeById(section)) {
-                        QueueExistingUnitRefresh(section, refreshedType, cfg);
-                    }
                 }
             }
         }
@@ -2161,7 +1678,6 @@ DWORD WINAPI MonitorThread(LPVOID)
 
         Sleep(25);
     }
-    UninstallGameThreadDispatcher();
     return 0;
 }
 
