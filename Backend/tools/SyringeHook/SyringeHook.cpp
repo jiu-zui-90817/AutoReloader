@@ -150,6 +150,57 @@ namespace
         }
     }
 
+    bool IsHookHostPath(const std::wstring& path)
+    {
+        return EndsWithNoCase(path, L"clientdx.exe")
+            || EndsWithNoCase(path, L"clientxna.exe")
+            || EndsWithNoCase(path, L"clientogl.exe")
+            || EndsWithNoCase(path, L"MOLauncher.exe");
+    }
+
+    bool InjectDllIntoProcess(HANDLE process, const std::wstring& dllPath)
+    {
+        const SIZE_T size = (dllPath.size() + 1) * sizeof(wchar_t);
+        void* remote = VirtualAllocEx(process, nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+        if (!remote)
+        {
+            LogLine(L"child inject: VirtualAllocEx failed");
+            return false;
+        }
+
+        if (!WriteProcessMemory(process, remote, dllPath.c_str(), size, nullptr))
+        {
+            LogLine(L"child inject: WriteProcessMemory failed");
+            VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+            return false;
+        }
+
+        FARPROC loadLibrary = GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryW");
+        HANDLE thread = CreateRemoteThread(process, nullptr, 0,
+            reinterpret_cast<LPTHREAD_START_ROUTINE>(loadLibrary), remote, 0, nullptr);
+        if (!thread)
+        {
+            LogLine(L"child inject: CreateRemoteThread failed");
+            VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+            return false;
+        }
+
+        WaitForSingleObject(thread, 10000);
+        DWORD module = 0;
+        GetExitCodeThread(thread, &module);
+        CloseHandle(thread);
+        VirtualFreeEx(process, remote, 0, MEM_RELEASE);
+
+        if (module == 0 || module == STILL_ACTIVE)
+        {
+            LogLine(L"child inject: LoadLibrary failed");
+            return false;
+        }
+
+        LogLine(L"child inject: hook DLL injected");
+        return true;
+    }
+
     std::vector<std::wstring> ParseArguments(const wchar_t* commandLine)
     {
         std::vector<std::wstring> result;
@@ -410,6 +461,24 @@ namespace
             const std::wstring directory = info->lpDirectory ? info->lpDirectory : L"";
             const std::wstring parameters = info->lpParameters ? info->lpParameters : L"";
             LogLine(L"ShellExecuteExW file=" + std::wstring(info->lpFile) + L" params=" + parameters);
+
+            if (IsHookHostPath(info->lpFile))
+            {
+                SHELLEXECUTEINFOW copy = *info;
+                copy.fMask |= SEE_MASK_NOCLOSEPROCESS;
+                const BOOL ok = RealShellExecuteExW(&copy);
+                if (ok && copy.hProcess)
+                {
+                    InjectDllIntoProcess(copy.hProcess,
+                        g_dir + L"\\AutoReloader.SyringeHook.dll");
+                    if (info->fMask & SEE_MASK_NOCLOSEPROCESS)
+                        info->hProcess = copy.hProcess;
+                    else
+                        CloseHandle(copy.hProcess);
+                }
+                return ok;
+            }
+
             const std::wstring rewritten = RewriteShellParameters(info->lpFile, parameters, directory);
             if (rewritten != parameters)
             {
@@ -449,6 +518,27 @@ namespace
         const std::wstring parametersValue = parameters ? parameters : L"";
         const std::wstring directoryValue = directory ? directory : L"";
         LogLine(L"ShellExecuteW file=" + fileValue + L" params=" + parametersValue);
+
+        if (IsHookHostPath(fileValue))
+        {
+            SHELLEXECUTEINFOW info{};
+            info.cbSize = sizeof(info);
+            info.fMask = SEE_MASK_NOCLOSEPROCESS;
+            info.lpVerb = operation;
+            info.lpFile = file;
+            info.lpParameters = parameters;
+            info.lpDirectory = directory;
+            info.nShow = show;
+            const BOOL ok = RealShellExecuteExW(&info);
+            if (ok && info.hProcess)
+            {
+                InjectDllIntoProcess(info.hProcess,
+                    g_dir + L"\\AutoReloader.SyringeHook.dll");
+                CloseHandle(info.hProcess);
+            }
+            return ok ? reinterpret_cast<HINSTANCE>(33) : reinterpret_cast<HINSTANCE>(2);
+        }
+
         const std::wstring rewritten = RewriteShellParameters(fileValue, parametersValue, directoryValue);
         if (rewritten != parametersValue)
         {
