@@ -44,4 +44,4 @@
 
 > **说明**：Ares 没有导出刷新 API（全部为 Syringe hook），因此 Ares 扩展字段通过基础类型的 `LoadFromINI` hook 刷新；Ares 独有类型数组（如 AttachEffect 类型）与全局规则节（`[General]` 等）仍无法从外部 DLL 刷新。Phobos 集成要求 Interop API ≥ 1.1（Phobos v0.5-alpha1+），转换仅支持 Unit / Infantry / Aircraft 且源目标类别一致。
 >
-> **版本**：v2.1.5（源码提交 `4c90ee9` 之后的实验性重建提交）
+> **版本**：v2.1.5（含 Syringe / SyringeEx 启动兼容层）
