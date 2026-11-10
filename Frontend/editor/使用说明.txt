@@ -54,3 +54,12 @@
   · 超武 / 动画 / 粒子 / AttachEffect.Types：引用存在性（动画类多为 warning）
   · Owner 空、TechLevel 格式与范围；同名节多源为 info
   · 未知扩展键默认不报，避免误杀
+
+【已有单位刷新（Phobos）】
+  · 工具 → 克隆刷新临时单位…：用当前单位克隆一个同类别临时类型
+  · 临时类型建议设：TechLevel=-1、Owner=、Prerequisite=、Cameo=
+  · 新增类型/注册表后必须重启游戏，不能运行中热添加
+  · 工具 → 生成已有单位刷新配置（RefreshExisting）…：写入 hotfix 的 [AutoReloader]
+  · RefreshExisting=1：同类型重初始化，不需要临时单位
+  · RefreshExisting=临时步兵,临时载具,临时飞机：转换到临时类型再转回
+  · 热重载后看 Reloader_Log.txt 的 [refresh] converted/restored

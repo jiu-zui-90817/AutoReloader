@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
     QStatusBar, QTabWidget, QSizePolicy, QDialog, QFormLayout, QDialogButtonBox,
     QSpinBox, QCheckBox, QTextEdit, QMenu, QListWidget, QListWidgetItem, QAbstractItemView,
+    QInputDialog,
 )
 
 from core.project import Project
@@ -2147,6 +2148,17 @@ class MainWindow(QMainWindow):
             self._tool_open_hotfix,
             "打开 hotfix 文件",
         )
+        self.menu_tools.addSeparator()
+        self.register_tool(
+            "clone_refresh_temp",
+            self._tool_clone_refresh_temp,
+            "克隆刷新临时单位…",
+        )
+        self.register_tool(
+            "refresh_existing",
+            self._tool_refresh_existing,
+            "生成已有单位刷新配置（RefreshExisting）…",
+        )
 
     def _tool_reload_csf(self):
         if not self.project.project_dir:
@@ -2211,6 +2223,81 @@ class MainWindow(QMainWindow):
         self._dirty = False
         self._update_chrome()
         self.refresh_tree()
+
+    def _tool_clone_refresh_temp(self):
+        """打开克隆向导，用当前单位生成一个同类别临时刷新单位。"""
+        if not self.current_section_id:
+            QMessageBox.information(self, "临时刷新单位", "请先选择一个单位/section")
+            return
+        QMessageBox.information(
+            self, "临时刷新单位",
+            "接下来用克隆向导生成同类别临时单位。\n"
+            "建议设置：\n"
+            "  TechLevel=-1\n"
+            "  Owner=\n"
+            "  Prerequisite=\n"
+            "  Cameo=\n\n"
+            "新增类型/注册表后需要重启游戏，不能运行中热添加。",
+        )
+        self.on_clone_unit()
+
+    def _tool_refresh_existing(self):
+        """把 RefreshExisting 指令写入 hotfix 的 [AutoReloader]。"""
+        path = self._hotfix_path()
+        if path is None:
+            QMessageBox.information(self, "刷新已有单位", "请先设置 hotfix 路径")
+            return
+        value, ok = QInputDialog.getText(
+            self, "刷新已有单位",
+            "RefreshExisting 值：\n"
+            "  1 = 同类型重初始化（不需要临时单位）\n"
+            "  或 Infantry,Unit,Aircraft 三个临时类型 ID",
+            text="1",
+        )
+        if not ok:
+            return
+        value = value.strip()
+        if not value:
+            return
+
+        from core.save_util import read_text, find_section_span, save_section_to_file
+
+        text = ""
+        if path.exists():
+            try:
+                text, _ = read_text(path)
+            except Exception as exc:
+                QMessageBox.warning(self, "刷新已有单位", f"读取失败：{exc}")
+                return
+
+        section_body = ""
+        span = find_section_span(text, "AutoReloader")
+        if span:
+            block = text[span[0]:span[1]]
+            lines = block.splitlines()
+            section_body = "\n".join(lines[1:]).strip("\n")
+
+        line = f"RefreshExisting={value}"
+        if line.lower() in section_body.lower():
+            QMessageBox.information(self, "刷新已有单位", "该指令已存在")
+            return
+
+        new_body = section_body + ("\n" if section_body else "") + line
+        result = save_section_to_file(
+            path,
+            "AutoReloader",
+            new_body,
+            backup_root=path.parent / "backups",
+            is_new=span is None,
+        )
+        if result.get("ok"):
+            QMessageBox.information(
+                self, "刷新已有单位",
+                f"已写入 {path}\n{line}\n\n"
+                "回到游戏按热重载键；日志会显示 [refresh] converted/restored。",
+            )
+        else:
+            QMessageBox.warning(self, "刷新已有单位", result.get("message") or "写入失败")
 
     def _tool_deploy_hotfix(self):
         """把当前节部署到 hotfix.ini（AutoReloader TargetINI），不改工程源文件。"""
