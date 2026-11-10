@@ -288,6 +288,9 @@ def pack(
         compat_src = Path("scripts") / compat_script
         if compat_src.is_file():
             shutil.copy2(compat_src, tools / compat_script)
+    must(tools / "Enable-SyringeExCompat.cmd")
+    must(tools / "Disable-SyringeExCompat.cmd")
+    must(root / "AutoReloader.SyringeLauncher.exe")
 
     must(root / launcher_dst)
     must(root / "AutoReloader.dll")
