@@ -209,6 +209,10 @@ def pack(
     shutil.copy2(launcher_src, root / launcher_dst)
 
     shutil.copy2("bins/engine/AutoReloader.dll", root / "AutoReloader.dll")
+    hook = Path("bins/engine/AutoReloader.SyringeHook.dll")
+    if not hook.is_file():
+        raise SystemExit("bins/engine/AutoReloader.SyringeHook.dll missing")
+    shutil.copy2(hook, root / "AutoReloader.SyringeHook.dll")
     for src in (Path("bins/engine/ReloaderConfig.ini"), Path("Config/ReloaderConfig.ini")):
         if src.is_file():
             shutil.copy2(src, root / "ReloaderConfig.ini")

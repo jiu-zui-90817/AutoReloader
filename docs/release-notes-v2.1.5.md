@@ -18,6 +18,7 @@
 - **Ares / Phobos 探测**：日志记录 Phobos Interop 版本与转换能力；Ares 基础类型扩展字段随 `LoadFromINI` hook 自动刷新。
 - **DLL CI**：新增 `.github/workflows/build-dll.yml`，push/PR 修改 `Backend/**` 时自动编译 x86 DLL。
 - **Syringe 版本自适应**：启动前检测 `Syringe.exe` 是新版 SyringeEx 还是旧版 Syringe，分别使用 `--args="..."` 或旧参数形式；不替换/改名任何文件，也不修改 `MOLauncher.exe` / `gamemd.exe`。`MOLauncher` 日志会记录检测结果。
+- **实验性 Hook（默认关）**：`[Launcher] HookSyringeLaunch=true` 时，`MOLauncher` 注入 `AutoReloader.SyringeHook.dll`，改写 `MentalOmegaClient.exe` 调用 Syringe 的参数。默认关闭，仅建议单机/自测；可能违反 MO/CnCNet 社区规定，不要联机使用。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复

@@ -6,6 +6,8 @@
  */
 #pragma once
 
+#define AUTORELOADER_HOOK_READY_EVENT L"Local\\AutoReloaderSyringeHookReady"
+
 #include <windows.h>
 #include <algorithm>
 #include <cstdint>

@@ -218,6 +218,29 @@ SetGlobalVar=10=1
 
 检测代码在 `Launcher/SyringeCompat.h`，由 `YRLauncher` 使用。
 
+### 实验性：Hook MentalOmegaClient（默认关，仅建议单机）
+
+MO 模式实际由 `MentalOmegaClient.exe` 自己调用 Syringe。若要让 MO 模式也按新/旧版本换参数，可打开：
+
+```ini
+[Launcher]
+HookSyringeLaunch=false
+```
+
+改为 `true` 后：
+
+- `MOLauncher.exe` 以挂起方式启动 `MentalOmegaClient.exe`；
+- 注入 `AutoReloader.SyringeHook.dll`；
+- Hook `CreateProcessW/A`、`ShellExecuteExW/A`；
+- 检测到新版 SyringeEx 时把参数改成 `--args="..."`，旧版保持原样。
+
+**风险（务必先看）**：
+
+- 这不修改 MO 文件，但**会注入并改变 MO 客户端的运行时行为**，可能违反 MO/CnCNet 社区规定；
+- **不要联机使用**；只建议单机/自测；
+- 客户端更新、反注入或 .NET/CLR 变化都可能让它失效或崩溃；
+- 默认关闭；出问题把 `HookSyringeLaunch` 改回 `false`。
+
 ## 源码现状 / 限制
 
 `dllmain.cpp` 实现：配置热更新、文件监控、稳定读取、类型索引、日志、热键边沿触发、`[AutoReloader]` 转换、Phobos 具名 AE 的已有单位自动同步，以及 Ares/Phobos 探测与 Interop 调用。

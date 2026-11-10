@@ -56,10 +56,17 @@ jobs:
             Select-Object -First 1
           if (-not $dll) { throw "AutoReloader.dll not found" }
           Write-Host "Built: $($dll.FullName) ($($dll.Length) bytes)"
+          $hook = Get-ChildItem Backend -Recurse -Filter AutoReloader.SyringeHook.dll |
+            Where-Object { $_.FullName -match 'Release' } |
+            Select-Object -First 1
+          if (-not $hook) { throw "AutoReloader.SyringeHook.dll not found" }
+          Write-Host "Built: $($hook.FullName) ($($hook.Length) bytes)"
       - uses: actions/upload-artifact@v4
         with:
           name: AutoReloader-dll
-          path: Backend/build/bin/Release/AutoReloader.dll
+          path: |
+            Backend/build/bin/Release/AutoReloader.dll
+            Backend/build/bin/Release/AutoReloader.SyringeHook.dll
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
