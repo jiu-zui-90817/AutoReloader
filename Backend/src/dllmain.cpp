@@ -1004,6 +1004,11 @@ void ApplyRefreshExisting(const std::string& value, ReloadOutcome& outcome)
         || _stricmp(value.c_str(), "1") == 0
         || _stricmp(value.c_str(), "same") == 0;
 
+    if (sameType) {
+        LogF("[refresh] same-type mode is not supported by Phobos; use temp types");
+        return;
+    }
+
     auto tempFor = [&](AbstractType what) -> TechnoTypeClass* {
         if (sameType) return nullptr;
         size_t index = 0;

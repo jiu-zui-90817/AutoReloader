@@ -667,6 +667,15 @@ class CloneUnitDialog(QDialog):
         self.rewrite_identity.setChecked(True)
         layout.addRow(self.rewrite_identity)
 
+        self.refresh_temp = QCheckBox(
+            "作为刷新临时单位（隐藏：TechLevel=-1，清空 Owner/Prerequisite/Cameo）"
+        )
+        self.refresh_temp.setChecked(False)
+        self.refresh_temp.setToolTip(
+            "用于 RefreshExisting 的临时类型；新增类型/注册表后需重启游戏。"
+        )
+        layout.addRow(self.refresh_temp)
+
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self._try_accept)
         buttons.rejected.connect(self.reject)
@@ -809,6 +818,7 @@ class CloneUnitDialog(QDialog):
             "rewrite_identity": self.rewrite_identity.isChecked(),
             "write_csf": bool(self.write_csf.isChecked()),
             "csf_text": self.csf_zh_edit.text().strip(),
+            "refresh_temp": bool(self.refresh_temp.isChecked()),
         }
 
 
@@ -5494,6 +5504,24 @@ class MainWindow(QMainWindow):
             f"请检查后点「保存当前」才会写入文件并备份。",
         )
 
+    def _apply_refresh_temp_flags(self, body: str) -> str:
+        """把克隆体改成不可建造的隐藏临时刷新单位。"""
+        header: list[str] = []
+        rest: list[str] = []
+        hide_keys = {"techlevel", "owner", "prerequisite", "cameo"}
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not header and stripped.startswith("["):
+                header.append(line)
+                continue
+            if "=" in stripped and not stripped.startswith(";"):
+                key = stripped.split("=", 1)[0].strip().lower()
+                if key in hide_keys:
+                    continue
+            rest.append(line)
+        flags = ["TechLevel=-1", "Owner=", "Prerequisite=", "Cameo="]
+        return "\n".join(header + flags + rest).rstrip("\n") + "\n"
+
     def _rewrite_clone_body(self, src_id: str, new_id: str, body: str, *, name: str = "", rewrite_identity: bool = True) -> str:
         """把模板节改成新 ID；可选改写 Image/UIName/Name 中的模板名。"""
         from core.save_util import normalize_section_body
@@ -5546,6 +5574,8 @@ class MainWindow(QMainWindow):
             name=data.get("name") or "",
             rewrite_identity=bool(data.get("rewrite_identity")),
         )
+        if data.get("refresh_temp"):
+            body = self._apply_refresh_temp_flags(body)
         path_str = data.get("path") or ""
         if not path_str:
             src_path = self.project.get_source_path_for_section(src_id)
