@@ -93,7 +93,10 @@ Convert=OLD_TYPE->NEW_TYPE
 
 - `[Extensions] LiveConvert=true`；
 - 进程内已加载 Phobos 且 **Interop API ≥ 1.1**（Phobos **v0.5-alpha1** 或更新版本）；
-- 源/目标类型都在内存中，且类型类别一致（Unit/Infantry/Aircraft）。
+- 源/目标类型都在内存中，且类型类别一致（Unit/Infantry/Aircraft）；
+- 水域/陆地属性一致：海军只能转海军，陆军只能转陆军；跨水域/陆地会被拒绝并写日志。
+
+编辑器和工坊的目标下拉会按同类别、同水域/陆地过滤，并自动替换源类型的旧 `Convert` 映射；如果仍存在指向源类型的旧映射，会提示可能的链式转换。
 
 转换在本次 section 重载完成后执行，日志会记录 `converted / failed` 数量。
 

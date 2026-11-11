@@ -126,7 +126,8 @@ from shared.hotfix_io import (
     normalize_section_body,
     read_text,
     encode_ini_bytes,
-    append_autoreloader_commands,
+    apply_convert_commands,
+    read_autoreloader_commands,
 )  # noqa: E402
 from shared.codex_builder import build_codex, load_codex, save_codex  # noqa: E402
 
@@ -1174,6 +1175,37 @@ class WorkshopWindow(QMainWindow):
         self._switching = False
 
     # ---------- deploy / restore（对齐旧版 TacticalConsole 行为）----------
+    def _convert_target_ids(self, source: str) -> list[str]:
+        if not self.game:
+            return []
+        groups = self.game.list_groups()
+        source_group = None
+        for group in ("InfantryTypes", "VehicleTypes", "AircraftTypes"):
+            if any(x.lower() == source.lower() for x in groups.get(group, [])):
+                source_group = group
+                break
+        if not source_group:
+            return []
+        src_sec = self.game.get_section(source)
+        src_naval = self._is_naval_section(src_sec)
+        result = []
+        for tid in groups.get(source_group, []):
+            if tid.lower() == source.lower():
+                continue
+            sec = self.game.get_section(tid)
+            if not sec:
+                continue
+            if self._is_naval_section(sec) != src_naval:
+                continue
+            result.append(tid)
+        return sorted(result, key=str.lower)
+
+    @staticmethod
+    def _is_naval_section(sec) -> bool:
+        if not sec:
+            return False
+        return str(sec.get("Naval", "no")).strip().lower() in ("yes", "true", "1", "y")
+
     def convert_command(self):
         """把当前单位作为源类型，向 hotfix 写入 Convert 指令。"""
         if not self.current_id:
@@ -1186,19 +1218,43 @@ class WorkshopWindow(QMainWindow):
             QMessageBox.information(self, "单位转换", "请先绑定工程文件（hotfix.ini）")
             return
 
-        target, ok = QInputDialog.getText(
+        targets = self._convert_target_ids(self.current_id)
+        if not targets:
+            QMessageBox.information(
+                self, "单位转换",
+                f"[{self.current_id}] 没有可用的同类别、同水域/陆地目标类型。\n"
+                "海军只能转海军，陆军只能转陆军；目标必须已存在于 rules。",
+            )
+            return
+
+        target, ok = QInputDialog.getItem(
             self, "单位转换",
-            f"源类型：[{self.current_id}]\n目标类型 ID（必须同类别）：",
-            text="",
+            f"源类型：[{self.current_id}]\n只显示同类别且同水域/陆地的目标：",
+            targets, 0, False,
         )
-        if not ok:
+        if not ok or not target:
             return
-        target = target.strip()
-        if not target:
-            return
-        if target.lower() == self.current_id.lower():
-            QMessageBox.warning(self, "单位转换", "目标类型不能和源类型相同")
-            return
+
+        import re
+        incoming = []
+        for line in read_autoreloader_commands(self.hotfix_path):
+            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line)
+            if not m:
+                continue
+            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
+            if len(parts) == 2 and parts[1].strip().lower() == self.current_id.lower() \
+                    and parts[0].strip().lower() != self.current_id.lower():
+                incoming.append(line)
+        if incoming:
+            choice = QMessageBox.question(
+                self, "单位转换",
+                "检测到指向该源类型的其它转换：\n\n" + "\n".join(incoming) +
+                "\n\n它们可能与新转换形成链式转换。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
 
         round_trip = QMessageBox.question(
             self, "单位转换",
@@ -1210,18 +1266,18 @@ class WorkshopWindow(QMainWindow):
             QMessageBox.StandardButton.Yes,
         ) == QMessageBox.StandardButton.Yes
 
-        commands = [f"Convert={self.current_id}>{target}"]
-        if round_trip:
-            commands.append(f"Convert={target}>{self.current_id}")
-
-        result = append_autoreloader_commands(
-            self.hotfix_path, commands,
+        result = apply_convert_commands(
+            self.hotfix_path, self.current_id, target, round_trip,
             backup_root=self.hotfix_path.parent / "backups",
         )
         if result.get("ok"):
+            extra = ""
+            if result.get("removed"):
+                extra += "\n\n已替换旧映射：\n" + "\n".join(result["removed"])
             QMessageBox.information(
                 self, "单位转换",
-                f"已写入 {self.hotfix_path}\n\n" + "\n".join(commands) +
+                f"已写入 {self.hotfix_path}\n\n" + "\n".join(result.get("commands") or []) +
+                extra +
                 "\n\n回到游戏热重载；日志会显示 [convert]。",
             )
         else:

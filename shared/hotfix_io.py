@@ -241,3 +241,91 @@ def append_autoreloader_commands(
         backup_root=backup_root,
         is_new=span is None,
     )
+
+
+def read_autoreloader_commands(filepath: Path) -> List[str]:
+    """Return non-empty command lines from the [AutoReloader] section."""
+    filepath = Path(filepath)
+    if not filepath.is_file():
+        return []
+    text, _ = read_text(filepath)
+    span = find_section_span(text, "AutoReloader")
+    if not span:
+        return []
+    block = text[span[0]:span[1]]
+    return [
+        line.strip() for line in block.splitlines()[1:]
+        if line.strip() and not line.strip().startswith((";", "#"))
+    ]
+
+
+def apply_convert_commands(
+    filepath: Path,
+    source: str,
+    target: str,
+    round_trip: bool,
+    backup_root: Optional[Path] = None,
+) -> dict:
+    """Write Convert commands, replacing conflicting mappings from source.
+
+    - Existing ``Convert=source>...`` lines are removed and replaced.
+    - If ``round_trip``, an existing ``Convert=target>source`` is removed.
+    - Other commands are preserved; incoming mappings to source are reported so
+      the caller can warn about chained conversions.
+    """
+    filepath = Path(filepath)
+    source = source.strip()
+    target = target.strip()
+    backup_root = Path(backup_root) if backup_root else filepath.parent / "backups"
+    if not source or not target:
+        return {"ok": False, "message": "源/目标为空", "path": str(filepath)}
+
+    text = ""
+    if filepath.exists():
+        text, _ = read_text(filepath)
+    span = find_section_span(text, "AutoReloader")
+    body = ""
+    if span:
+        block = text[span[0]:span[1]]
+        body = "\n".join(block.splitlines()[1:]).strip("\n")
+
+    kept: List[str] = []
+    removed: List[str] = []
+    incoming: List[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        m = re.match(r"(?i)^convert\s*=\s*(.+)$", stripped)
+        if not m:
+            kept.append(line)
+            continue
+        spec = m.group(1)
+        parts = re.split(r"\s*(?:->|>)\s*", spec, maxsplit=1)
+        if len(parts) != 2:
+            kept.append(line)
+            continue
+        src, dst = parts[0].strip(), parts[1].strip()
+        if src.lower() == source.lower():
+            removed.append(stripped)
+            continue
+        if round_trip and src.lower() == target.lower() and dst.lower() == source.lower():
+            removed.append(stripped)
+            continue
+        if dst.lower() == source.lower():
+            incoming.append(stripped)
+        kept.append(line)
+
+    added = [f"Convert={source}>{target}"]
+    if round_trip:
+        added.append(f"Convert={target}>{source}")
+    new_body = "\n".join(kept + added).strip("\n")
+    result = save_section_to_file(
+        filepath,
+        "AutoReloader",
+        new_body,
+        backup_root=backup_root,
+        is_new=span is None,
+    )
+    result["removed"] = removed
+    result["incoming"] = incoming
+    result["commands"] = added
+    return result

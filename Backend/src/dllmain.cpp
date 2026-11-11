@@ -947,6 +947,12 @@ void ApplyConvert(const std::string& value, ReloadOutcome& outcome)
         LogF("[convert] incompatible types: %s -> %s", from.c_str(), to.c_str());
         return;
     }
+    if (fromType->Naval != toType->Naval) {
+        LogF("[convert] movement domain mismatch (naval=%d -> %d): %s -> %s",
+             fromType->Naval ? 1 : 0, toType->Naval ? 1 : 0,
+             from.c_str(), to.c_str());
+        return;
+    }
 
     int converted = 0;
     int failed = 0;

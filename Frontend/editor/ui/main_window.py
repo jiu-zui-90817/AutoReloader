@@ -2243,6 +2243,108 @@ class MainWindow(QMainWindow):
             is_new=span is None,
         )
 
+    def _convert_target_ids(self, source: str) -> list[str]:
+        ini = self.project.rules or self.project.active_ini()
+        if not ini:
+            return []
+        groups = self.project.classify_sections(ini)
+        source_group = None
+        for group in ("InfantryTypes", "VehicleTypes", "AircraftTypes"):
+            if any(x.lower() == source.lower() for x in groups.get(group, [])):
+                source_group = group
+                break
+        if not source_group:
+            return []
+
+        src_sec = self.project.get_section(source)
+        src_naval = self._is_naval_section(src_sec)
+        result = []
+        for tid in groups.get(source_group, []):
+            if tid.lower() == source.lower():
+                continue
+            sec = self.project.get_section(tid)
+            if not sec:
+                continue
+            if self._is_naval_section(sec) != src_naval:
+                continue
+            result.append(tid)
+        return sorted(result, key=str.lower)
+
+    @staticmethod
+    def _is_naval_section(sec) -> bool:
+        if not sec:
+            return False
+        return str(sec.get("Naval", "no")).strip().lower() in ("yes", "true", "1", "y")
+
+    def _read_auto_commands(self, path: Path) -> list[str]:
+        from core.save_util import read_text, find_section_span
+
+        if not path.exists():
+            return []
+        try:
+            text, _ = read_text(path)
+        except Exception:
+            return []
+        span = find_section_span(text, "AutoReloader")
+        if not span:
+            return []
+        block = text[span[0]:span[1]]
+        return [
+            ln.strip() for ln in block.splitlines()[1:]
+            if ln.strip() and not ln.strip().startswith((";", "#"))
+        ]
+
+    def _apply_convert_commands(self, path: Path, source: str, target: str,
+                                round_trip: bool) -> dict:
+        from core.save_util import read_text, find_section_span, save_section_to_file
+        import re
+
+        path = Path(path)
+        text = ""
+        if path.exists():
+            text, _ = read_text(path)
+        span = find_section_span(text, "AutoReloader")
+        body = ""
+        if span:
+            block = text[span[0]:span[1]]
+            body = "\n".join(block.splitlines()[1:]).strip("\n")
+
+        kept, removed, incoming = [], [], []
+        for line in body.splitlines():
+            stripped = line.strip()
+            m = re.match(r"(?i)^convert\s*=\s*(.+)$", stripped)
+            if not m:
+                kept.append(line)
+                continue
+            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
+            if len(parts) != 2:
+                kept.append(line)
+                continue
+            src, dst = parts[0].strip(), parts[1].strip()
+            if src.lower() == source.lower():
+                removed.append(stripped)
+                continue
+            if round_trip and src.lower() == target.lower() and dst.lower() == source.lower():
+                removed.append(stripped)
+                continue
+            if dst.lower() == source.lower():
+                incoming.append(stripped)
+            kept.append(line)
+
+        added = [f"Convert={source}>{target}"]
+        if round_trip:
+            added.append(f"Convert={target}>{source}")
+        result = save_section_to_file(
+            path, "AutoReloader",
+            "\n".join(kept + added).strip("\n"),
+            backup_root=path.parent / "backups",
+            is_new=span is None,
+        )
+        result["removed"] = removed
+        result["incoming"] = incoming
+        result["commands"] = added
+        return result
+
     def _tool_convert_command(self):
         """把 Convert=源>目标 写入 hotfix 的 [AutoReloader]。"""
         sid = (self.current_section_id or "").strip()
@@ -2254,25 +2356,43 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "单位转换", "请先设置 hotfix 路径")
             return
 
-        target, ok = QInputDialog.getText(
-            self, "单位转换",
-            f"源类型：[{sid}]\n目标类型 ID（必须同类别：Infantry/Unit/Aircraft）：",
-            text="",
-        )
-        if not ok:
-            return
-        target = target.strip()
-        if not target:
-            return
-        if target.lower() == sid.lower():
-            QMessageBox.warning(self, "单位转换", "目标类型不能和源类型相同")
-            return
-        if not self.project.get_section(target):
-            QMessageBox.warning(
+        targets = self._convert_target_ids(sid)
+        if not targets:
+            QMessageBox.information(
                 self, "单位转换",
-                f"工程里没有找到 [{target}]。\n"
-                "如果它是 hotfix/临时类型，可以继续；否则请先确认 ID。",
+                f"[{sid}] 没有可用的同类别、同水域/陆地目标类型。\n"
+                "海军只能转海军，陆军只能转陆军；目标必须已存在于 rules。",
             )
+            return
+
+        target, ok = QInputDialog.getItem(
+            self, "单位转换",
+            f"源类型：[{sid}]\n只显示同类别且同水域/陆地的目标：",
+            targets, 0, False,
+        )
+        if not ok or not target:
+            return
+
+        import re
+        incoming = []
+        for line in self._read_auto_commands(path):
+            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line)
+            if not m:
+                continue
+            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
+            if len(parts) == 2 and parts[1].strip().lower() == sid.lower() \
+                    and parts[0].strip().lower() != sid.lower():
+                incoming.append(line)
+        if incoming:
+            choice = QMessageBox.question(
+                self, "单位转换",
+                "检测到指向该源类型的其它转换：\n\n" + "\n".join(incoming) +
+                "\n\n它们可能与新转换形成链式转换。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
 
         round_trip = QMessageBox.question(
             self, "单位转换",
@@ -2284,16 +2404,16 @@ class MainWindow(QMainWindow):
             QMessageBox.StandardButton.Yes,
         ) == QMessageBox.StandardButton.Yes
 
-        commands = [f"Convert={sid}>{target}"]
-        if round_trip:
-            commands.append(f"Convert={target}>{sid}")
-
-        result = self._append_autoreloader_commands(path, commands)
+        result = self._apply_convert_commands(path, sid, target, round_trip)
         if result.get("ok"):
+            extra = ""
+            if result.get("removed"):
+                extra += "\n\n已替换旧映射：\n" + "\n".join(result["removed"])
             QMessageBox.information(
                 self, "单位转换",
-                f"已写入 {path}\n\n" + "\n".join(commands) +
-                "\n\n回到游戏热重载；日志会显示 [convert] converted/failed。",
+                f"已写入 {path}\n\n" + "\n".join(result.get("commands") or []) +
+                extra +
+                "\n\n回到游戏热重载；日志会显示 [convert]。",
             )
         else:
             QMessageBox.warning(self, "单位转换", result.get("message") or "写入失败")
