@@ -25,6 +25,7 @@
 
 ### 修复
 
+- **编辑器保存保护**：写入前拒绝同名 section 重复、拒绝空内容覆盖 Art 节、拒绝把 rules 字段写进 Art（或反向），避免 Art/规则数据被误清空或错写文件。
 - 带 BOM、行尾注释（`[E1] ; comment`）或节名内外空格的 section 头被静默跳过。
 - `EnsureTrailingNewline` 直接改写目标文件，导致 AutoMonitor 自我触发、重复重载。
 - 手动热键按住时每 500ms 重复重载，且 AutoMonitor 模式下热键完全无效。

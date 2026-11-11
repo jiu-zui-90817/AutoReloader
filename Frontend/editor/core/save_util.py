@@ -241,6 +241,103 @@ def append_section_after_peers(text: str, new_body: str, peer_names: List[str]) 
     return body
 
 
+_ART_ONLY_KEYS = {
+    "foundation", "height", "buildup", "cameopcx", "remapable", "newtheater",
+    "zshapepointmove", "occupyheight", "bibshape", "queueingcell",
+    "demandloadbuildup", "freebuildup", "normalized", "canhidethings",
+    "canbehidden",
+}
+_ART_PREFIXES = ("activeanim", "turretanim", "barrelanim", "damagefireoffset")
+_RULES_ONLY_KEYS = {
+    "strength", "armor", "cost", "techlevel", "owner", "prerequisite",
+    "primary", "secondary", "speed", "sight", "power", "factory",
+    "constructionyard", "undeploysinto", "capturable", "name", "uiname",
+    "crewed", "explosion", "debrisanims", "maxdebris", "threatposed",
+    "aibuildthis", "adjacent", "buildcat", "selltime", "builduptime",
+    "soylent", "points", "bounty.value", "immune", "spyable",
+}
+
+
+def _section_key_set_from_body(section_id: str, body: str) -> set[str]:
+    keys: set[str] = set()
+    for line in (body or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith((";", "#", "[")):
+            continue
+        if s.startswith("+="):
+            keys.add("+")
+            continue
+        if "=" in s:
+            keys.add(s.split("=", 1)[0].strip().lower())
+    return keys
+
+
+def _section_has_meaningful_keys(section_id: str, block: str) -> int:
+    keys: set[str] = set()
+    for line in (block or "").splitlines():
+        s = line.strip()
+        if not s or s.startswith((";", "#", "[")):
+            continue
+        if s.startswith("+="):
+            keys.add("+")
+            continue
+        if "=" in s:
+            keys.add(s.split("=", 1)[0].strip().lower())
+    return len(keys)
+
+
+def _section_header_count(text: str, section_id: str) -> int:
+    header_re = re.compile(rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\]")
+    return sum(1 for line in (text or "").splitlines() if header_re.match(line))
+
+
+def _guard_section_write(filepath: Path, section_id: str, new_body: str, text: str) -> str | None:
+    """致命保存错误保护：重复节、清空节、rules/art 字段写错文件。"""
+    header_re = re.compile(rf"(?im)^\[{re.escape(section_id)}(?:\s*:[^\]]*)?\]")
+    header_lines = [i for i, line in enumerate((text or "").splitlines(), 1) if header_re.match(line)]
+    if len(header_lines) > 1:
+        return (
+            f"拒绝写入 [{section_id}]：目标文件存在 {len(header_lines)} 个同名 section"
+            f"（行 {', '.join(map(str, header_lines[:6]))}）。\n"
+            "请先删除重复节，避免规则/Art 数据被错误覆盖。"
+        )
+
+    fname = Path(filepath).name.lower()
+    kind = "art" if "art" in fname else ("rules" if "rules" in fname else "")
+
+    span = find_section_span(text or "", section_id)
+    old_block = (text or "")[span[0]:span[1]] if span else ""
+    old_keys = _section_key_set_from_body(section_id, old_block)
+    old_n = len(old_keys)
+    new_n = _section_has_meaningful_keys(section_id, new_body)
+    old_art = any(
+        k in _ART_ONLY_KEYS or k.startswith(_ART_PREFIXES) for k in old_keys
+    )
+    # 只保护 Art 或包含 Art 字段的节；rules 节清空键是合法操作。
+    if old_n > 0 and new_n == 0 and (kind == "art" or old_art):
+        return (
+            f"拒绝写入 [{section_id}]：新内容没有任何键，而现有 Art 节有 {old_n} 个键。\n"
+            "这可能是误删/空保存；请先确认内容，避免清空 Art 数据。"
+        )
+    if kind:
+        new_keys = _section_key_set_from_body(section_id, new_body)
+        art_hits = {k for k in new_keys if k in _ART_ONLY_KEYS or k.startswith(_ART_PREFIXES)}
+        rules_hits = {k for k in new_keys if k in _RULES_ONLY_KEYS}
+        if kind == "art" and rules_hits and not art_hits:
+            return (
+                f"拒绝写入 [{section_id}]：目标是 Art 文件，但内容只有 rules 字段"
+                f"（{', '.join(sorted(rules_hits)[:6])}）。\n"
+                "请写入 artmo.ini 的 Image/Foundation/动画字段，或改回 rules 文件。"
+            )
+        if kind == "rules" and art_hits and not rules_hits:
+            return (
+                f"拒绝写入 [{section_id}]：目标是 rules 文件，但内容只有 Art 字段"
+                f"（{', '.join(sorted(art_hits)[:6])}）。\n"
+                "请写入 rulesmo.ini，或改回 Art 文件。"
+            )
+    return None
+
+
 def save_section_to_file(
     filepath: Path,
     section_name: str,
@@ -262,13 +359,17 @@ def save_section_to_file(
     body = normalize_section_body(section_name, new_section_body)
 
     if filepath.exists():
+        text, enc = read_text(filepath)
+        guard = _guard_section_write(filepath, section_name, body, text)
+        if guard:
+            result["message"] = guard
+            return result
         try:
             bak = backup_file(filepath, backup_root, keep=backup_keep)
             result["backup_path"] = str(bak)
         except Exception as e:
             result["message"] = f"备份失败，已中止保存: {e}"
             return result
-        text, enc = read_text(filepath)
     else:
         filepath.parent.mkdir(parents=True, exist_ok=True)
         text, enc = "", "utf-8"
@@ -303,6 +404,28 @@ def save_section_to_file(
         tmp = filepath.with_suffix(filepath.suffix + ".tmp_moeditor")
         tmp.write_bytes(data)
         tmp.replace(filepath)
+        # 写入后自检：同名节必须恰好 1 个；有内容时不能变成空节。
+        after, _ = read_text(filepath)
+        headers = _section_header_count(after, section_name)
+        after_block = ""
+        span2 = find_section_span(after, section_name)
+        if span2:
+            after_block = after[span2[0]:span2[1]]
+        after_keys = _section_has_meaningful_keys(section_name, after_block)
+        body_keys = _section_has_meaningful_keys(section_name, body)
+        if headers != 1 or (body_keys > 0 and after_keys == 0):
+            if result.get("backup_path") and Path(result["backup_path"]).is_file():
+                shutil.copy2(result["backup_path"], filepath)
+                result["message"] = (
+                    f"写入后校验失败：目标文件出现 {headers} 个 [{section_name}]，"
+                    "已自动从备份恢复。"
+                )
+            else:
+                result["message"] = (
+                    f"写入后校验失败：目标文件出现 {headers} 个 [{section_name}]。"
+                )
+            result["ok"] = False
+            return result
         result["ok"] = True
         result["bytes_written"] = len(data)
         msg = f"{action}成功 → {filepath}\n写入 {len(data)} 字节"

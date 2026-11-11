@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT))
 
 from core.csf_parser import CSFParser, upsert_label_to_file  # noqa: E402
 from core.project import Project  # noqa: E402
-from core.save_util import normalize_section_body  # noqa: E402
+from core.save_util import normalize_section_body, save_section_to_file  # noqa: E402
 from shared import hotfix_io as shared_hotfix  # noqa: E402
 
 
@@ -72,6 +72,27 @@ class RegressionTests(unittest.TestCase):
         plain = normalize_section_body("E1", "[E1]\nStrength=1\n")
         self.assertEqual(plain, "[E1]\nStrength=1\n")
         self.assertEqual(normalize_section_body("E1", plain), plain)
+
+    def test_save_guard_rejects_empty_and_duplicate_and_wrong_file(self):
+        art = self.tmp / "artmo.ini"
+        rules_body = "[GACNST]\nName=Allied Construction Yard\nStrength=2500\n"
+        art_body = "[GACNST]\nImage=GGCNST\nFoundation=4x4\n"
+
+        art.write_text("[GACNST]\nImage=GGCNST\nFoundation=4x4\n", encoding="utf-8")
+        r = save_section_to_file(art, "GACNST", rules_body, self.tmp / "backups")
+        self.assertFalse(r.get("ok"))
+
+        art.write_text("[GACNST]\nImage=GGCNST\nFoundation=4x4\n", encoding="utf-8")
+        r = save_section_to_file(art, "GACNST", "[GACNST]\n; empty\n", self.tmp / "backups")
+        self.assertFalse(r.get("ok"))
+
+        art.write_text("[GACNST]\nImage=GGCNST\n[GACNST]\nName=X\n", encoding="utf-8")
+        r = save_section_to_file(art, "GACNST", art_body, self.tmp / "backups")
+        self.assertFalse(r.get("ok"))
+
+        art.write_text("[GACNST]\nImage=GGCNST\nFoundation=4x4\n", encoding="utf-8")
+        r = save_section_to_file(art, "GACNST", art_body, self.tmp / "backups")
+        self.assertTrue(r.get("ok"), r.get("message"))
 
     def test_shared_normalize_header_comment_and_no_blank(self):
         out = shared_hotfix.normalize_section_body("E1", "[E1] ; header comment\nStrength=1\n")
