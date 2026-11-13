@@ -870,11 +870,12 @@ class ConvertTargetDialog(QDialog):
         layout.addWidget(self.search)
 
         self.combo = QComboBox()
-        self.combo.setMinimumWidth(520)
+        self.combo.setMinimumWidth(560)
+        self.combo.setMaxVisibleItems(10)
         layout.addWidget(self.combo)
 
         self.round_cb = QCheckBox("同时写入反向转换（让已有单位重新读取配置，保留编组/指令）")
-        self.round_cb.setChecked(True)
+        self.round_cb.setChecked(False)
         layout.addWidget(self.round_cb)
 
         self.preview = QLabel("")
@@ -916,6 +917,14 @@ class ConvertTargetDialog(QDialog):
         layout.addWidget(buttons)
 
         self._refresh()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "window"):
+            geo = self.frameGeometry()
+            geo.moveCenter(parent.window().frameGeometry().center())
+            self.move(geo.topLeft())
 
     def _visible_targets(self):
         text = self.search.text().strip().lower()

@@ -35,8 +35,14 @@ class RegressionTests(unittest.TestCase):
     def setUp(self):
         base = os.environ.get("AR_TEST_TMP") or None
         self.tmp = Path(tempfile.mkdtemp(prefix="ar_test_", dir=base))
+        self._old_localappdata = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = str(self.tmp / "localappdata")
 
     def tearDown(self):
+        if self._old_localappdata is None:
+            os.environ.pop("LOCALAPPDATA", None)
+        else:
+            os.environ["LOCALAPPDATA"] = self._old_localappdata
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---------- CSF ----------

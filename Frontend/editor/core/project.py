@@ -261,6 +261,39 @@ class Project:
             return Path(la) / "AutoReloader" / "INIEditor" / "config.user.json"
         return Path.home() / ".autoreloader" / "INIEditor" / "config.user.json"
 
+    @staticmethod
+    def _prune_test_profiles(config: dict) -> None:
+        """清理旧版测试/示例留下的 X 配置，避免用户误以为配置损坏。"""
+        profiles = config.get("profiles")
+        if not isinstance(profiles, dict):
+            return
+        def is_test_profile(key, item) -> bool:
+            return (
+                isinstance(item, dict)
+                and str(key).strip().upper() == "X"
+                and str(item.get("display_name", "")).strip().upper() == "X"
+                and item.get("rules_files") == ["rules.ini"]
+                and not item.get("art_files")
+                and not item.get("csf_files")
+                and not item.get("type_lists")
+            )
+
+        # 只有还存在正常 profile 时才清理；否则可能只是测试/单 profile 配置。
+        if not any(not is_test_profile(k, v) for k, v in profiles.items()):
+            return
+        for key in list(profiles.keys()):
+            if is_test_profile(key, profiles.get(key)):
+                profiles.pop(key, None)
+        active = config.get("active_profile")
+        if active not in profiles:
+            for preferred in ("MentalOmega", "YuriRevenge_Vanilla", "YurisRevenge"):
+                if preferred in profiles:
+                    config["active_profile"] = preferred
+                    break
+            else:
+                if profiles:
+                    config["active_profile"] = next(iter(profiles))
+
     def load_config(self):
         base: dict = {}
         if self.config_path.exists():
@@ -281,6 +314,7 @@ class Project:
                 user = {}
         # 用户配置覆盖默认配置：更新包覆盖 Tools/config.json 后，仍能恢复路径选择。
         self.config = self._deep_merge(copy.deepcopy(base), user)
+        self._prune_test_profiles(self.config)
         if not backup_path.is_file() and self.config_path.is_file():
             # 首次升级：把当前配置转存为用户备份，避免下一次更新再丢。
             try:

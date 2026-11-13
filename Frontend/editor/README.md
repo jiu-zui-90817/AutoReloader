@@ -25,7 +25,7 @@ python Frontend/editor/main.py
 - 保存保护：拒绝同名 section 重复、拒绝空内容覆盖 Art 节、拒绝把 rules 字段写进 Art（或反向），避免致命保存事故
 - 发行包只带 `Tools/config.default.json`；首次运行复制为 `config.json`，后续覆盖更新不再改写它
 - 路径/偏好自动备份到 `%LOCALAPPDATA%\AutoReloader\INIEditor\config.user.json`，即使 `config.json` 被覆盖也能恢复
-- 单位转换向导：目标显示中文名、可搜索、支持往返转换，并提示旧映射/链式冲突
+- 单位转换向导：目标显示中文名、可搜索、往返转换默认关闭，并提示旧映射/链式冲突
 - 调试窗口 → 部署 `hotfix.ini` 配合 AutoReloader
 - 工具 →「生成单位转换指令（Convert）…」：
   - 目标只列出同类别、同水域/陆地的类型（海军→海军、陆军→陆军）；
