@@ -162,14 +162,29 @@ def load_common_flags() -> dict:
 
 def flag_label(flags: dict, key: str) -> str:
     meta = flags.get(key) if flags else None
+    kl = (key or "").lower()
     if not isinstance(meta, dict):
-        kl = key.lower()
         for k, v in (flags or {}).items():
             if k.startswith("_"):
                 continue
             if k.lower() == kl and isinstance(v, dict):
                 meta = v
                 break
+    if not isinstance(meta, dict) and kl.startswith(("versus.", "verses.")):
+        meta = (flags or {}).get("Versus")
+    if not isinstance(meta, dict) and re.match(r"prerequisite\.list\d+$", kl):
+        meta = (flags or {}).get("Prerequisite.List#")
+    if not isinstance(meta, dict):
+        for prefix, alias in (
+            ("muzzleflash", "MuzzleFlash0"),
+            ("damagefireoffset", "DamageFireOffset0"),
+            ("addoccupy", "AddOccupy1"),
+            ("removeoccupy", "RemoveOccupy1"),
+        ):
+            if kl.startswith(prefix):
+                meta = (flags or {}).get(alias)
+                if isinstance(meta, dict):
+                    break
     if not isinstance(meta, dict):
         return key
     zh = (meta.get("desc_zh") or "").strip()

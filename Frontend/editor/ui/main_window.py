@@ -10,6 +10,7 @@ PySide6 主界面
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -39,6 +40,40 @@ from paths import app_dir, bundle_dir, user_config_path, user_cache_dir, is_froz
 
 APP_TITLE = "INI 工程编辑器"
 APP_TITLE_EN = "INI Project Editor"
+
+
+def _schema_entry(schema: dict, key: str):
+    """Exact schema lookup, then common indexed/pattern aliases."""
+    if not schema or not key:
+        return None
+    entry = schema.get(key)
+    if isinstance(entry, dict):
+        return entry
+    kl = key.lower()
+    for k, v in schema.items():
+        if not k.startswith("_") and k.lower() == kl and isinstance(v, dict):
+            return v
+    if kl.startswith(("versus.", "verses.")):
+        entry = schema.get("Versus")
+        if isinstance(entry, dict):
+            return entry
+    if re.match(r"prerequisite\.list\d+$", kl):
+        entry = schema.get("Prerequisite.List#")
+        if isinstance(entry, dict):
+            return entry
+    for prefix, alias in (
+        ("muzzleflash", "MuzzleFlash0"),
+        ("damagefireoffset", "DamageFireOffset0"),
+        ("addoccupy", "AddOccupy1"),
+        ("removeoccupy", "RemoveOccupy1"),
+        ("attacheffect.drawoffset", "AttachEffect.DrawOffset0"),
+        ("animation.drawoffset", "Animation.DrawOffset0"),
+    ):
+        if kl.startswith(prefix):
+            entry = schema.get(alias)
+            if isinstance(entry, dict):
+                return entry
+    return None
 APP_VERSION = "2.1.0"
 
 class LineNumberArea(QWidget):
@@ -1624,7 +1659,8 @@ class PropPanel(QWidget):
             vl.setWordWrap(True)
             row.addWidget(vl, 1)
             lay.addLayout(row)
-            desc = (schema.get(key) or {}).get("desc_zh") or (schema.get(key) or {}).get("desc_en") or ""
+            meta = _schema_entry(schema, key) or {}
+            desc = meta.get("desc_zh") or meta.get("desc_en") or ""
             if desc:
                 dl = QLabel(desc)
                 dl.setStyleSheet("color:#b0b8c4; font-size:13px;")
@@ -4337,9 +4373,8 @@ class MainWindow(QMainWindow):
         if "=" in line and not line.startswith(";") and not line.startswith("["):
             key = line.split("=", 1)[0].strip()
             val = line.split("=", 1)[1].split(";")[0].strip() if "=" in line else ""
-            desc = (self.flag_schema.get(key) or {}).get("desc_zh") or ""
-            if not desc:
-                desc = (self.flag_schema.get(key) or {}).get("desc_en") or ""
+            meta = _schema_entry(self.flag_schema, key) or {}
+            desc = meta.get("desc_zh") or meta.get("desc_en") or ""
             lint_tip = ""
             try:
                 lint_tip = (self.code._lint_tooltips or {}).get(self.code.textCursor().blockNumber()) or ""

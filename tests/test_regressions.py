@@ -73,6 +73,22 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(plain, "[E1]\nStrength=1\n")
         self.assertEqual(normalize_section_body("E1", plain), plain)
 
+    def test_common_flag_dictionary_has_ares_art_and_indexed_keys(self):
+        import json
+        schema = json.loads(
+            (ROOT / "shared" / "schemas" / "common_flags.json").read_text(encoding="utf-8")
+        )
+        self.assertGreaterEqual(len(schema), 1000)
+        for key in (
+            "Foundation", "NewTheater", "WaterImage", "Prerequisite.List1",
+            "Bounty.Value", "HealthBar.Hide", "Versus",
+        ):
+            self.assertIn(key, schema)
+            self.assertTrue(
+                (schema[key].get("desc_zh") or schema[key].get("desc_en")),
+                key,
+            )
+
     def test_save_guard_rejects_empty_and_duplicate_and_wrong_file(self):
         art = self.tmp / "artmo.ini"
         rules_body = "[GACNST]\nName=Allied Construction Yard\nStrength=2500\n"

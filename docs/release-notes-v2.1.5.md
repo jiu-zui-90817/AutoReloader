@@ -21,6 +21,7 @@
 - **MO 客户端配置适配（临时补丁）**：新增 `AutoReloader.SyringeLauncher.exe`。把 `Resources\ClientDefinitions.ini` 的 `GameLauncherExecutableName` 指向它，客户端就会经包装器按 Syringe 版本生成正确参数。只改一行配置，不注入、不替换 MO 文件。发布包同时提供可选的 `Tools\Enable-SyringeExCompat.cmd` / `Disable-SyringeExCompat.cmd`，自动备份/恢复该行，默认不启用。**它不是长期方案**，MO 客户端原生支持 `--args` 后应回滚；联机规则风险自负。
 - **单位转换指令生成**：编辑器和战术工坊都可以把当前单位作为源类型，生成 `Convert=源>目标`；目标下拉按同类别、同水域/陆地过滤（海军→海军、陆军→陆军），可选反向转换，并自动替换源类型旧映射、提示链式转换风险。
 - **转换水域校验**：引擎拒绝海军↔陆军等跨水域/陆地转换并写日志，避免目标落点非法导致异常。
+- **属性说明词典扩充**：`common_flags.json` 扩充到 1000+ 键，补齐原版 Art（Foundation/Height/NewTheater/ActiveAnim/MuzzleFlash/ZAdjust 等）、Ares 3.0 与 Phobos 常用属性；支持 `Prerequisite.List*`、`Versus.*` 等索引键回退匹配。
 - **导出接口**：`AutoReloader_TriggerReload`（外部触发一次全量重载）与 `AutoReloader_GetVersion`。
 
 ### 修复

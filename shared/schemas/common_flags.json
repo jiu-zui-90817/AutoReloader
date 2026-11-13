@@ -900,5 +900,3941 @@
     "desc_zh": "受损音效",
     "desc_en": "Damage sound",
     "engine": "vanilla"
+  },
+  "Foundation": {
+    "type": "string",
+    "desc_zh": "建筑占地尺寸，如 4x4、4x3、1x1；写在 Art 节中，写错会直接改变实际占地。"
+  },
+  "Height": {
+    "type": "int",
+    "desc_zh": "Art 绘制高度，影响建筑/动画的高度与遮挡。"
+  },
+  "NewTheater": {
+    "type": "bool",
+    "desc_zh": "Art：启用剧场专用素材后缀（如 _A / _N / _U），建筑和动画常用。"
+  },
+  "Normalized": {
+    "type": "bool",
+    "desc_zh": "动画/步兵序列播放速度是否按游戏速度归一化。"
+  },
+  "Rate": {
+    "type": "int",
+    "desc_zh": "动画每帧停留的逻辑帧数；数值越小播放越快。"
+  },
+  "UseNormalLight": {
+    "type": "bool",
+    "desc_zh": "Art：使用普通光照绘制，而不是特殊建筑光照。"
+  },
+  "Layer": {
+    "type": "string",
+    "desc_zh": "绘制层级（ground、air、top 等）；决定对象在画面中的前后关系。"
+  },
+  "Insignificant": {
+    "type": "bool",
+    "desc_zh": "AI 是否忽略该对象（不计入威胁/评分/优先目标）。"
+  },
+  "LoopCount": {
+    "type": "int",
+    "desc_zh": "动画循环次数。"
+  },
+  "Shadow": {
+    "type": "string",
+    "desc_zh": "阴影图像或阴影绘制方式；具体含义随所在 Art/Projectile 节而定。"
+  },
+  "Nominal": {
+    "type": "int",
+    "desc_zh": "动画标称长度/基准帧数，供部分动画逻辑计算使用。"
+  },
+  "CanBeHidden": {
+    "type": "bool",
+    "desc_zh": "是否允许被建筑、地形或其它对象遮挡隐藏。"
+  },
+  "Remapable": {
+    "type": "bool",
+    "desc_zh": "是否使用所属方颜色重映射（Remap）。"
+  },
+  "LoopStart": {
+    "type": "int",
+    "desc_zh": "动画循环起始帧。"
+  },
+  "LoopEnd": {
+    "type": "int",
+    "desc_zh": "动画循环结束帧。"
+  },
+  "OccupyHeight": {
+    "type": "int",
+    "desc_zh": "占用高度，影响遮挡、射击判定和建筑叠放。"
+  },
+  "Start": {
+    "type": "int",
+    "desc_zh": "动画起始帧。"
+  },
+  "DamageFireOffset0": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 0（X,Y）。"
+  },
+  "DamageFireOffset1": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 1（X,Y）。"
+  },
+  "DamageFireOffset2": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 2（X,Y）。"
+  },
+  "CanHideThings": {
+    "type": "bool",
+    "desc_zh": "建筑是否遮挡其后方/内部的对象。"
+  },
+  "AllowedToStartInMultiplayer": {
+    "type": "bool",
+    "desc_zh": "多人开局时是否允许作为初始单位。"
+  },
+  "CanBeOccupied": {
+    "type": "bool",
+    "desc_zh": "是否可被步兵进驻。"
+  },
+  "Wall": {
+    "type": "bool",
+    "desc_zh": "是否为墙或可摧毁的路径障碍。"
+  },
+  "Translucent": {
+    "type": "bool",
+    "desc_zh": "是否使用半透明绘制。"
+  },
+  "Voxel": {
+    "type": "bool",
+    "desc_zh": "是否使用 Voxel 模型。"
+  },
+  "AnimList": {
+    "type": "list",
+    "desc_zh": "关联动画列表；用于建筑/单位/武器等按列表播放动画。"
+  },
+  "CameoPCX": {
+    "type": "string",
+    "desc_zh": "建造栏图标 PCX 文件名（可带扩展名）。"
+  },
+  "AltCameoPCX": {
+    "type": "string",
+    "desc_zh": "替代建造栏图标 PCX 文件名。"
+  },
+  "PrimaryFireFLH": {
+    "type": "string",
+    "desc_zh": "主武器开火位置 FLH（前,侧,高）。"
+  },
+  "SecondaryFireFLH": {
+    "type": "string",
+    "desc_zh": "副武器开火位置 FLH（前,侧,高）。"
+  },
+  "Turret": {
+    "type": "bool",
+    "desc_zh": "是否带炮塔/炮塔绘制开关；具体随 Art 节而定。"
+  },
+  "MoveSound": {
+    "type": "string",
+    "desc_zh": "移动循环音效。"
+  },
+  "ZAdjust": {
+    "type": "int",
+    "desc_zh": "Z 轴绘制偏移；正值上移，负值下移。"
+  },
+  "Theater": {
+    "type": "string",
+    "desc_zh": "所属剧场或剧场专用设置。"
+  },
+  "ProtectedDriver": {
+    "type": "bool",
+    "desc_zh": "驾驶员是否受保护，不会因载具被毁而死亡（Ares）。"
+  },
+  "ImmuneToEMP": {
+    "type": "bool",
+    "desc_zh": "是否免疫 EMP 效果。"
+  },
+  "Bounty.Display": {
+    "type": "bool",
+    "desc_zh": "击毁时是否显示赏金提示。"
+  },
+  "SubjectToElevation": {
+    "type": "bool",
+    "desc_zh": "是否受高度/地形起伏影响。"
+  },
+  "SubjectToCliffs": {
+    "type": "bool",
+    "desc_zh": "是否会被悬崖阻挡。"
+  },
+  "SubjectToWalls": {
+    "type": "bool",
+    "desc_zh": "是否会被墙阻挡。"
+  },
+  "SubjectToBuildings": {
+    "type": "bool",
+    "desc_zh": "是否会被建筑阻挡。"
+  },
+  "CrateGoodie": {
+    "type": "bool",
+    "desc_zh": "是否可作为箱子奖励出现。"
+  },
+  "Conventional": {
+    "type": "bool",
+    "desc_zh": "是否为常规武器/常规逻辑。"
+  },
+  "ActiveAnim": {
+    "type": "animation",
+    "desc_zh": "建筑工作/活动动画。"
+  },
+  "ActiveAnimDamaged": {
+    "type": "animation",
+    "desc_zh": "建筑受损时替换的活动动画。"
+  },
+  "ActiveAnimTwo": {
+    "type": "animation",
+    "desc_zh": "第二组活动动画。"
+  },
+  "ActiveAnimTwoDamaged": {
+    "type": "animation",
+    "desc_zh": "第二组活动动画的受损版本。"
+  },
+  "ActiveAnimThree": {
+    "type": "animation",
+    "desc_zh": "第三组活动动画。"
+  },
+  "ActiveAnimThreeDamaged": {
+    "type": "animation",
+    "desc_zh": "第三组活动动画的受损版本。"
+  },
+  "ActiveAnimZAdjust": {
+    "type": "int",
+    "desc_zh": "活动动画 Z 轴偏移。"
+  },
+  "ActiveAnimTwoZAdjust": {
+    "type": "int",
+    "desc_zh": "第二组活动动画 Z 轴偏移。"
+  },
+  "ActiveAnimThreeZAdjust": {
+    "type": "int",
+    "desc_zh": "第三组活动动画 Z 轴偏移。"
+  },
+  "ActiveAnimYSort": {
+    "type": "int",
+    "desc_zh": "活动动画 Y 排序值。"
+  },
+  "ActiveAnimTwoYSort": {
+    "type": "int",
+    "desc_zh": "第二组活动动画 Y 排序值。"
+  },
+  "ActiveAnimThreeYSort": {
+    "type": "int",
+    "desc_zh": "第三组活动动画 Y 排序值。"
+  },
+  "ActiveAnimPowered": {
+    "type": "bool",
+    "desc_zh": "活动动画是否受电力影响。"
+  },
+  "ActiveAnimTwoPowered": {
+    "type": "bool",
+    "desc_zh": "第二组活动动画是否受电力影响。"
+  },
+  "ActiveAnimThreePowered": {
+    "type": "bool",
+    "desc_zh": "第三组活动动画是否受电力影响。"
+  },
+  "Burst": {
+    "type": "int",
+    "desc_zh": "一次射击连续发射的弹数。"
+  },
+  "Sparky": {
+    "type": "bool",
+    "desc_zh": "是否产生火花/电火花效果。"
+  },
+  "RadarColor": {
+    "type": "string",
+    "desc_zh": "雷达上的显示颜色。"
+  },
+  "Selectable": {
+    "type": "bool",
+    "desc_zh": "是否可被玩家选择。"
+  },
+  "FireUp": {
+    "type": "int",
+    "desc_zh": "步兵开火动作/序列的起始帧。"
+  },
+  "ProneDamage": {
+    "type": "float",
+    "desc_zh": "匍匐状态下受到伤害的倍率。"
+  },
+  "Crater": {
+    "type": "bool",
+    "desc_zh": "是否生成弹坑。"
+  },
+  "AffectsAllies": {
+    "type": "bool",
+    "desc_zh": "是否对友军也产生影响。"
+  },
+  "SlowdownDistance": {
+    "type": "float",
+    "desc_zh": "减速/加速逻辑的距离阈值。"
+  },
+  "Acceleration": {
+    "type": "float",
+    "desc_zh": "加速度。"
+  },
+  "AccelerationFactor": {
+    "type": "float",
+    "desc_zh": "加速度倍率。"
+  },
+  "DeaccelerationFactor": {
+    "type": "float",
+    "desc_zh": "减速度倍率。"
+  },
+  "Flat": {
+    "type": "bool",
+    "desc_zh": "是否按平地绘制/不随地形坡度变化。"
+  },
+  "PixelSelectionBracketDelta": {
+    "type": "int",
+    "desc_zh": "选择框像素偏移。"
+  },
+  "TooBigToFitUnderBridge": {
+    "type": "bool",
+    "desc_zh": "是否因体积过大无法通过桥下。"
+  },
+  "OmniFire": {
+    "type": "bool",
+    "desc_zh": "是否允许全向开火（不转向目标）。"
+  },
+  "Proximity": {
+    "type": "bool",
+    "desc_zh": "是否使用近炸引信/近炸逻辑。"
+  },
+  "Buildup": {
+    "type": "animation",
+    "desc_zh": "建筑建造完成时的 Buildup 动画。"
+  },
+  "BibShape": {
+    "type": "string",
+    "desc_zh": "建筑底座/护堤的 Shape 名称。"
+  },
+  "QueueingCell": {
+    "type": "string",
+    "desc_zh": "建筑排队/出口格坐标。"
+  },
+  "InfDeathAnim": {
+    "type": "animation",
+    "desc_zh": "步兵死亡动画。"
+  },
+  "IsLaser": {
+    "type": "bool",
+    "desc_zh": "弹头/抛射体是否表现为激光。"
+  },
+  "IsElectricBolt": {
+    "type": "bool",
+    "desc_zh": "弹头/抛射体是否表现为电弧。"
+  },
+  "Airburst": {
+    "type": "bool",
+    "desc_zh": "是否为空爆武器。"
+  },
+  "AirburstWeapon": {
+    "type": "weapon",
+    "desc_zh": "空爆时使用的武器。"
+  },
+  "AirburstSpread": {
+    "type": "float",
+    "desc_zh": "空爆散布半径（格）。"
+  },
+  "Bouncer": {
+    "type": "bool",
+    "desc_zh": "抛射体是否会弹跳/反弹。"
+  },
+  "ProjectileRange": {
+    "type": "int",
+    "desc_zh": "抛射体最大飞行距离。"
+  },
+  "Damage.Delay": {
+    "type": "int",
+    "desc_zh": "伤害生效前的延迟帧数。"
+  },
+  "PreImpactAnim": {
+    "type": "animation",
+    "desc_zh": "实际爆炸前播放的动画。"
+  },
+  "Beam.Color": {
+    "type": "string",
+    "desc_zh": "光束颜色。"
+  },
+  "Bolt.Color1": {
+    "type": "string",
+    "desc_zh": "电弧颜色 1。"
+  },
+  "Bolt.Color2": {
+    "type": "string",
+    "desc_zh": "电弧颜色 2。"
+  },
+  "Bolt.Color3": {
+    "type": "string",
+    "desc_zh": "电弧颜色 3。"
+  },
+  "Ripple.Radius": {
+    "type": "float",
+    "desc_zh": "波纹/冲击波半径。"
+  },
+  "Sonar.Duration": {
+    "type": "int",
+    "desc_zh": "声呐/探测效果的持续帧数。"
+  },
+  "ReloadAmount": {
+    "type": "int",
+    "desc_zh": "一次装填恢复的弹药量。"
+  },
+  "NoManualFire": {
+    "type": "bool",
+    "desc_zh": "是否禁止手动选择目标开火。"
+  },
+  "TurretROT": {
+    "type": "int",
+    "desc_zh": "炮塔旋转速度（0-127）。"
+  },
+  "AmbientDamage": {
+    "type": "float",
+    "desc_zh": "环境伤害值。"
+  },
+  "KeepAlive": {
+    "type": "bool",
+    "desc_zh": "该单位是否可触发“保留单位/不掉分”逻辑。"
+  },
+  "Crashable": {
+    "type": "bool",
+    "desc_zh": "飞机被击毁后是否坠落（no 表示直接爆炸）。"
+  },
+  "Cloneable": {
+    "type": "bool",
+    "desc_zh": "是否可被克隆。"
+  },
+  "Money.Amount": {
+    "type": "int",
+    "desc_zh": "开局/奖励给予的资金数量。"
+  },
+  "Versus": {
+    "type": "string",
+    "desc_zh": "对各类装甲的伤害倍率列表（按 Armor 顺序）。"
+  },
+  "Prerequisite.List1": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List2": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List3": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List4": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List5": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List6": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List7": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List8": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List9": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "Prerequisite.List10": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表之一；Prerequisite.Lists 指定实际启用的列表数量。"
+  },
+  "MuzzleFlash0": {
+    "type": "animation",
+    "desc_zh": "第 0 发枪口闪光动画。"
+  },
+  "MuzzleFlash1": {
+    "type": "animation",
+    "desc_zh": "第 1 发枪口闪光动画。"
+  },
+  "MuzzleFlash2": {
+    "type": "animation",
+    "desc_zh": "第 2 发枪口闪光动画。"
+  },
+  "MuzzleFlash3": {
+    "type": "animation",
+    "desc_zh": "第 3 发枪口闪光动画。"
+  },
+  "DamageFireOffset3": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 3（X,Y）。"
+  },
+  "MuzzleFlash4": {
+    "type": "animation",
+    "desc_zh": "第 4 发枪口闪光动画。"
+  },
+  "DamageFireOffset4": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 4（X,Y）。"
+  },
+  "MuzzleFlash5": {
+    "type": "animation",
+    "desc_zh": "第 5 发枪口闪光动画。"
+  },
+  "DamageFireOffset5": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 5（X,Y）。"
+  },
+  "MuzzleFlash6": {
+    "type": "animation",
+    "desc_zh": "第 6 发枪口闪光动画。"
+  },
+  "DamageFireOffset6": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 6（X,Y）。"
+  },
+  "MuzzleFlash7": {
+    "type": "animation",
+    "desc_zh": "第 7 发枪口闪光动画。"
+  },
+  "DamageFireOffset7": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 7（X,Y）。"
+  },
+  "MuzzleFlash8": {
+    "type": "animation",
+    "desc_zh": "第 8 发枪口闪光动画。"
+  },
+  "DamageFireOffset8": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 8（X,Y）。"
+  },
+  "MuzzleFlash9": {
+    "type": "animation",
+    "desc_zh": "第 9 发枪口闪光动画。"
+  },
+  "DamageFireOffset9": {
+    "type": "string",
+    "desc_zh": "受损火焰绘制偏移 9（X,Y）。"
+  },
+  "AddOccupy1": {
+    "type": "string",
+    "desc_zh": "建筑额外占用格 1（X,Y）。"
+  },
+  "RemoveOccupy1": {
+    "type": "string",
+    "desc_zh": "建筑取消占用格 1（X,Y）。"
+  },
+  "AddOccupy2": {
+    "type": "string",
+    "desc_zh": "建筑额外占用格 2（X,Y）。"
+  },
+  "RemoveOccupy2": {
+    "type": "string",
+    "desc_zh": "建筑取消占用格 2（X,Y）。"
+  },
+  "AddOccupy3": {
+    "type": "string",
+    "desc_zh": "建筑额外占用格 3（X,Y）。"
+  },
+  "RemoveOccupy3": {
+    "type": "string",
+    "desc_zh": "建筑取消占用格 3（X,Y）。"
+  },
+  "AddOccupy4": {
+    "type": "string",
+    "desc_zh": "建筑额外占用格 4（X,Y）。"
+  },
+  "RemoveOccupy4": {
+    "type": "string",
+    "desc_zh": "建筑取消占用格 4（X,Y）。"
+  },
+  "AttachEffect.DrawOffset0": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset0": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset1": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset1": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset2": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset2": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset3": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset3": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset4": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset4": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset5": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset5": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset6": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset6": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset7": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset7": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset8": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset8": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "AttachEffect.DrawOffset9": {
+    "type": "string",
+    "desc_zh": "AE 动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Animation.DrawOffset9": {
+    "type": "string",
+    "desc_zh": "动画绘制偏移 N（X,Y）；N 从 0 开始。"
+  },
+  "Chronoshift.Allow": {
+    "type": "bool",
+    "desc_zh": "该单位能否被超时空转移。"
+  },
+  "Bounty.Value": {
+    "type": "int",
+    "desc_zh": "击毁时猎人获得的赏金；负值可惩罚玩家，会重置其它 Bounty 细分项。"
+  },
+  "CustomPalette": {
+    "type": "string",
+    "desc_zh": "为不同地形使用不同色盘时，以 ~~~ 分隔的色盘列表。"
+  },
+  "CanBeReversed": {
+    "type": "bool",
+    "desc_zh": "该单位是否可以被倒车/反向移动。"
+  },
+  "VehicleThief.Allowed": {
+    "type": "bool",
+    "desc_zh": "是否允许恐怖机器人/偷车单位进入。"
+  },
+  "UC.PassThrough": {
+    "type": "int",
+    "desc_zh": "战斗要塞类载具可让乘客向外开火的层数。"
+  },
+  "UC.DamageMultiplier": {
+    "type": "float",
+    "desc_zh": "战斗要塞乘客对外伤害倍率。"
+  },
+  "PreventScatter": {
+    "type": "bool",
+    "desc_zh": "开火时是否阻止周围单位散开。"
+  },
+  "BuildTime.MultipleFactory": {
+    "type": "float",
+    "desc_zh": "多个工厂时的建造速度倍率。"
+  },
+  "SW.CreateRadarEvent": {
+    "type": "bool",
+    "desc_zh": "超武激活时是否创建雷达事件。"
+  },
+  "NoCursor": {
+    "type": "bool",
+    "desc_zh": "是否禁止显示攻击光标。"
+  },
+  "SW.Inhibitors": {
+    "type": "list",
+    "desc_zh": "需要作为超武抑制者的单位类型列表。"
+  },
+  "SW.FireIntoShroud": {
+    "type": "bool",
+    "desc_zh": "超武是否允许打向战争迷雾。"
+  },
+  "ForceShield.Modifier": {
+    "type": "float",
+    "desc_zh": "力场护盾的伤害/持续时间修正百分比。"
+  },
+  "Malicious": {
+    "type": "bool",
+    "desc_zh": "是否显示恶意/被攻击提示。"
+  },
+  "Palette": {
+    "type": "string",
+    "desc_zh": "动画使用的色盘文件名。"
+  },
+  "GroupAs": {
+    "type": "string",
+    "desc_zh": "编组/选择分组；用于把相似单位归为一组。"
+  },
+  "SW.Deferment": {
+    "type": "int",
+    "desc_zh": "超武生效前的延迟帧数。"
+  },
+  "AIBaseNormal": {
+    "type": "bool",
+    "desc_zh": "AI 是否把该建筑当作普通基地建筑。"
+  },
+  "Smoke.Anim": {
+    "type": "animation",
+    "desc_zh": "单位受损冒烟的动画。"
+  },
+  "Smoke.ChanceRed": {
+    "type": "int",
+    "desc_zh": "红色受损烟雾的生成概率。"
+  },
+  "Smoke.ChanceDead": {
+    "type": "int",
+    "desc_zh": "死亡烟雾的生成概率。"
+  },
+  "SW.Animation": {
+    "type": "animation",
+    "desc_zh": "超武目标点播放的动画。"
+  },
+  "SW.AnimationHeight": {
+    "type": "int",
+    "desc_zh": "超武动画的高度。"
+  },
+  "SW.AITargeting": {
+    "type": "string",
+    "desc_zh": "AI 使用该超武时的目标选择方式。"
+  },
+  "SW.AITargeting.Constraints": {
+    "type": "string",
+    "desc_zh": "AI 超武目标约束。"
+  },
+  "SW.AuxBuildings": {
+    "type": "list",
+    "desc_zh": "超武需要的辅助建筑列表。"
+  },
+  "SW.Group": {
+    "type": "int",
+    "desc_zh": "超武分组编号。"
+  },
+  "SW.RequiresTarget": {
+    "type": "string",
+    "desc_zh": "超武需要的目标类型（land/water/empty/infantry/units/buildings）。"
+  },
+  "SW.Sound": {
+    "type": "string",
+    "desc_zh": "超武激活音效。"
+  },
+  "SW.AffectsHouse": {
+    "type": "string",
+    "desc_zh": "超武影响哪一方（owner/allies/enemies/all）。"
+  },
+  "Bounty.RookieValue": {
+    "type": "int",
+    "desc_zh": "击毁新兵级单位时的赏金。"
+  },
+  "Bounty.VeteranValue": {
+    "type": "int",
+    "desc_zh": "击毁老兵级单位时的赏金。"
+  },
+  "Bounty.EliteValue": {
+    "type": "int",
+    "desc_zh": "击毁精英级单位时的赏金。"
+  },
+  "Insignia.Rookie": {
+    "type": "string",
+    "desc_zh": "新兵等级徽章 SHP（不含扩展名）。"
+  },
+  "InsigniaFrame": {
+    "type": "int",
+    "desc_zh": "徽章动画帧索引。"
+  },
+  "InsigniaFrame.Rookie": {
+    "type": "int",
+    "desc_zh": "新兵徽章帧索引。"
+  },
+  "InsigniaFrame.Veteran": {
+    "type": "int",
+    "desc_zh": "老兵徽章帧索引。"
+  },
+  "InsigniaFrame.Elite": {
+    "type": "int",
+    "desc_zh": "精英徽章帧索引。"
+  },
+  "Prerequisite.Lists": {
+    "type": "int",
+    "desc_zh": "启用多少组额外建造前提（对应 Prerequisite.List#）。"
+  },
+  "Prerequisite.List#": {
+    "type": "list",
+    "desc_zh": "额外建造前提列表；# 从 1 开始，数量由 Prerequisite.Lists 指定。"
+  },
+  "Prerequisite.StolenTechs": {
+    "type": "list",
+    "desc_zh": "需要偷取的科技索引列表，用于渗透单位解锁。"
+  },
+  "Prerequisite.RequiredTheaters": {
+    "type": "list",
+    "desc_zh": "只在指定剧场可建造。"
+  },
+  "Prerequisite.Negative": {
+    "type": "list",
+    "desc_zh": "拥有这些建筑时反而不能建造。"
+  },
+  "FactoryOwners": {
+    "type": "list",
+    "desc_zh": "允许建造该单位的国家列表；空表示所有国家。"
+  },
+  "FactoryOwners.Permanent": {
+    "type": "bool",
+    "desc_zh": "占领工厂后是否永久获得对应科技。"
+  },
+  "FactoryOwners.HaveAllPlans": {
+    "type": "bool",
+    "desc_zh": "占领工厂后是否获得全部生产计划。"
+  },
+  "FactoryOwners.HasAllPlans": {
+    "type": "bool",
+    "desc_zh": "是否拥有该工厂的全部生产计划。"
+  },
+  "FactoryOwners.Forbidden": {
+    "type": "list",
+    "desc_zh": "禁止建造该单位的国家列表。"
+  },
+  "BuildTime.Speed": {
+    "type": "float",
+    "desc_zh": "建造时间（分钟）。"
+  },
+  "BuildTime.Cost": {
+    "type": "int",
+    "desc_zh": "建造花费。"
+  },
+  "BuildTime.LowPowerPenalty": {
+    "type": "float",
+    "desc_zh": "低电力时的建造速度惩罚倍率。"
+  },
+  "BuildTime.MinLowPower": {
+    "type": "float",
+    "desc_zh": "低电力惩罚的最小值。"
+  },
+  "BuildTime.MaxLowPower": {
+    "type": "float",
+    "desc_zh": "低电力惩罚的最大值。"
+  },
+  "DontScore": {
+    "type": "bool",
+    "desc_zh": "该单位是否不计入分数/击杀统计。"
+  },
+  "WaterImage": {
+    "type": "string",
+    "desc_zh": "在水中切换使用的 Image（单位/建筑均可）。"
+  },
+  "Convert.Water": {
+    "type": "string",
+    "desc_zh": "切换到水域形态时转换成的类型（Phobos/Ares 扩展）。"
+  },
+  "HealthBar.Hide": {
+    "type": "bool",
+    "desc_zh": "是否隐藏血条。"
+  },
+  "AttackCursorOnFriendlies": {
+    "type": "bool",
+    "desc_zh": "是否在友军上显示攻击光标。"
+  },
+  "DefaultToGuardArea": {
+    "type": "bool",
+    "desc_zh": "是否默认进入警戒区域。"
+  },
+  "AttackFriendlies": {
+    "type": "bool",
+    "desc_zh": "是否允许攻击友军。"
+  },
+  "Translucency": {
+    "type": "int",
+    "desc_zh": "半透明度：0/25/50/75。"
+  },
+  "DebrisMaximums": {
+    "type": "list",
+    "desc_zh": "各类型碎片的最大数量列表。"
+  },
+  "IsHouseColor": {
+    "type": "bool",
+    "desc_zh": "是否使用所属方颜色。"
+  },
+  "LowSelectionPriority": {
+    "type": "bool",
+    "desc_zh": "是否降低选择优先级。"
+  },
+  "IsAlternateColor": {
+    "type": "bool",
+    "desc_zh": "是否使用替代颜色。"
+  },
+  "JumpjetSpeed": {
+    "type": "int",
+    "desc_zh": "Jumpjet 飞行速度。"
+  },
+  "JumpjetClimb": {
+    "type": "float",
+    "desc_zh": "Jumpjet 爬升速度。"
+  },
+  "JumpjetCrash": {
+    "type": "float",
+    "desc_zh": "Jumpjet 坠毁速度。"
+  },
+  "JumpJetAccel": {
+    "type": "float",
+    "desc_zh": "Jumpjet 加速度。"
+  },
+  "JumpjetTurnRate": {
+    "type": "int",
+    "desc_zh": "Jumpjet 转向速度。"
+  },
+  "JumpjetHeight": {
+    "type": "int",
+    "desc_zh": "Jumpjet 飞行高度。"
+  },
+  "JumpjetWobbles": {
+    "type": "float",
+    "desc_zh": "Jumpjet 悬浮摆动幅度。"
+  },
+  "JumpjetDeviation": {
+    "type": "int",
+    "desc_zh": "Jumpjet 位置偏移。"
+  },
+  "JumpjetNoWobbles": {
+    "type": "bool",
+    "desc_zh": "是否禁用 Jumpjet 摆动。"
+  },
+  "IdleAnim": {
+    "type": "animation",
+    "desc_zh": "待机动画。"
+  },
+  "IdleAnimDamaged": {
+    "type": "animation",
+    "desc_zh": "受损待机动画。"
+  },
+  "DestroyAnim": {
+    "type": "list",
+    "desc_zh": "摧毁时播放的动画列表。"
+  },
+  "Vertical": {
+    "type": "string",
+    "desc_zh": "垂直位置枚举（top/center/bottom）。"
+  },
+  "BarrelTravel": {
+    "type": "int",
+    "desc_zh": "炮管后坐/伸缩距离（像素）。"
+  },
+  "BarrelCompressFrames": {
+    "type": "int",
+    "desc_zh": "炮管压缩帧数。"
+  },
+  "BarrelHoldFrames": {
+    "type": "int",
+    "desc_zh": "炮管保持帧数。"
+  },
+  "BarrelRecoverFrames": {
+    "type": "int",
+    "desc_zh": "炮管恢复帧数。"
+  },
+  "HarvesterDumpRate": {
+    "type": "float",
+    "desc_zh": "矿车卸矿速率。"
+  },
+  "HarvesterLoadRate": {
+    "type": "int",
+    "desc_zh": "矿车装矿速率。"
+  },
+  "CurleyShuffle": {
+    "type": "bool",
+    "desc_zh": "是否启用 CurleyShuffle 采矿逻辑。"
+  },
+  "MissileSafetyAltitude": {
+    "type": "int",
+    "desc_zh": "导弹安全高度。"
+  },
+  "ChronoDelay": {
+    "type": "int",
+    "desc_zh": "超时空传送后的延迟。"
+  },
+  "ChronoDistanceFactor": {
+    "type": "int",
+    "desc_zh": "超时空延迟的距离除数。"
+  },
+  "ChronoTrigger": {
+    "type": "bool",
+    "desc_zh": "超时空延迟是否随距离变化。"
+  },
+  "ChronoMinimumDelay": {
+    "type": "int",
+    "desc_zh": "超时空最小延迟。"
+  },
+  "ChronoRangeMinimum": {
+    "type": "int",
+    "desc_zh": "超时空延迟恒定的最小距离。"
+  },
+  "DefaultMirageDisguises": {
+    "type": "list",
+    "desc_zh": "默认幻影伪装地形列表。"
+  },
+  "VeinholeGrowthRate": {
+    "type": "int",
+    "desc_zh": "矿脉/藤蔓生长速度。"
+  },
+  "VeinholeShrinkRate": {
+    "type": "int",
+    "desc_zh": "矿脉/藤蔓收缩速度。"
+  },
+  "MaxVeinholeGrowth": {
+    "type": "int",
+    "desc_zh": "矿脉/藤蔓最大生长量。"
+  },
+  "VeinDamage": {
+    "type": "int",
+    "desc_zh": "矿脉伤害。"
+  },
+  "VeinholeTypeClass": {
+    "type": "string",
+    "desc_zh": "矿脉/藤蔓类型。"
+  },
+  "Wake": {
+    "type": "animation",
+    "desc_zh": "水面/移动尾迹动画。"
+  },
+  "WarpIn": {
+    "type": "list",
+    "desc_zh": "超时空进入动画列表。"
+  },
+  "WarpOut": {
+    "type": "list",
+    "desc_zh": "超时空离开动画列表。"
+  },
+  "WarpAway": {
+    "type": "list",
+    "desc_zh": "被超时空抹除时播放的动画列表。"
+  },
+  "BombParachute": {
+    "type": "animation",
+    "desc_zh": "炸弹降落伞动画。"
+  },
+  "BuildingRepairedSound": {
+    "type": "string",
+    "desc_zh": "建筑被工程师修复时的音效。"
+  },
+  "LaserTargetColor": {
+    "type": "string",
+    "desc_zh": "激光目标颜色索引。"
+  },
+  "SellSound": {
+    "type": "string",
+    "desc_zh": "出售音效。"
+  },
+  "SlavesFreeSound": {
+    "type": "string",
+    "desc_zh": "奴隶被解放时的音效。"
+  },
+  "BunkerWallsUpSound": {
+    "type": "string",
+    "desc_zh": "掩体墙壁升起音效。"
+  },
+  "BunkerWallsDownSound": {
+    "type": "string",
+    "desc_zh": "掩体墙壁降下音效。"
+  },
+  "ConditionRed": {
+    "type": "float",
+    "desc_zh": "红色状态阈值。"
+  },
+  "ConditionYellow": {
+    "type": "float",
+    "desc_zh": "黄色状态阈值。"
+  },
+  "Gravity": {
+    "type": "float",
+    "desc_zh": "重力参数。"
+  },
+  "IdleActionFrequency": {
+    "type": "string",
+    "desc_zh": "待机动作频率（单值或最小/最大帧范围）。"
+  },
+  "FreeMCV": {
+    "type": "bool",
+    "desc_zh": "是否免费获得 MCV。"
+  },
+  "Reveal": {
+    "type": "int",
+    "desc_zh": "揭示地图的范围（格）。"
+  },
+  "OccupyDamageMultiplier": {
+    "type": "float",
+    "desc_zh": "进驻建筑的伤害倍率。"
+  },
+  "OccupyROFMultiplier": {
+    "type": "float",
+    "desc_zh": "进驻建筑的开火间隔倍率。"
+  },
+  "BunkerDamageMultiplier": {
+    "type": "float",
+    "desc_zh": "掩体伤害倍率。"
+  },
+  "DrainMoneyFrameDelay": {
+    "type": "int",
+    "desc_zh": "偷钱效果的帧延迟。"
+  },
+  "DrainMoneyAmount": {
+    "type": "int",
+    "desc_zh": "偷钱数量。"
+  },
+  "DrainAnimationType": {
+    "type": "animation",
+    "desc_zh": "偷钱/吸取动画。"
+  },
+  "VeinholeWarhead": {
+    "type": "warhead",
+    "desc_zh": "矿脉/藤蔓伤害弹头。"
+  },
+  "SplashList": {
+    "type": "list",
+    "desc_zh": "溅射/爆炸动画列表。"
+  },
+  "RadDurationMultiple": {
+    "type": "int",
+    "desc_zh": "辐射持续时间倍率。"
+  },
+  "RadApplicationDelay": {
+    "type": "int",
+    "desc_zh": "辐射生效间隔。"
+  },
+  "RadLevelMax": {
+    "type": "int",
+    "desc_zh": "辐射最大等级。"
+  },
+  "RadLevelDelay": {
+    "type": "int",
+    "desc_zh": "辐射等级衰减延迟。"
+  },
+  "RadLightDelay": {
+    "type": "int",
+    "desc_zh": "辐射光效延迟。"
+  },
+  "RadLevelFactor": {
+    "type": "float",
+    "desc_zh": "辐射等级系数。"
+  },
+  "RadLightFactor": {
+    "type": "float",
+    "desc_zh": "辐射光效系数。"
+  },
+  "RadTintFactor": {
+    "type": "float",
+    "desc_zh": "辐射染色系数。"
+  },
+  "RadColor": {
+    "type": "string",
+    "desc_zh": "辐射颜色（R,G,B）。"
+  },
+  "RadSiteWarhead": {
+    "type": "warhead",
+    "desc_zh": "辐射区域使用的弹头。"
+  },
+  "EMP.Sparkles": {
+    "type": "string",
+    "desc_zh": "当该单位被EMP时显示该动画。默认[General]?EMPulseSparkles"
+  },
+  "EMP.Cap": {
+    "type": "string",
+    "desc_zh": "以上两条语句都被用来控制效果持续多长。 每个单位都有个EMP计时器，这就是原理。"
+  },
+  "EMPAIRecoverMission": {
+    "type": "string",
+    "desc_zh": "当AI的单位被EMP，解除后执行的动作。默认Hunt。"
+  },
+  "EMP.Modifier": {
+    "type": "string",
+    "desc_zh": "对EMP的抗性，只受到EMP影响的百分之几 以下建筑默认不免疫"
+  },
+  "EngineerCaptureLevel": {
+    "type": "float",
+    "desc_zh": "percent) 多少血以下建筑才能一个工程师占领，在这之前工程师造成伤害"
+  },
+  "EngineerDamage": {
+    "type": "string",
+    "desc_zh": "工程师占领前一个扣多少血"
+  },
+  "EngineerAlwaysCaptureTech": {
+    "type": "string",
+    "desc_zh": "总是占领科技建筑，无视血量"
+  },
+  "AllowMultiEngineer": {
+    "type": "string",
+    "desc_zh": "启用多位工程师勾选框"
+  },
+  "HasSpotlight": {
+    "type": "string",
+    "desc_zh": "是否使用探照灯，现在探照灯能够用于单位 ， 建筑上的按原样扫描，车上的只能往前"
+  },
+  "Spotlight.StartHeight": {
+    "type": "string",
+    "desc_zh": "探照灯射出的高度，默认430"
+  },
+  "Spotlight.Distance": {
+    "type": "string",
+    "desc_zh": "探照灯射出的距离"
+  },
+  "Spotlight.AttachedTo": {
+    "type": "string",
+    "desc_zh": "从单位的哪个单位射出来，车体，炮塔或炮管？"
+  },
+  "Spotlight.DisableBlue": {
+    "type": "string",
+    "desc_zh": "光照参数 （不使用红色，绿色，蓝色）"
+  },
+  "Spotlight.DisableColor": {
+    "type": "string",
+    "desc_zh": "黑灯"
+  },
+  "Academy.InfantryVeterancy": {
+    "type": "string",
+    "desc_zh": "拥有这样的建筑后步兵以及带有Organic=yes的车辆得到多少经验"
+  },
+  "Academy.AircraftVeterancy": {
+    "type": "string",
+    "desc_zh": "拥有这样的建筑后空军以及带有ConsideredAircraft=yes的车辆得到多少经验"
+  },
+  "Academy.VehicleVeterancy": {
+    "type": "string",
+    "desc_zh": "拥有这样的建筑后载具得到多少经验"
+  },
+  "Academy.BuildingVeterancy": {
+    "type": "string",
+    "desc_zh": "拥有这样的建筑后建筑得到多少经验"
+  },
+  "Academy.Types": {
+    "type": "string",
+    "desc_zh": "这些单位会受到训练所的影响"
+  },
+  "Academy.Ignore": {
+    "type": "string",
+    "desc_zh": "这些单位不会受到训练所的影响"
+  },
+  "Versus.magic": {
+    "type": "string",
+    "desc_zh": "该弹头对 magic护甲的伤害百分比 因为WW弱智的拼写错误，现在旧弹头还是 Verses=，不过ARES里少于11个也不IE，新弹头用 Versus"
+  },
+  "Versus.shit.ForceFire": {
+    "type": "string",
+    "desc_zh": "是否对shit护甲可以强行攻击"
+  },
+  "Versus.shit.Retaliate": {
+    "type": "string",
+    "desc_zh": "是否可以对shit护甲反击"
+  },
+  "Versus.shit.PassiveAcquire": {
+    "type": "string",
+    "desc_zh": "是否对shit护甲主动攻击 ARES纠正了WW的弱智拼写错误Aquire"
+  },
+  "AirRate": {
+    "type": "string",
+    "desc_zh": "如果该值大于零，规定了该单位在空中时，计划要给该单位几帧的动画，AirRate覆盖WalkRate与IdleRate，若该值为零，则禁用AirRate，默认为0"
+  },
+  "VoiceAirstrikeAttack": {
+    "type": "string",
+    "desc_zh": "空袭单位进入地图时的语音。默认AirstrikeAttackVoice"
+  },
+  "VoiceAirstrikeAbort": {
+    "type": "string",
+    "desc_zh": "空袭单位在开火前，指示单位被干掉时的语音。默认AirstrikeAbortSound"
+  },
+  "AlternateTheaterArt": {
+    "type": "string",
+    "desc_zh": "例如， 给单位设置 Image=JUNK 和 AlternateTheaterArt=yes 会使这个单位使用雪地装 [JUNKA]， 沙漠装 [JUNKD] 等等 ， 没有相应 SHP 默认 [JUNK]， 比原来的更灵活"
+  },
+  "AttachEffect.TemporalHidesAnim": {
+    "type": "string",
+    "desc_zh": "被超时空武器攻击时是否停止动画？默认否"
+  },
+  "AttachEffect.PenetratesIronCurtain": {
+    "type": "string",
+    "desc_zh": "决定该AE是否能够在目标单位/建筑上有铁幕或力盾时附加上，默认否。"
+  },
+  "Carryall.SizeLimit": {
+    "type": "string",
+    "desc_zh": "吊运规格的最大限制，默认为能够吊运任意单位即值为-1"
+  },
+  "Carryall.Allowed": {
+    "type": "string",
+    "desc_zh": "这个载具能否吊运，Organic=yes和NonVehicle=yes的单位不能吊运. 如果指定那么覆盖全局， 目前不可能“撤消”这个标签 ，所以必须指定这个标签 蜘蛛什么的不能吊运"
+  },
+  "Abductor": {
+    "type": "string",
+    "desc_zh": "如果设置为是，武器能够吸入单位，当该单位被摧毁时被吸入的单位会重新出现 . 奴隶和自己会被归属到 Special ， 如果该单位吸满了或者该单位无法吸入 ， 就使用正常的武器伤害，默认否 确保这个单位有乘客位置，而且设置大小限制为 0否则吸入会受限制"
+  },
+  "Abductor.Anim": {
+    "type": "string",
+    "desc_zh": "单位被吸入时产生的动画"
+  },
+  "Abductor.ChangeOwner": {
+    "type": "string",
+    "desc_zh": "被吸入的单位是否会归属到攻击者的所属，默认否"
+  },
+  "Abductor.AbductBelowPercent": {
+    "type": "string",
+    "desc_zh": "只有低于这个血量百分比的单位才会被吸入，默认 100%"
+  },
+  "Abductor.MaxHealth": {
+    "type": "string",
+    "desc_zh": "HP数值高于此处设定的话就不能被抓过来。0代表不检查，默认0。"
+  },
+  "ImmuneToAbduction": {
+    "type": "string",
+    "desc_zh": "这个单位不能被吸入只会受到伤害，默认否"
+  },
+  "PassengerTurret": {
+    "type": "string",
+    "desc_zh": "吸单位后会改变炮塔，吸入一个改变一次 0 passengers footur.vxl"
+  },
+  "Chronoshift.IsVehicle": {
+    "type": "string",
+    "desc_zh": "这个建筑能否（被视为载具）被转移，默认否"
+  },
+  "Chronoshift.Crushable": {
+    "type": "string",
+    "desc_zh": "如果设置为no，那么这个单位不会被超时空传送过来的单位压在下面，取而代之的是被超时空传送过来的单位被摧毁（下克上）。不要用在建筑上。默认yes"
+  },
+  "ChronoInfantryCrush": {
+    "type": "string",
+    "desc_zh": "如果设置为no，步兵传到坦克上时会死而不是把坦克摧毁。默认yes"
+  },
+  "CivilianEnemy": {
+    "type": "string",
+    "desc_zh": "这种单位是否被视为主动攻击目标。默认否"
+  },
+  "AutoRepel": {
+    "type": "string",
+    "desc_zh": "是否AI会把攻击友军单位的平民单位视为敌人。这能够使附近的单位阻止这种情况。默认否"
+  },
+  "PlayerAutoRepel": {
+    "type": "string",
+    "desc_zh": "是否玩家会把攻击友军单位的平民单位视为敌人。这能够使附近的单位阻止这种情况。默认否"
+  },
+  "CrashSpin": {
+    "type": "string",
+    "desc_zh": "是否旋转着掉下来，如果不希望这样就写no，默认是 注意"
+  },
+  "Cursor.Move": {
+    "type": "string",
+    "desc_zh": "指定单位的可移动指针，默认为Move"
+  },
+  "Cursor.NoMove": {
+    "type": "string",
+    "desc_zh": "指定单位的不可移动针织，默认为NoMove"
+  },
+  "Cursor.Deploy": {
+    "type": "string",
+    "desc_zh": "指定单位的可部署指针，默认为Deploy"
+  },
+  "Cursor.NoDeploy": {
+    "type": "string",
+    "desc_zh": "指定单位的不可移动指针，默认为NoDeploy"
+  },
+  "Cursor.Enter": {
+    "type": "string",
+    "desc_zh": "命令其他单位进入此单位显示的指针，默认为Enter"
+  },
+  "Cursor.NoEnter": {
+    "type": "string",
+    "desc_zh": "其他单位不可进入此单位显示的指针，默认NoEnter"
+  },
+  "Cursor.Spy": {
+    "type": "string",
+    "desc_zh": "默认Enter"
+  },
+  "Cursor.Attack": {
+    "type": "string",
+    "desc_zh": "当单位在攻击距离内时，显示的指针。默认为Attack"
+  },
+  "Cursor.AttackOutOfRange": {
+    "type": "string",
+    "desc_zh": "当单位不在攻击距离内时显示的指针。默认为AttackOutOfRange"
+  },
+  "CameoPalette": {
+    "type": "string",
+    "desc_zh": "在rulesmd.ini里:"
+  },
+  "EnemyInsignia": {
+    "type": "string",
+    "desc_zh": "敌人是否能看到你的单位的等级，默认是"
+  },
+  "Insignia.ShowEnemy": {
+    "type": "string",
+    "desc_zh": "这个单位能否把等级给敌人看，默认[General]?EnemyInsignia 注意"
+  },
+  "Parachute.Anim": {
+    "type": "string",
+    "desc_zh": "该单位使用哪个降落伞动画，降落伞动画默认单位色盘"
+  },
+  "Experience.FromPassengers": {
+    "type": "string",
+    "desc_zh": "载具里的乘客开火载具能够得到经验，默认是"
+  },
+  "Experience.PromotePassengers": {
+    "type": "string",
+    "desc_zh": "如果载具满级那么乘客得到经验，默认否"
+  },
+  "Experience.PassengerModifier": {
+    "type": "string",
+    "desc_zh": "如果一个击杀是由乘客做的，那么所得经验为这个百分比，默认 100% 来自召唤空袭的击杀"
+  },
+  "Experience.FromAirstrike": {
+    "type": "string",
+    "desc_zh": "如果一个击杀由鲍里斯那样的召唤飞机做的 , 召唤者能够得到经验而不是给飞机，默认否"
+  },
+  "Experience.AirstrikeModifier": {
+    "type": "string",
+    "desc_zh": "召唤飞机摧毁对方获得的经验比，默认 100% 来自受控单位的击杀"
+  },
+  "Experience.MindControlSelfModifier": {
+    "type": "string",
+    "desc_zh": "控制的单位摧毁敌方，控制者获得的经验百分比，默认 0%"
+  },
+  "Experience.MindControlVictimModifier": {
+    "type": "string",
+    "desc_zh": "控制的单位获得的经验百分比，默认 100% 如果控制者和战斗要塞的所有者不是盟友的话，控制战斗要塞这样的单位，里面的乘客开火摧毁敌方后获得的经验不算在里面 . 控制友军单位摧毁敌方，控制者不会得经验。"
+  },
+  "Experience.SpawnOwnerModifier": {
+    "type": "string",
+    "desc_zh": "子机摧毁敌方单位，航母获得的经验百分比，设置在航母上，默认0%"
+  },
+  "Experience.SpawnModifier": {
+    "type": "string",
+    "desc_zh": "子机摧毁敌方单位，子机获得的经验百分比，设置在航母上，默认100%"
+  },
+  "Promote.IncludePassengers": {
+    "type": "string",
+    "desc_zh": "是否所有有Trainable=yes的单位会被设置为与该载具相同的等级。默认no"
+  },
+  "Missile.TrailerSeparation": {
+    "type": "string",
+    "desc_zh": "相关参数，不需要翻译 新增的可选语句"
+  },
+  "Missile.Weapon": {
+    "type": "weapon",
+    "desc_zh": "导弹用这个武器来产生伤害，意味着可以很简单地做带辐射的导弹。如果不设置，就用Missile.Damage和Missile.Warhead产生伤害"
+  },
+  "Missile.EliteWeapon": {
+    "type": "weapon",
+    "desc_zh": "三星时用的武器"
+  },
+  "DamageSparks": {
+    "type": "string",
+    "desc_zh": "定义该单位是否会飙出 DamageParticleSystems 所指定的粒子系统。默认 InfantryTypes 是 Cyborg 时有，其他都不会有 烟雾和火花的受损粒子系统"
+  },
+  "DamageSmokeParticleSystems": {
+    "type": "string",
+    "desc_zh": "定义使用的烟雾粒子系统。默认为所有有 BehavesLike=Smoke 设置的 DamageParticleSystems"
+  },
+  "DamageSparksParticleSystems": {
+    "type": "string",
+    "desc_zh": "定义使用的火花粒子系统。默认为所有有 BehavesLike=Spark 设置的 DamageParticleSystems"
+  },
+  "DeactivateDimEMP": {
+    "type": "string",
+    "desc_zh": "被 EMP的单位的变黑程度。默认 0.8"
+  },
+  "DeactivateDimOperator": {
+    "type": "string",
+    "desc_zh": "需要驾驶员的载具无驾驶员时的变黑程度。默认 0.65"
+  },
+  "DeactivateDimPowered": {
+    "type": "string",
+    "desc_zh": "失去控制的单位的变黑程度。默认 0.5 注意"
+  },
+  "Doggie": {
+    "type": "string",
+    "desc_zh": "这个步兵是否被指定为泰伯利亚恶魔，表现如下：在守备模式下趴在泰矿上，攻击接近过来的东西，并且在受伤时会跑到泰矿上治疗，这个单位需要有Crawls=yes，否则趴不下来，如果要表现得是个野生动物别忘了加上NotHuman=yes来避免死亡时的人类死亡动画"
+  },
+  "Drain.Local": {
+    "type": "string",
+    "desc_zh": "是否一次只能吸目标建筑的电，或者该建筑被吸电是是否连带整个基地的电力，默认否"
+  },
+  "Drain.Amount": {
+    "type": "string",
+    "desc_zh": "吸多少电，如果是正值，那么表示该单位最多能吸多少电，或者是该建筑最多能被吸多少电，如果是负值，那么表示该单位至少能吸多少电，或者是该建筑至少能被吸多少电，默认0，该语句必须有上面那个语句才有效"
+  },
+  "DropPodTrailer": {
+    "type": "string",
+    "desc_zh": "空降仓降落时的尾烟。默认 SMOKEY 全局超级武器默认值"
+  },
+  "DropPodTypes": {
+    "type": "string",
+    "desc_zh": "空降仓里的兄贵类型，只能是步兵，可以设多个，出来的可能性都是一样的。默认 none， 火风暴里是 E1 和 E2"
+  },
+  "DropPodMinimum": {
+    "type": "string",
+    "desc_zh": "丢下来的套子的最小数量。默认 0，火风暴里是 5"
+  },
+  "DropPodMaximum": {
+    "type": "string",
+    "desc_zh": "丢下来的套子的最大数量。默认 0，火风暴里是 8 更多关于空降仓的设定请参考超武部分"
+  },
+  "EnemyWrench": {
+    "type": "string",
+    "desc_zh": "写no时就能使敌方看不见维修小扳手，当然，观察者还是可以看得到，默认yes"
+  },
+  "BuiltAt": {
+    "type": "string",
+    "desc_zh": "指定在哪个建筑建造"
+  },
+  "Factory.ExplicitOnly": {
+    "type": "string",
+    "desc_zh": "是否只允许指定单位建造，默认否 载具克隆缸"
+  },
+  "CloningFacility": {
+    "type": "string",
+    "desc_zh": "允许该建筑克隆载具，默认否 克隆选项"
+  },
+  "ClonedAt": {
+    "type": "string",
+    "desc_zh": "在哪里克隆"
+  },
+  "ClonedAs": {
+    "type": "string",
+    "desc_zh": "当被克隆时，克隆成什么，如果不设定，就是单位本身。注意，不能跨类型克隆。"
+  },
+  "GateDownSound": {
+    "type": "string",
+    "desc_zh": "开启声音"
+  },
+  "GateUpSound": {
+    "type": "string",
+    "desc_zh": "关闭声音"
+  },
+  "Gattling.Cycle": {
+    "type": "string",
+    "desc_zh": "当到达最后一阶盖特后，会跳回第一阶"
+  },
+  "VehicleThief.EnterSound": {
+    "type": "string",
+    "desc_zh": "进车声音"
+  },
+  "VehicleThief.LeaveSound": {
+    "type": "string",
+    "desc_zh": "被偷载具破坏劫车犯出来的声音"
+  },
+  "VehicleThief.BreakMindControl": {
+    "type": "string",
+    "desc_zh": "是否能偷窃被心灵支配的载具，当进入载具该载具会切断与控制者的联系，默认为是"
+  },
+  "VehicleThief.OneTime": {
+    "type": "string",
+    "desc_zh": "劫车犯是否只能偷一次车（载具摧毁后将无法逃出）"
+  },
+  "VehicleThief.KillPilots": {
+    "type": "string",
+    "desc_zh": "劫车犯偷装人的车能够杀死多少人，-1为杀死全部人，默认为0"
+  },
+  "HunterSeekerDetonateProximity": {
+    "type": "string",
+    "desc_zh": "能够引爆目标的距离，单位是leptons。默认0，TS里是150"
+  },
+  "HunterSeekerDescendProximity": {
+    "type": "string",
+    "desc_zh": "距离目标多远是狩猎者开始下降，单位是leptons。默认0, TS里是700"
+  },
+  "HunterSeekerAscentSpeed": {
+    "type": "string",
+    "desc_zh": "当升到一个更高的飞行高度时的速度。默认0，TS里是40"
+  },
+  "HunterSeekerDescentSpeed": {
+    "type": "string",
+    "desc_zh": "当降到一个更低的飞行高度时的速度。默认0，TS里是50"
+  },
+  "HunterSeekerEmergeSpeed": {
+    "type": "string",
+    "desc_zh": "从发射设施发出时的速度。默认0，TS里是6 狩猎者单位微观设置"
+  },
+  "HunterSeeker.EmergeSpeed": {
+    "type": "string",
+    "desc_zh": "我想不需要翻译这个… 不允许的目标"
+  },
+  "HunterSeeker.Ignore": {
+    "type": "string",
+    "desc_zh": "是否狩猎者不把这个单位作为攻击目标，即使没有其他目标了狩猎者也不会对其进行攻击。默认否"
+  },
+  "InfantryElectrocuted": {
+    "type": "string",
+    "desc_zh": "触电死亡时用这个动画，如果不指定就寻找ELECTRO作为触电死亡动画"
+  },
+  "KillDriver": {
+    "type": "string",
+    "desc_zh": "该弹头能否杀死驾驶员"
+  },
+  "KillDriver.Owner": {
+    "type": "string",
+    "desc_zh": "驾驶员被杀后载具归属。默认special"
+  },
+  "KillDriver.KillBelowPercent": {
+    "type": "string",
+    "desc_zh": "该弹头只有在被打击单位的生命低于这个百分比时才能杀死驾驶员。默认100%"
+  },
+  "KillDriver.Chance": {
+    "type": "string",
+    "desc_zh": "设定当单位可以被击杀驾驶员时，有多大的概率被击杀驾驶员。默认100%"
+  },
+  "KillDriver.RemoveVeterancy": {
+    "type": "string",
+    "desc_zh": "当一个单位被狙杀驾驶员之后，移除它的等级。默认no。"
+  },
+  "CanDrive": {
+    "type": "string",
+    "desc_zh": "该载具能否占领驾驶。默认不能"
+  },
+  "CanBeDriven": {
+    "type": "string",
+    "desc_zh": "决定一个单位的初始驾驶员被击杀后，能否使用新的驾驶员占领。如果是，就可以。默认yes。 现在该逻辑已经可以被CellSpread影响了。"
+  },
+  "LightningRod": {
+    "type": "string",
+    "desc_zh": "是否能够吸引雷击"
+  },
+  "LightningRod.Modifier": {
+    "type": "string",
+    "desc_zh": "被雷击的伤害百分比"
+  },
+  "MakeInfantryOwner": {
+    "type": "string",
+    "desc_zh": "决定是谁的 invoker看情况|killer击杀者|victim死人|neutral野生|random随机 一堆next动画的话 MakeInfantry=应该写在最后一个，MakeInfantryOwner= 应该写第一个，动画使用单位色盘"
+  },
+  "PoweredBy": {
+    "type": "string",
+    "desc_zh": "该单位被该建筑控制 注意"
+  },
+  "Operator": {
+    "type": "string",
+    "desc_zh": "指定某个驾驶者才能操作， _ANY_ 的话是任意驾驶者都行，默认 none，不需要驾驶者 这个单位必须至少有一个乘客位置， 建筑则需要设置 InfantryAbsorb=yes或UnitAbsorb=yes"
+  },
+  "IsPassable": {
+    "type": "string",
+    "desc_zh": "该建筑所在的格子能不能让载具和步兵站在上面或者通过。默认否"
+  },
+  "SidebarPCX": {
+    "type": "string",
+    "desc_zh": "超武用，和上面一样 和其他 PCX文件一样，需要用索引色，并且 图标 PCX必须是256色且大小为 60x48 像素。"
+  },
+  "Prerequisites": {
+    "type": "string",
+    "desc_zh": "... 非建筑作为建造前提（备用建造前提）"
+  },
+  "PrerequisiteXAlternate": {
+    "type": "string",
+    "desc_zh": "所属方拥有列表中的单位时，也能够当做X作为建造前提。自行将X替换为在通用先决条件组中注册的先决条件，首字母大写，其余小写。"
+  },
+  "PrismForwarding": {
+    "type": "string",
+    "desc_zh": "决定此建筑是否可以递光。"
+  },
+  "PrismForwarding.Targets": {
+    "type": "string",
+    "desc_zh": "这个建筑能够递光支援的建筑"
+  },
+  "PrismForwarding.MaxFeeds": {
+    "type": "string",
+    "desc_zh": "最大支援数量， -1表示无限制，默认 [General] > PrismSupportMax 覆盖"
+  },
+  "PrismForwarding.MaxChainLength": {
+    "type": "string",
+    "desc_zh": "反向连接数量， -1表示无限制，默认1，如果要达到上图效果就要设置3"
+  },
+  "PrismForwarding.MaxNetworkSize": {
+    "type": "string",
+    "desc_zh": "如果开火中的塔超过支援的塔，这个标签表示在递光网络的总数，不包括开火中的塔，默认 [General] > PrismSupportMax 覆盖"
+  },
+  "PrismForwarding.SupportModifier": {
+    "type": "string",
+    "desc_zh": "递光杀伤倍数，默认 [General] > PrismSupportModifier 覆盖"
+  },
+  "PrismForwarding.DamageAdd": {
+    "type": "string",
+    "desc_zh": "增加固定的伤害而不是倍数，默认 0"
+  },
+  "PrismForwarding.MyHeight": {
+    "type": "string",
+    "desc_zh": "递光高度，默认 [General] > PrismSupportHeight 覆盖"
+  },
+  "PrismForwarding.ToAllies": {
+    "type": "string",
+    "desc_zh": "是否能支援友军的塔，默认否"
+  },
+  "PrismForwarding.BreakSupport": {
+    "type": "string",
+    "desc_zh": "可以在终止的最后一刻进行支援，而不需要重新充能，默认否"
+  },
+  "PrismForwarding.ChargeDelay": {
+    "type": "string",
+    "desc_zh": "递光时充能的延迟，默认 1，最好别动（作者如是说，这玩意儿是用来测试玩的）"
+  },
+  "PrismForwarding.Intensity": {
+    "type": "string",
+    "desc_zh": "随着递光增加激光的宽度"
+  },
+  "Overpowerable": {
+    "type": "string",
+    "desc_zh": "是否能攻击递光同时进行"
+  },
+  "PrismForwarding.EliteSupportWeapon": {
+    "type": "weapon",
+    "desc_zh": "副武器的递光不再使用而是用这个标签的武器递光 以下标签可以被用来定义支援时的光束武器，都是原版标签。"
+  },
+  "IsRadBeam": {
+    "type": "string",
+    "desc_zh": "是否是辐射波"
+  },
+  "RadarJamRadius": {
+    "type": "string",
+    "desc_zh": "干扰范围"
+  },
+  "ReverseEngineersVictims": {
+    "type": "string",
+    "desc_zh": "允许逆向工程逻辑，默认否"
+  },
+  "SpyEffect.UndoReverseEngineer": {
+    "type": "string",
+    "desc_zh": "间谍能取消掉所有逆向工程，默认否"
+  },
+  "ReversedAs": {
+    "type": "string",
+    "desc_zh": "这个单位被逆向工程后，作为什么单位被给予。如果不设置则为该单位本身。默认不设置。"
+  },
+  "Scorch": {
+    "type": "string",
+    "desc_zh": "这个动画会将[AudioVisual] > SmallFire指定的动画蔓延到周围，不过不会在水，冰，岩石等地方产生"
+  },
+  "Flamer": {
+    "type": "string",
+    "desc_zh": "这个动画会在周围随机产生[AudioVisual] > SmallFire和[AudioVisual] > LargeFire指定的动画"
+  },
+  "SecretLab.PossibleBoons": {
+    "type": "string",
+    "desc_zh": "随机的可以出现的东西"
+  },
+  "SecretLab.GenerateOnCapture": {
+    "type": "string",
+    "desc_zh": "每次占领都重新随机一个东西，如果否的话在进入地图就定死，反复占领也都是一个单位，默认否"
+  },
+  "SecretLab.RequiredHouses": {
+    "type": "string",
+    "desc_zh": "只有这个国家占领才能获得单位"
+  },
+  "SecretLab.ForbiddenHouses": {
+    "type": "string",
+    "desc_zh": "除了这个国家其他国家占领都能获得单位"
+  },
+  "SolidLevel": {
+    "type": "string",
+    "desc_zh": "这个抛射体所能承受的坚固程度，如果这个值高于或等于建筑的坚固程度，那么这个单位将会直接对建筑后的目标进行攻击，首先摧毁障碍再说，如果低于建筑的坚固等级，那么就不能开火，必须绕过建筑进行攻击，默认0"
+  },
+  "SolidHeight": {
+    "type": "string",
+    "desc_zh": "建筑的阻挡高度，默认为0，即可以完全穿透，-1意味着可以完全阻挡，单位为格，一格等于256像素 注意：不建议用在不是矩形或者镂空的建筑上，例如巴黎铁塔这种越往上越尖的建筑，因为炮弹打上去可能表现得像是在半空爆炸"
+  },
+  "AlliedSolidTransparency": {
+    "type": "string",
+    "desc_zh": "写yes的话可以透过，默认否"
+  },
+  "SpyEffect.Custom": {
+    "type": "string",
+    "desc_zh": "该建筑能否渗透 雷达"
+  },
+  "SpyEffect.ResetRadar": {
+    "type": "string",
+    "desc_zh": "是否是雷达，被黑后黑掉地图"
+  },
+  "SpyEffect.RevealRadar": {
+    "type": "string",
+    "desc_zh": "是否把敌人的地图给你"
+  },
+  "SpyEffect.KeepRadar": {
+    "type": "string",
+    "desc_zh": "如果启用那么会一直持续效果 电力"
+  },
+  "SpyEffect.PowerOutageDuration": {
+    "type": "string",
+    "desc_zh": "停电时间 钱"
+  },
+  "SpyEffect.StolenMoneyAmount": {
+    "type": "string",
+    "desc_zh": "固定偷多少钱"
+  },
+  "SpyEffect.StolenMoneyPercentage": {
+    "type": "string",
+    "desc_zh": "偷钱百分比 两者同时定义时，效果为偷取百分之多少的钱，最多不超过多少。比如75%，10000，那么将偷取敌方75%当前资金，但最多只能偷到10000钱"
+  },
+  "SpyEffect.ResetSuperweapons": {
+    "type": "weapon",
+    "desc_zh": "重新计时"
+  },
+  "SpyEffect.SuperWeapon": {
+    "type": "weapon",
+    "desc_zh": "获得一次该超武使用权"
+  },
+  "SpyEffect.SuperWeaponPermanent": {
+    "type": "weapon",
+    "desc_zh": "永久使用权，需要上面语句。默认no"
+  },
+  "SpyEffect.StolenTechIndex": {
+    "type": "string",
+    "desc_zh": "这个建筑的偷窃项（ 0-31）"
+  },
+  "SpyEffect.UnitVeterancy": {
+    "type": "string",
+    "desc_zh": "是否偷窃后能让同类单位出厂老兵 只支持步兵和载具"
+  },
+  "SpyEffect.InfantryVeterancy": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，Trainable=yes的步兵初始一级。需要SpyEffect.Custom=yes. 默认no 。"
+  },
+  "SpyEffect.VehicleVeterancy": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，Trainable=yes的载具初始一级。需要SpyEffect.Custom=yes."
+  },
+  "SpyEffect.NavalVeterancy": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，Trainable=yes的海军初始一级。需要SpyEffect.Custom="
+  },
+  "SpyEffect.AircraftVeterancy": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，Trainable=yes的飞机初始一级。需要SpyEffect.Custom= yes."
+  },
+  "SpyEffect.BuildingVeterancy": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，Trainable=yes的建筑初始一级。需要SpyEffect.Custom= yes."
+  },
+  "SpyEffect.RevealProduction": {
+    "type": "string",
+    "desc_zh": "是否可以看到对方在造什么，就像下面那张图 不同建筑的特殊效果"
+  },
+  "Fake": {
+    "type": "string",
+    "desc_zh": "Power 显示电力，格式为TXT_POWER_DRAIN2 Storage"
+  },
+  "SpyEffect.SabotageDelay": {
+    "type": "string",
+    "desc_zh": "设置当该建筑被渗透时，过指定帧数后爆炸（就像被安了C4一样）。如果设定负值，则读取[CombatDamage]?C4Delay，设定0将取消这个功能。默认0。"
+  },
+  "SpyEffect.Nothing": {
+    "type": "string",
+    "desc_zh": "当这个建筑被渗透时，什么也不会发生。需要SpyEffect.Custom=yes，且需要没有其他SpyEffect设定。默认no。"
+  },
+  "Crew.TechnicianChance": {
+    "type": "string",
+    "desc_zh": "产生技师的几率。有主武器的建筑默认15，其他0"
+  },
+  "Survivor.Pilots": {
+    "type": "string",
+    "desc_zh": "会产生多少单位，有 Crewed=yes 默认 1，没有就是0"
+  },
+  "Survivor.ElitePilotChance": {
+    "type": "string",
+    "desc_zh": "新兵，老兵，精英时驾驶员逃出概率，没有的话 [General]?CrewEscape 控制"
+  },
+  "Survivor.ElitePassengerChance": {
+    "type": "string",
+    "desc_zh": "乘客逃出概率，在空中必死 值得一提的是逃出的驾驶员和载具获得的经验值量是相同的，相对而言。"
+  },
+  "Crew.EngineerChance": {
+    "type": "string",
+    "desc_zh": "占有者逃出工程师的几率（代替一般逃兵），正常情况下被占领建筑绝对不会出工程师除非加上这个语句，默认Factory=BuildingType类建筑是25（25％），其他都是0"
+  },
+  "TeamRetaliate": {
+    "type": "string",
+    "desc_zh": "是否允许团队复仇。默认否"
+  },
+  "ReturnStructures": {
+    "type": "string",
+    "desc_zh": "是否被占领建筑可以回归中立方当占有者败北或投降时，默认否"
+  },
+  "Returnable": {
+    "type": "string",
+    "desc_zh": "是否该建筑可以回归中立方，默认[General]?ReturnStructures"
+  },
+  "LostEvaEvent": {
+    "type": "string",
+    "desc_zh": "当该已经被我方占领的科技建筑被其他玩家占领时播放EVA语音。需要NeedsEngineer=yes。默认EVA_TechBuildingLost"
+  },
+  "Message.Capture": {
+    "type": "string",
+    "desc_zh": "占领时显示CSF。需要NeedsEngineer=yes。默认none"
+  },
+  "Message.Lost": {
+    "type": "string",
+    "desc_zh": "丢失时显示CSF。需要NeedsEngineer=yes。默认none"
+  },
+  "TogglePowerAllowed": {
+    "type": "string",
+    "desc_zh": "是否允许手动切换电源，默认否，在游戏里默认没有这个功能的热键，需要自己在键位设置里找"
+  },
+  "TogglePowerCursor": {
+    "type": "string",
+    "desc_zh": "停电时的鼠标指针"
+  },
+  "TogglePowerNoCursor": {
+    "type": "string",
+    "desc_zh": "如果该建筑不能停电，就使用这个鼠标指针"
+  },
+  "TogglePowerDelay": {
+    "type": "string",
+    "desc_zh": "切换电源的延迟，默认45"
+  },
+  "TypeSelectUseDeploy": {
+    "type": "string",
+    "desc_zh": "能够变形或者部署的单位是不是在变形后依然归属于原来的选择组，默认是"
+  },
+  "EVA.Lost": {
+    "type": "string",
+    "desc_zh": "填none就是不播报，单位默认是EVA_UnitLost，建筑默认是none"
+  },
+  "UC.FatalRate": {
+    "type": "string",
+    "desc_zh": "如果武器能够攻击到驻兵，一击必杀的几率，默认 0"
+  },
+  "SubjectToTrenches": {
+    "type": "string",
+    "desc_zh": "该弹体是否无视 UC.PassThrough ， 100%命中驻兵，yes的话 UC.PassThrough 依然有效， no的话直接贯通，默认是"
+  },
+  "Bunker.Raidable": {
+    "type": "string",
+    "desc_zh": "这个建筑能否被敌人步兵占据 当被敌人占领时所属权属于敌人，玩家不能变卖这玩意儿除非敌人步兵离开"
+  },
+  "Rubble.Destroyed": {
+    "type": "string",
+    "desc_zh": "该建筑被摧毁时会变成这种建筑。 工程师进入后能修复成以下标签指定的建筑，修复时使用RepairTrench鼠标指针。"
+  },
+  "Rubble.Destroyed.Remove": {
+    "type": "string",
+    "desc_zh": "该建筑被摧毁时直接消失，不会转变为废墟建筑，覆盖 Rubble.Destroyed=。默认否"
+  },
+  "Rubble.Destroyed.Owner": {
+    "type": "string",
+    "desc_zh": "被摧毁时废墟建筑给谁。默认给原来的所有者"
+  },
+  "Rubble.Destroyed.Strength": {
+    "type": "string",
+    "desc_zh": "变成废墟建筑时的血量，正值意味着还剩这么多血量，负值里，-99意味着剩99%的血量，-1意味着剩1%的血量，剩余的值全都意味着满血。默认和设定建筑血量相同"
+  },
+  "Rubble.Destroyed.Anim": {
+    "type": "string",
+    "desc_zh": "变成废墟或者被摧毁直接消失时的动画"
+  },
+  "Rubble.Intact": {
+    "type": "string",
+    "desc_zh": "工程师修复后变成这种建筑，如果不指定的话就无法再恢复原来的建筑（设置成别的建筑也是可以的！）"
+  },
+  "Rubble.Intact.Remove": {
+    "type": "string",
+    "desc_zh": "工程师进去后把废墟建筑移除，覆盖 Rubble.Intact=。默认否"
+  },
+  "Rubble.Intact.Owner": {
+    "type": "string",
+    "desc_zh": "不需要解释"
+  },
+  "Rubble.Intact.Strength": {
+    "type": "string",
+    "desc_zh": "不需要解释。默认-1，1%的血量"
+  },
+  "Rubble.Intact.Anim": {
+    "type": "string",
+    "desc_zh": "不需要解释"
+  },
+  "IsTrench": {
+    "type": "string",
+    "desc_zh": "指定这个战壕的名称，只有同种战壕能够穿越，意味着战壕得用围墙，激光墙类型的建筑"
+  },
+  "CanBeOccupiedBy": {
+    "type": "string",
+    "desc_zh": "只有这种步兵能占据这个建筑，该步兵必须设置可以占据建筑"
+  },
+  "DefaultDisguise": {
+    "type": "string",
+    "desc_zh": "间谍出厂时默认的伪装类型"
+  },
+  "Crew": {
+    "type": "string",
+    "desc_zh": "步兵驾驶员类型，该车辆或建筑要有Crewed=yes"
+  },
+  "Engineer": {
+    "type": "string",
+    "desc_zh": "基地类的建筑卖掉或者被摧毁出来的工程师。默认[General]?Engineer"
+  },
+  "Technician": {
+    "type": "string",
+    "desc_zh": "技术员，某些特殊建筑卖掉或被摧毁时出来。默认[General]?Technician"
+  },
+  "SurvivorDivisor": {
+    "type": "string",
+    "desc_zh": "卖建筑炸建筑的残兵数量，越大越少"
+  },
+  "AI.BaseDefenses": {
+    "type": "string",
+    "desc_zh": "AI用的防御建筑名单"
+  },
+  "AI.BaseDefenseCounts": {
+    "type": "string",
+    "desc_zh": "AI的防御建筑数目，数字依次为困难，中等，简单"
+  },
+  "ParaDrop.Types": {
+    "type": "string",
+    "desc_zh": "默认的科技机场伞兵，和国家设定一样，如果国家设定没有就用阵营设定，原有三阵营的默认值就是YuriParaDropInf附近那些，你懂的"
+  },
+  "ParaDrop.Num": {
+    "type": "string",
+    "desc_zh": "和国家设定一样，如果国家设定没有就用阵营设定"
+  },
+  "ParaDrop.Aircraft": {
+    "type": "string",
+    "desc_zh": "和国家设定一样，如果国家设定没有就用阵营设定"
+  },
+  "HunterSeeker": {
+    "type": "string",
+    "desc_zh": "狩猎者超武使用的单位，覆盖全局值的[General]?GDIHunterSeeker和[General]?NodHunterSeeker。默认none"
+  },
+  "Sidebar.MixFileIndex": {
+    "type": "string",
+    "desc_zh": "使用Sidec0*.mix作为界面"
+  },
+  "Sidebar.YuriFileNames": {
+    "type": "string",
+    "desc_zh": "是否用尤里的界面sidec02md.mix和里面包含的其他内容"
+  },
+  "ToolTipColor": {
+    "type": "string",
+    "desc_zh": "提示文本和分数界面等等的字体颜色第二第三阵营默认255,255,0，其余的都是164,210,255"
+  },
+  "MessageTextColor": {
+    "type": "string",
+    "desc_zh": "地图触发动作11产生的文本颜色，第二阵营默认6号颜色，第三阵营默认13号颜色，其余的都是11号颜色，在原版rules里，这几个颜色分别是DarkRed，DarkSky，DarkBlue"
+  },
+  "DialogBackground.Image": {
+    "type": "string",
+    "desc_zh": "这个阵营的背景对话框shp，大小452x326，默认PUDLGBGA.SHP，PUDLGBGS.SHP和PUDLGBGY.SHP为第一第二以及其他阵营需要设置DialogBackground.Palette="
+  },
+  "DialogBackground.Palette": {
+    "type": "string",
+    "desc_zh": "色盘默认DIALOG.PAL为第一第二阵营，其他阵营DIALOG.PAL"
+  },
+  "LoadingTheme": {
+    "type": "string",
+    "desc_zh": "多人游戏时阵营载入音乐。默认LOADING"
+  },
+  "EVA.Tag": {
+    "type": "string",
+    "desc_zh": "Eva文件的设定名，如酥菌的所有都是Russian，萌菌的所有都是Allied，原NP的第四阵营都是Fourth"
+  },
+  "CampaignScore.Background": {
+    "type": "string",
+    "desc_zh": "一个 632x568 的图片用做背景。使用的色盘定义为 CampaignScore.Palette 。默认是 ASCRBKMD.SHP ， SSCRBKMD.SHP 或 SYCRBKMD.SHP 作为第一，第二，第三及其他阵营的背景"
+  },
+  "CampaignScore.Transition": {
+    "type": "string",
+    "desc_zh": "过渡形态。使用色盘定义为 CampaignScore.Palette 。默认是 ASCRTMD.SHP ， SSCRTMD.SHP 或 SYCRTMD.SHP 作为第一，第二，第三及其他阵营的过渡"
+  },
+  "CampaignScore.Animation": {
+    "type": "animation",
+    "desc_zh": "不断转的那个东西，过渡形态结束后将会循环这玩意儿。使用的色盘定义为 CampaignScore.Palette 。默认是 ASCRAMD.SHP ， SSCRAMD.SHP 或 SYCRAMD.SHP 作为第一，第二，第三及其他阵营的转动动画"
+  },
+  "CampaignScore.Palette": {
+    "type": "string",
+    "desc_zh": "色盘。默认是 ASCORE.PAL ， SSCORE.PAL 或 YSCORE.PAL 作为第一，第二，第三及其他阵营的色盘 分数画面的音乐也是可以自定义的。"
+  },
+  "CampaignScore.UnderParTheme": {
+    "type": "string",
+    "desc_zh": "比最快时间完成得还快时播放这个。默认 SCORE"
+  },
+  "CampaignScore.OverParTheme": {
+    "type": "string",
+    "desc_zh": "比最快时间完成得慢时播放这个。默认 SCORE 多人游戏"
+  },
+  "MultiplayerScore.Background": {
+    "type": "string",
+    "desc_zh": "一个 632x568 的图片用做背景。使用的色盘定义为 MultiplayerScore.Palette 。默认是 MPASCRNL.SHP ， MPSSCRNL.SHP 或 MPYSCRNL.SHP 作为第一，第二，第三及其他阵营的背景"
+  },
+  "MultiplayerScore.Palette": {
+    "type": "string",
+    "desc_zh": "色盘。默认 MPASCRN.PAL ， MPSSCRN.PAL 或 MPYSCRN.PAL 作为第一，第二，第三及其他阵营的背景"
+  },
+  "MultiplayerScore.Bars": {
+    "type": "string",
+    "desc_zh": "各种条子，因为是 pcx文件所以不需要色盘，一共有10条，编号01到10，写到这条语句里的时候要把编号换成~~， 默认是 mpascrnlbar~~ . pcx ， mpsscrnlbar~~.pcx 或 mpyscrnlbar~~.pcx 作为第一，第二，第三及其他阵营的条子（ ~~是编号） 我觉得不用说了。"
+  },
+  "MultiplayerScore.WinTheme": {
+    "type": "string",
+    "desc_zh": "战胜的音乐。默认 SCORE"
+  },
+  "MultiplayerScore.LoseTheme": {
+    "type": "string",
+    "desc_zh": "战败的音乐。默认 SCORE 游戏结束时的图片"
+  },
+  "GraphicalText.Image": {
+    "type": "string",
+    "desc_zh": "图片。默认 GRFXTXT.SHP"
+  },
+  "GraphicalText.Palette": {
+    "type": "string",
+    "desc_zh": "色盘。默认 GRFXTXT.PAL"
+  },
+  "AI.PowerPlants": {
+    "type": "string",
+    "desc_zh": "AI认为这些东西是电厂"
+  },
+  "VeteranBuildings": {
+    "type": "string",
+    "desc_zh": "在这个列表里的建筑造出来就是精英级别"
+  },
+  "GivesBounty": {
+    "type": "string",
+    "desc_zh": "决定这个国家是否能得到赏金。no的话，即使单位设置了可以获得赏金，这个国家也不能得到赏金，默认yes。"
+  },
+  "File.Flag": {
+    "type": "string",
+    "desc_zh": "文件名，包含.pcx扩展名，国旗"
+  },
+  "File.ObserverBackground": {
+    "type": "string",
+    "desc_zh": "观察者界面背景文件（PCX/SHP）。"
+  },
+  "File.ObserverFlag": {
+    "type": "string",
+    "desc_zh": ".pcx or .shp extension) 观察者模式时右边看到的国旗"
+  },
+  "File.ObserverFlagAltPalette": {
+    "type": "string",
+    "desc_zh": "如果是，用yrii.pal绘制shp，否则用observer.pal"
+  },
+  "File.LoadScreen": {
+    "type": "string",
+    "desc_zh": "载入界面，包括.shp扩展名，文件名格式是\"filename%s*******.shp\"，%为当前的分辨率，比如800,640"
+  },
+  "File.LoadScreenPAL": {
+    "type": "string",
+    "desc_zh": "载入色盘，包括扩展名"
+  },
+  "LoadScreenText.Name": {
+    "type": "string",
+    "desc_zh": "显示的国家名，Name：开头"
+  },
+  "LoadScreenText.SpecialName": {
+    "type": "string",
+    "desc_zh": "特殊单位的名字，如磁能坦克"
+  },
+  "LoadScreenText.Brief": {
+    "type": "string",
+    "desc_zh": "特殊单位的说明"
+  },
+  "LoadScreenText.Color": {
+    "type": "string",
+    "desc_zh": "载入文字颜色，注册在[Colors]里"
+  },
+  "MenuText.Status": {
+    "type": "string",
+    "desc_zh": "法国能建造巨炮，德国能建造坦克杀手的那一行"
+  },
+  "RandomSelectionWeight": {
+    "type": "string",
+    "desc_zh": "国家随机选中的权重，越大越容易被选中，默认1"
+  },
+  "ListIndex": {
+    "type": "string",
+    "desc_zh": "决定了国家选择表的顺序，如果有重复则按国家注册表顺序决定，负数数值的国家会隐藏。如果不想随机选中，设定RandomSelectionWeight=0."
+  },
+  "File.Taunt": {
+    "type": "string",
+    "desc_zh": "如“ Taunts\\filename%02i.wav ”，会让游戏自动加载filename01到08的东西，对战嘲笑设置，仅对16个国家生效 从1.1开始使用~~代替%02i，如上例子变为“ Taunts\\filename~~.wav ”"
+  },
+  "CloakHeight": {
+    "type": "string",
+    "desc_zh": "在该高度下才能隐形 。 默认为 [General]?HoverHeight 的值（悬浮单位高度）"
+  },
+  "DecloakSound": {
+    "type": "string",
+    "desc_zh": "全局方面暴露出的声音，默认和 [AudioVisual]?CloakSound 一样"
+  },
+  "CloakSound": {
+    "type": "string",
+    "desc_zh": "微观调控该单位进入隐形状态的声音 。 默认为 [AudioVisual]?CloakSound"
+  },
+  "Cloakable.Stages": {
+    "type": "string",
+    "desc_zh": "要经历多少层才能进入隐形状态，越小越快 。 默认为 [General]?CloakingStages"
+  },
+  "Cloakable.Deployed": {
+    "type": "string",
+    "desc_zh": "需要部署才能隐形，默认否"
+  },
+  "Cloakable.Powered": {
+    "type": "string",
+    "desc_zh": "是否要有电才隐形，默认否"
+  },
+  "Cloakable.Allowed": {
+    "type": "string",
+    "desc_zh": "是否可以隐形，如果写否那么就算用隐形装置也不能让这玩意儿隐形 ， 默认是"
+  },
+  "StealthSpeakDelay": {
+    "type": "string",
+    "desc_zh": "在相邻两次反隐形通报中间隔几分钟。"
+  },
+  "SubterraneanSpeakDelay": {
+    "type": "string",
+    "desc_zh": "在相邻两次反钻地通报中间隔几分钟。"
+  },
+  "SensorArray.Warn": {
+    "type": "string",
+    "desc_zh": "如果写否那么即使这个单位被传感器侦测到也不会发出警告。默认是"
+  },
+  "BallisticScatter.Min": {
+    "type": "string",
+    "desc_zh": "散布最小范围。默认如果有 FlakScatter=no 或者 Invisible=yes 就是 [CombatDamage ] > BallisticScatter /2 ，否则是 0"
+  },
+  "BallisticScatter.Max": {
+    "type": "string",
+    "desc_zh": "散布最大范围。默认 [CombatDamage]?BallisticScatter"
+  },
+  "Ranged": {
+    "type": "string",
+    "desc_zh": "这个抛射体是否会用完燃料然后引爆自己。默认否"
+  },
+  "AroundTarget": {
+    "type": "string",
+    "desc_zh": "决定分裂或空爆子武器的散布原点，yes以目标为原点散布子武器，no则以抛体爆炸处为原点。 空爆默认no，分裂默认yes。"
+  },
+  "ApplyDamage": {
+    "type": "string",
+    "desc_zh": "使IsSonic=yes或UseFireParticles=yes的武器赋予Damage的伤害，如果写no就会禁用任何伤害就像Damage=0一样，同时不产生弹头动画（这个问题以后会解决）。默认IsSonic=yes或UseFireParticles=yes的武器为no，其他武器yes"
+  },
+  "IvanBomb.Warhead": {
+    "type": "warhead",
+    "desc_zh": "炸弹爆炸弹头"
+  },
+  "IvanBomb.Damage": {
+    "type": "string",
+    "desc_zh": "炸弹伤害"
+  },
+  "IvanBomb.Detachable": {
+    "type": "string",
+    "desc_zh": "能否拆弹"
+  },
+  "IvanBomb.DestroysBridges": {
+    "type": "string",
+    "desc_zh": "能否能炸桥，桥梁维修小屋可以一直丢但是默认炸不掉"
+  },
+  "IvanBomb.CanDetonateTimeBomb": {
+    "type": "string",
+    "desc_zh": "能否手动引爆"
+  },
+  "IvanBomb.Delay": {
+    "type": "string",
+    "desc_zh": "爆炸延时"
+  },
+  "IvanBomb.AttachSound": {
+    "type": "string",
+    "desc_zh": "丢上去的声音"
+  },
+  "IvanBomb.TickingSound": {
+    "type": "string",
+    "desc_zh": "计时器滴滴答答的声音，填SOUNDMD的注册名，必须带Control=loop"
+  },
+  "IvanBomb.Image": {
+    "type": "string",
+    "desc_zh": "图像，不要带扩展名（卧槽前面的都要这个怎么又不要了，一帮蛋疼B）。默认bombcurs.shp"
+  },
+  "IvanBomb.FlickerRate": {
+    "type": "string",
+    "desc_zh": "炸弹图像跳动频率，计算细则关我屌事"
+  },
+  "frameToShow": {
+    "type": "string",
+    "desc_zh": "满足条件时显示的动画帧（Phobos 扩展）。"
+  },
+  "IvanBomb.DeathBomb": {
+    "type": "string",
+    "desc_zh": "设置当这个炸弹安置在敌人身上时是否将会只在死亡后爆炸而不使用倒计时爆炸逻辑。默认否。"
+  },
+  "IvanBomb.DeathBombOnAllies": {
+    "type": "string",
+    "desc_zh": "设置当这个炸弹安置在盟友身上时是否将会只在死亡后爆炸而不使用倒计时爆炸逻辑。默认否。"
+  },
+  "IvanBomb.CanDetonateDeathBomb": {
+    "type": "string",
+    "desc_zh": "能否手动引爆死亡型炸弹。默认[CombatDamage]?CanDetonateDeathBomb."
+  },
+  "IvanBomb.DetonateOnSell": {
+    "type": "string",
+    "desc_zh": "如果被绑定的目标被变卖了，是否会引起爆炸。默认是。"
+  },
+  "Beam.IsHouseColor": {
+    "type": "string",
+    "desc_zh": "是否是玩家所属色"
+  },
+  "Beam.Duration": {
+    "type": "string",
+    "desc_zh": "持续时间，默认 15，有 RadEruption =yes 的为 5 到 20 随机数"
+  },
+  "Beam.Amplitude": {
+    "type": "string",
+    "desc_zh": "振幅大小，默认40"
+  },
+  "Bolt.ParticleSystem": {
+    "type": "string",
+    "desc_zh": "决定在目标位置生成的粒子系统。使用<none>关闭这个功能。默认为DefaultSparkSystem。"
+  },
+  "Wave.IsLaser": {
+    "type": "string",
+    "desc_zh": "大波"
+  },
+  "Wave.IsBigLaser": {
+    "type": "string",
+    "desc_zh": "小波 可以用于电磁波和声波"
+  },
+  "Wave.Color": {
+    "type": "string",
+    "desc_zh": "颜色"
+  },
+  "Wave.IsHouseColor": {
+    "type": "string",
+    "desc_zh": "是否是玩家所属色"
+  },
+  "Wave.Intensity": {
+    "type": "string",
+    "desc_zh": "相对于原始像素颜色，对波的颜色分量增加的值，支持负值使波变暗。0,0,0表示强度没有变化。默认值因波的类型而异。如果 Wave.Color= 被设置"
+  },
+  "Wave.ReverseAgainstVehicles": {
+    "type": "string",
+    "desc_zh": "默认IsMagBeam=yes的波会从目标向发射者绘制，发射者是车辆"
+  },
+  "Wave.ReverseAgainstBuildings": {
+    "type": "string",
+    "desc_zh": "是否从目标向发射的建筑绘制"
+  },
+  "Wave.ReverseAgainstInfantry": {
+    "type": "string",
+    "desc_zh": "是否从目标向发射的步兵绘制"
+  },
+  "Wave.ReverseAgainstAircraft": {
+    "type": "string",
+    "desc_zh": "是否从目标向发射的飞机绘制"
+  },
+  "Wave.ReverseAgainstOthers": {
+    "type": "string",
+    "desc_zh": "是否从目标向发射的其他玩意儿绘制"
+  },
+  "LaserThickness": {
+    "type": "string",
+    "desc_zh": "激光宽度，和 NP一样，渣效果，而且强制玩家所属色"
+  },
+  "AffectsEnemies": {
+    "type": "string",
+    "desc_zh": "决定这个弹头是否能够影响它发射者的敌人。"
+  },
+  "AffectsOwner": {
+    "type": "string",
+    "desc_zh": "决定这个弹头是否能够影响它发射者的阵营。你可以用这个设置一个弹头能打自己和敌人，但是对友军无效，也可以设置对友军和敌人有效，但是对自己无效。"
+  },
+  "EffectsRequireDamage": {
+    "type": "string",
+    "desc_zh": "决定这个弹头是否只会影响被该弹头伤害掉至少一滴血的目标，如果否，则无论是否造成伤害都会有影响。默认no。"
+  },
+  "EffectsRequireVerses": {
+    "type": "string",
+    "desc_zh": "决定这个弹头是否只会影响弹头比例大于0的目标，如果否，则无论什么弹头比例都会有影响。默认yes。 允许弹头不带伤害"
+  },
+  "AllowZeroDamage": {
+    "type": "string",
+    "desc_zh": "决定0伤害是否会影响到所有的目标，否则不影响。默认否。 桥梁破坏者"
+  },
+  "BridgeAbsoluteDestroyer": {
+    "type": "string",
+    "desc_zh": "决定有Wall=yes的弹头是否能瞬间摧毁桥。需要设置CellSpread。IonCannonWarhead默认yes，其他默认no。"
+  },
+  "UnitLost.Suppress": {
+    "type": "string",
+    "desc_zh": "被这个弹头杀死的单位不会触发EVA警报，不过被打时的提示依然会说，所以视情况请结合非恶意弹头使用。"
+  },
+  "DieSound.Override": {
+    "type": "string",
+    "desc_zh": "当目标被这个弹头击杀时播放这个，单位自己的DieSound将不再使用。使用<none>来回避DieSound。"
+  },
+  "VoiceDie.Override": {
+    "type": "string",
+    "desc_zh": "当目标被这个弹头击杀时的语音，单位自己的VoiceDie将不再使用。使用<none>来回避VoiceDie。"
+  },
+  "DisableWeapons.Duration": {
+    "type": "weapon",
+    "desc_zh": "被击中的单位会无法开火这么久，注意，对海豹的C4这类特殊能力无效。"
+  },
+  "Flash.Duration": {
+    "type": "string",
+    "desc_zh": "被该弹头击中时会闪烁，就像被治疗的时候那样。在红色警戒里，一个单位被有Charges=yes的武器攻击时也会闪烁。只能用于攻击型弹头，不支持治疗武器。"
+  },
+  "NukeFlash.Duration": {
+    "type": "string",
+    "desc_zh": "瞎狗眼持续时间。NUKE默认30，其他0"
+  },
+  "RelativeDamage": {
+    "type": "string",
+    "desc_zh": "是否造成真实伤害，必须要有以下四个语句才有效。"
+  },
+  "RelativeDamage.Vehicles": {
+    "type": "string",
+    "desc_zh": "造成的百分比伤害，支持-100到100，正值为最大生命值百分比，负值为当前生命值百分比，0即无效"
+  },
+  "CellSpread.MaxAffect": {
+    "type": "string",
+    "desc_zh": "该弹头打中建筑伤害最多计算几次，如果是1的话那么无论该弹头对该建筑命中多大范围，伤害就是武器的正常伤害。默认-1，即无限"
+  },
+  "IronCurtain.Duration": {
+    "type": "string",
+    "desc_zh": "正数加，负数减，帧数"
+  },
+  "IronCurtain.Cap": {
+    "type": "string",
+    "desc_zh": "负数不能叠加，0无限叠加，不是0就是有个最大值除非铁幕计数器已经超过最大值"
+  },
+  "IronCurtain.Modifier": {
+    "type": "string",
+    "desc_zh": "单位受铁幕影响的倍数关系，默认100，0就是不受影响"
+  },
+  "IronCurtainFlash": {
+    "type": "string",
+    "desc_zh": "是否会产生上述现象。默认是。"
+  },
+  "IronCurtain.Flash": {
+    "type": "string",
+    "desc_zh": "局部覆盖。默认同[AudioVisual] > IronCurtainFlash。"
+  },
+  "MindControl.Permanent": {
+    "type": "string",
+    "desc_zh": "和 NP一样"
+  },
+  "Temporal.WarpAway": {
+    "type": "string",
+    "desc_zh": "超空间兵抹除单位后的动画，微观动画会覆盖 [General]?WarpAway="
+  },
+  "PreImpactAnim.Moves": {
+    "type": "string",
+    "desc_zh": "如果yes，就会移动PreImpactAnim跟着本应处于爆炸中心的单位。默认no。"
+  },
+  "Damage.Deployed": {
+    "type": "string",
+    "desc_zh": "部署单位受伤比例，现在部署单位和匍匐单位独立了"
+  },
+  "BerserkROFMultiplier": {
+    "type": "string",
+    "desc_zh": "全局开火速度倍数，越小越快。默认0.5，即开火速度快两倍"
+  },
+  "Berserk.ROFMultiplier": {
+    "type": "string",
+    "desc_zh": "微观开火速度倍数，默认[CombatDamage]?BerserkROFMultiplier"
+  },
+  "SuperWeapons": {
+    "type": "weapon",
+    "desc_zh": "该建筑关联这些超级武器。"
+  },
+  "SW.Range": {
+    "type": "string",
+    "desc_zh": "填一个数，或两个数，前者是圆的半径，后者是矩形的长宽"
+  },
+  "SW.AffectsTarget": {
+    "type": "string",
+    "desc_zh": "land|water|empty|infantry|units|buildings) 可以作用的地形和对象，可以设多个"
+  },
+  "SW.ShowCameo": {
+    "type": "string",
+    "desc_zh": "是否在防御栏显示此超武，默认是，AutoFire的默认隐藏"
+  },
+  "SW.TimerVisibility": {
+    "type": "string",
+    "desc_zh": "当ShowTimer=yes时，哪些玩家可以看见计时器，默认all。"
+  },
+  "SW.InitialReady": {
+    "type": "string",
+    "desc_zh": "决定这个超武是否刚获得时就充能完毕，当发射一次之后，计时恢复正常。默认no"
+  },
+  "SW.VirtualCharge": {
+    "type": "string",
+    "desc_zh": "决定这个超武使用虚拟充能"
+  },
+  "SW.Shots": {
+    "type": "string",
+    "desc_zh": "决定此超武能够用多少次，-1代表无限。此逻辑暂时不支持持续性超武。默认-1"
+  },
+  "SW.PostDependent": {
+    "type": "string",
+    "desc_zh": "定义超时空的两个超武链接，例如[ChronoSphereSpecial] > SW.PostDependent=ChronoWarpSpecial"
+  },
+  "SW.UseAITargeting": {
+    "type": "string",
+    "desc_zh": "如果是，则人类玩家点击图标时自动发射超武，而不需要手动选择目标。选择目标交给AITargeting。"
+  },
+  "SW.AutoFire": {
+    "type": "string",
+    "desc_zh": "自动发出，会丢到效果最好的地方，默认否"
+  },
+  "SW.ManualFire": {
+    "type": "string",
+    "desc_zh": "人工发出，如果autofire=no的话这行代码就没用，有个蛋用"
+  },
+  "SW.RequiresHouse": {
+    "type": "string",
+    "desc_zh": "none|owner|allies|team|enemies|all) 是否对敌人盟友之类的生效"
+  },
+  "SW.AIRequiresTarget": {
+    "type": "string",
+    "desc_zh": "none|land|water|empty|infantry|units|buildings|all) AI版RequiresTarget，默认值见下表。"
+  },
+  "SW.AIRequiresHouse": {
+    "type": "string",
+    "desc_zh": "owner|allies|team|enemies|others|all) AI版RequiesHouse，默认值见下表。"
+  },
+  "SW.AITargeting.Preference": {
+    "type": "string",
+    "desc_zh": "决定此超武会偏向于发射在哪个，由地图触发行为设定的格，默认取决于Type=."
+  },
+  "SW.RangeMinimum": {
+    "type": "string",
+    "desc_zh": "最大范围和最小范围，负数即无限。默认-1，随便打"
+  },
+  "SW.Designators": {
+    "type": "string",
+    "desc_zh": "需要这些单位作为指示者，不写就是不需要"
+  },
+  "SW.AnyDesignator": {
+    "type": "string",
+    "desc_zh": "是否任何单位都能做指示者，覆盖SW.Designators。默认否"
+  },
+  "DesignatorRange": {
+    "type": "string",
+    "desc_zh": "指示者的指示范围。默认和[TechnoType] > Sight一样"
+  },
+  "SW.AnyInhibitor": {
+    "type": "string",
+    "desc_zh": "是否任何单位都能做抑制者，覆盖上面那个。"
+  },
+  "InhibitorRange": {
+    "type": "string",
+    "desc_zh": "抑制者的抑制范围。"
+  },
+  "SW.RequiredHouses": {
+    "type": "string",
+    "desc_zh": "这个超武归属于那个国家。"
+  },
+  "SW.ForbiddenHouses": {
+    "type": "string",
+    "desc_zh": "哪些国家不能用这个超武。"
+  },
+  "SW.AllowPlayer": {
+    "type": "string",
+    "desc_zh": "决定这个超武是否为玩家所有，默认yes"
+  },
+  "SW.AllowAI": {
+    "type": "string",
+    "desc_zh": "决定这个超武是否为AI所有，默认yes"
+  },
+  "SW.NegBuildings": {
+    "type": "string",
+    "desc_zh": "这个超武在有这些建筑存在时不能使用。"
+  },
+  "SW.AlwaysGranted": {
+    "type": "string",
+    "desc_zh": "决定此超武是否不需要建筑，直接出现。仍然遵循AuxBuilding, SW.AuxBuidings,"
+  },
+  "Cursor": {
+    "type": "string",
+    "desc_zh": "可以释放时的鼠标，默认攻击鼠标指针"
+  },
+  "SW.ChargeToDrainRatio": {
+    "type": "string",
+    "desc_zh": "此超武有效时间，默认为[General] > ChargeToDrainRatio"
+  },
+  "SW.Unstoppable": {
+    "type": "string",
+    "desc_zh": "是否禁止手工停止，注意这个功能简直就是火风暴专用，用于别的超武会发生不可预期的效果"
+  },
+  "Money.DrainAmount": {
+    "type": "string",
+    "desc_zh": "火风暴扣钱，默认0"
+  },
+  "Money.DrainDelay": {
+    "type": "string",
+    "desc_zh": "火风暴扣钱间隔"
+  },
+  "SW.AnimationVisibility": {
+    "type": "animation",
+    "desc_zh": "谁能看见动画"
+  },
+  "SW.ActivationSound": {
+    "type": "string",
+    "desc_zh": "超武成功触发的声音，如闪电风暴"
+  },
+  "EVA.Detected": {
+    "type": "string",
+    "desc_zh": "超武建筑建造"
+  },
+  "EVA.Ready": {
+    "type": "string",
+    "desc_zh": "就绪"
+  },
+  "EVA.Activated": {
+    "type": "string",
+    "desc_zh": "启动"
+  },
+  "EVA.Impatient": {
+    "type": "string",
+    "desc_zh": "超武还不能释放"
+  },
+  "EVA.InsufficientFunds": {
+    "type": "string",
+    "desc_zh": "钱不够，默认EVA_InsufficientFunds"
+  },
+  "EVA.SelectTarget": {
+    "type": "string",
+    "desc_zh": "点超武图标时"
+  },
+  "Message.Detected": {
+    "type": "string",
+    "desc_zh": "探测到"
+  },
+  "Message.Ready": {
+    "type": "string",
+    "desc_zh": "就绪"
+  },
+  "Message.Launch": {
+    "type": "string",
+    "desc_zh": "发动"
+  },
+  "Message.Activate": {
+    "type": "string",
+    "desc_zh": "某超武产生效果，如闪电风暴"
+  },
+  "Message.Abort": {
+    "type": "string",
+    "desc_zh": "同类超舞已发动"
+  },
+  "Message.InsufficientFunds": {
+    "type": "string",
+    "desc_zh": "钱不够"
+  },
+  "Message.FirerColor": {
+    "type": "string",
+    "desc_zh": "是否用玩家色显示信息，默认否"
+  },
+  "Message.Color": {
+    "type": "string",
+    "desc_zh": "指定颜色，比Message.FirerColor=yes 权限低"
+  },
+  "Message.CannotFire": {
+    "type": "string",
+    "desc_zh": "当玩家依靠AITargeting发射超武失败时，显示此信息。默认 MSG:CannotFire"
+  },
+  "Text.Hold": {
+    "type": "string",
+    "desc_zh": "没电"
+  },
+  "Text.Ready": {
+    "type": "string",
+    "desc_zh": "就绪"
+  },
+  "Text.Charging": {
+    "type": "string",
+    "desc_zh": "火风暴，尚未充能完毕"
+  },
+  "Text.Active": {
+    "type": "string",
+    "desc_zh": "火风暴，已激活"
+  },
+  "Text.Preparing": {
+    "type": "string",
+    "desc_zh": "准备中"
+  },
+  "Light.Enabled": {
+    "type": "string",
+    "desc_zh": "是否引起全局光改变，只支持第一超武"
+  },
+  "Light.Ambient": {
+    "type": "string",
+    "desc_zh": "环境亮度，太高会卡"
+  },
+  "Light.Blue": {
+    "type": "string",
+    "desc_zh": "颜色，一群蛋疼的家伙居然没有把RGB合成一个标签"
+  },
+  "Type": {
+    "type": "string",
+    "desc_zh": "默认值："
+  },
+  "Deliver.Types": {
+    "type": "string",
+    "desc_zh": "丢出来的单位，建筑也可以"
+  },
+  "Deliver.Owner": {
+    "type": "string",
+    "desc_zh": "invoker|neutral|special|civilian) 丢出来的单位归属谁。默认超武发射者"
+  },
+  "Deliver.BaseNormal": {
+    "type": "string",
+    "desc_zh": "当建筑被此超武投下来时，可否用来当做拓展建筑。如果yes，则遵循建筑设定，no则无法拓展。默认yes"
+  },
+  "Refinery.UseStorage": {
+    "type": "string",
+    "desc_zh": "这条代码决定精炼厂是否会将矿石储存起来而不是化为现金。被直接转化的矿石将不占据储存空间。默认值为no。 EVA提示"
+  },
+  "Message.SilosNeeded": {
+    "type": "string",
+    "desc_zh": "矿满的时候出现CSF提示"
+  },
+  "PipScale": {
+    "type": "string",
+    "desc_zh": "储藏的矿石将以一个特定的PipScale表现出来。储藏矿石的建筑将通过格子显示当前有多少被占据的空间，并将其与该建筑的总格数进行直观对比。矿石将显示为黄色，彩色矿石则是蓝色。 若要将该萝鸡用于带有Refinery=yes或ResourceDestination=yes的建筑上，你还需要添加 Refinery.UseStorage=yes 。这个条件之所以被添加，是因为如果没有的话，游戏会自动让所有未被修改过的矿石精炼厂都带有相应的PipScale。"
+  },
+  "TiberiumSpill": {
+    "type": "string",
+    "desc_zh": "是否被摧毁时泄露泰矿。默认否"
+  },
+  "TiberiumHealEnabled": {
+    "type": "string",
+    "desc_zh": "是否允许泰伯利亚矿可以治疗单位，同时需要以下参数设定。默认否"
+  },
+  "TiberiumHeal": {
+    "type": "string",
+    "desc_zh": "每多少分钟回血。默认1.13333，即68秒"
+  },
+  "Heal.Delay": {
+    "type": "string",
+    "desc_zh": "治疗间隔，默认为[General] > TiberiumHeal"
+  },
+  "Heal.Step": {
+    "type": "string",
+    "desc_zh": "对空军的治愈值，默认[General] > RepairStep"
+  },
+  "Heal.IStep": {
+    "type": "string",
+    "desc_zh": "对步兵的治愈值，默认[General] > IRepairStep"
+  },
+  "Heal.UStep": {
+    "type": "string",
+    "desc_zh": "对载具的治愈值，默认[General] > URepairStep"
+  },
+  "TiberiumRemains": {
+    "type": "string",
+    "desc_zh": "该单位被摧毁时是否留下泰伯利亚，默认TiberiumHeal当[General] > TiberiumHealEnabled=yes开启时，否则不"
+  },
+  "TiberiumDamageEnabled": {
+    "type": "string",
+    "desc_zh": "泰伯利亚是否能够伤害步兵，默认否，同时需要以下语句的设置 伤害目标"
+  },
+  "TiberiumProof": {
+    "type": "string",
+    "desc_zh": "是否免疫泰矿伤害。步兵默认否，其他类型单位是 泰矿伤害和弹头"
+  },
+  "TiberiumTransmogrify": {
+    "type": "string",
+    "desc_zh": "一个因泰矿伤害而死的单位转化为[General] > SmallVisceroid的概率。默认值为0。 EX1注：该语句在Ares中生效后，其默认概率并非为0，而是40%，该语句最早在TS中存在时后面的数值就是40。"
+  },
+  "TiberiumExplosive": {
+    "type": "string",
+    "desc_zh": "是否在采矿车里的泰矿当采矿车被摧毁时产生爆炸，默认否"
+  },
+  "TiberiumExplosiveWarhead": {
+    "type": "warhead",
+    "desc_zh": "在TS里被强制为C4弹头，并且范围固定1.5，现在可以自定义，默认是none"
+  },
+  "TiberiumExplosiveAnim": {
+    "type": "string",
+    "desc_zh": "矿爆动画。"
+  },
+  "ExplosionWarhead": {
+    "type": "warhead",
+    "desc_zh": "矿爆的弹头，默认[General] > C4Warhead 注意"
+  },
+  "ExplosionDamage": {
+    "type": "string",
+    "desc_zh": "矿爆伤害，默认是[CombatDamage] > TiberiumExplosionDamage"
+  },
+  "Debris.Chance": {
+    "type": "string",
+    "desc_zh": "产生碎片的概率，影响到连锁反应的进程，整数，默认33（即33％）"
+  },
+  "OverlayExplodeThreshold": {
+    "type": "string",
+    "desc_zh": "伤害高于这个值才会产生矿爆，默认0"
+  },
+  "DirectX.Force": {
+    "type": "string",
+    "desc_zh": "强制使用的 DirectX 渲染模式。"
+  },
+  "Facings": {
+    "type": "string",
+    "desc_zh": "支持等于8或大于8（需要是8的倍数）。值低于8意味着只使用1面。默认8"
+  },
+  "AnimLength": {
+    "type": "string",
+    "desc_zh": "抛射体每面的动画长度，该抛射体需要Rotates=yes。默认1"
+  },
+  "InitialPayload.Types": {
+    "type": "string",
+    "desc_zh": "初始载荷这些单位，可以写多个，不允许写建筑和空军！由于连环套会导致死循环，所以修复了，可以放心用"
+  },
+  "InitialPayload.Nums": {
+    "type": "string",
+    "desc_zh": "数量，对应上面那个，不设定的话全部都是1"
+  },
+  "Passengers.Allowed": {
+    "type": "string",
+    "desc_zh": "这些单位可以进入这个单位。如果你想让所有单位都进不去，就设置成一个假单位或者一个建筑"
+  },
+  "Passengers.Disallowed": {
+    "type": "string",
+    "desc_zh": "这些单位不允许进入这个单位"
+  },
+  "Passengers.BySize": {
+    "type": "string",
+    "desc_zh": "决定这个载具在装载乘员的时候，是否读取 Size ，如果no，则载具能装载相当于它 Passengers 数量的单位。（即所有成员只占1格）。默认yes。"
+  },
+  "NoManualUnload": {
+    "type": "string",
+    "desc_zh": "是否不能手动卸载乘员。默认no"
+  },
+  "NoManualEnter": {
+    "type": "string",
+    "desc_zh": "是否不能手动装载乘员。默认no"
+  },
+  "NoSelfGuardArea": {
+    "type": "string",
+    "desc_zh": "是否不能手动区域防御。默认no"
+  },
+  "Saboteur": {
+    "type": "string",
+    "desc_zh": "是否这个步兵可以进入可破坏建筑。这个建筑将会像按了C4一样被摧毁，并且破坏者在这个过程中被消耗。需要Infiltrate=yes。不能和偷车贼逻辑，CanDrive=yes,"
+  },
+  "ImmuneToSaboteurs": {
+    "type": "string",
+    "desc_zh": "这个建筑能否被破坏，如果填yes，破坏者就不能进入。如果写了CanC4=no或者TechLevel=-1或者CanBeOccupied=yes则默认yes，其他情况下为no"
+  },
+  "CanPassiveAquire.Guard": {
+    "type": "string",
+    "desc_zh": "是否在防御模式（放在那不管）下能够主动攻击，如果设置no，那么这个单位不会主动攻击，不过在区域防守模式下依然可以主动攻击。默认yes"
+  },
+  "CanPassiveAquire.Cloak": {
+    "type": "string",
+    "desc_zh": "是否能够主动攻击当隐形并且在防御模式，如果设置no, 那么这个单位在隐形时不会主动攻击，，不过在区域防守模式下依然可以主动攻击。CanPassiveAquire.Guard=no会覆盖这个标签，默认yes"
+  },
+  "OmniCrusher.Aggressive": {
+    "type": "string",
+    "desc_zh": "这个单位是否会在攻击时老是想着去压对方，即使它跑得比西方记者还慢，如果否，这个单位不会想法设法接近对方碾毙之。需要OmniCrusher=yes。默认yes"
+  },
+  "CrushDamage.Elite": {
+    "type": "string",
+    "desc_zh": "当载具压过带有以上语句的单位时会对碾压者造成的伤害。默认0"
+  },
+  "CrushDamage.Warhead": {
+    "type": "warhead",
+    "desc_zh": "碾压伤害的弹头。默认[General] > C4Warhead"
+  },
+  "DiskLaserAnimEnabled": {
+    "type": "string",
+    "desc_zh": "总而言之设置yes就对了。 默认no"
+  },
+  "DeathWeapon.Suppress": {
+    "type": "weapon",
+    "desc_zh": "填单位名称，可以填多个，表示这个弹头不会触发这些单位的死亡武器。"
+  },
+  "DeathWeapon.SuppressVehicles": {
+    "type": "weapon",
+    "desc_zh": "写yes后被这个弹头击杀的所有载具都不会触发死亡武器。如果写no，上面那条依然会检查。默认no"
+  },
+  "DeathWeapon.SuppressInfantry": {
+    "type": "weapon",
+    "desc_zh": "同上，针对步兵的设置。默认no"
+  },
+  "Assaulter.Level": {
+    "type": "string",
+    "desc_zh": "定义单位的突击等级，写在步兵上可以突击小于或等于其等级的建筑，写在建筑上定义防突击等级。默认0"
+  },
+  "Degrade.Enabled": {
+    "type": "string",
+    "desc_zh": "是否启用该逻辑，伤害频率由 DamageDelay 定义"
+  },
+  "Degrade.AmountNormal": {
+    "type": "string",
+    "desc_zh": "电力充足时损伤伤害，默认0"
+  },
+  "Degrade.AmountConsumer": {
+    "type": "string",
+    "desc_zh": "电力不足时损伤伤害，默认1"
+  },
+  "Degrade.Amount": {
+    "type": "string",
+    "desc_zh": "伤害量，默认电力充足时和[General]?Degrade.AmountNormal一样，其他情况[General]?Degrade.AmountConsumer"
+  },
+  "Degrades": {
+    "type": "string",
+    "desc_zh": "是否该国家启用该逻辑，有MultiplayPassive=yes的国家默认no，其他yes"
+  },
+  "Action": {
+    "type": "string",
+    "desc_zh": "在TS里你可以把停在维修平台上的单位用变卖指令卖掉，在YR里如果你在超武上添加上面这个语句你也可以获得和TS那样的效果，但是存在问题，如果你卖掉坦克碉堡里的东西会导致IE，ARES修复了这个问题。 不过我觉得这功能并没有什么卵用。"
+  },
+  "DamageAirThreshold": {
+    "type": "string",
+    "desc_zh": "如果弹头在离地这么高的地方爆炸就会伤害到空中单位，低于这个高度就不会，-1代表永远会伤害到，写一个很高的值如9999就能防止该弹头伤害到空中单位。默认0"
+  },
+  "DamageAirConsiderBridges": {
+    "type": "string",
+    "desc_zh": "是否所有弹头都能伤害到空中单位（视作在桥上爆炸）。默认no"
+  },
+  "EmptyReloadAmount": {
+    "type": "string",
+    "desc_zh": "写0或负值就会让单位打完所有弹药后不会恢复，默认ReloadAmount"
+  },
+  "NoAmmoWeapon": {
+    "type": "weapon",
+    "desc_zh": "当弹药用尽后切换至另一武器。值为0是主武器，1为副武器，-1不切换武器。默认-1"
+  },
+  "NoAmmoAmount": {
+    "type": "string",
+    "desc_zh": "如果弹药等于低于该值，则启用NoAmmoWeapon。默认0"
+  },
+  "SelfHealing.Rate": {
+    "type": "string",
+    "desc_zh": "自愈速率。默认[General]?RepairRate."
+  },
+  "SelfHealing.EliteMax": {
+    "type": "string",
+    "desc_zh": "对应新兵，老兵，精英的自愈上限。默认SelfHealing.Max"
+  },
+  "SelfHealing.Amount": {
+    "type": "string",
+    "desc_zh": "自愈时每次恢复多少血量，不能低于0。默认1"
+  },
+  "SelfHealing.EliteAmount": {
+    "type": "string",
+    "desc_zh": "无需多言。默认SelfHealing.Amount"
+  },
+  "SelfHealing.CombatDelay": {
+    "type": "string",
+    "desc_zh": "在单位攻击（到底是攻击还是被攻击尚不清楚）之后多长时间不能自愈。默认0。"
+  },
+  "EnemyUIName": {
+    "type": "string",
+    "desc_zh": "非友方看该建筑时显示这个名称，而不是真实名称。"
+  },
+  "FakeOf": {
+    "type": "string",
+    "desc_zh": "这个单位是什么单位的假单位。当使用快捷键查询该单位时，会重定义到原本的单位上。比较著名的是摸3的天秤和妹妹的关系。默认none。"
+  },
+  "MassSelectable": {
+    "type": "string",
+    "desc_zh": "写no就不会被框选进来。"
+  },
+  "BountyEnablers": {
+    "type": "string",
+    "desc_zh": "只有在玩家拥有这个列表里的建筑时才会激活赏金逻辑，如果这个列表是空的，那么赏金逻辑不需要任何条件就激活，写none就是屏蔽该逻辑。默认none"
+  },
+  "BountyDisplay": {
+    "type": "string",
+    "desc_zh": "是否摧毁单位获得赏金时显示获得效果。默认no 微观（定义赏金猎人）"
+  },
+  "DamageRange": {
+    "type": "string",
+    "desc_zh": "伤害范围，如果低于或等于0.0，所有在烟雾粒子所在单元格上的单位都会受到影响，每个单位都只受到一次影响。默认0.0"
+  },
+  "SpawnsParticle.RangeMinimum": {
+    "type": "string",
+    "desc_zh": "距离动画中心产生粒子的最小距离。默认0.0"
+  },
+  "SpawnsParticle.RangeMaximum": {
+    "type": "string",
+    "desc_zh": "最大距离，必须大于等于最小距离。默认0.0"
+  },
+  "AttachedSystem": {
+    "type": "string",
+    "desc_zh": "该抛射体使用该粒子系统，只有BehavesLike=smoke支持。"
+  },
+  "FactoryPlant.Multiplier": {
+    "type": "string",
+    "desc_zh": "单位的工业工厂倍率，最终的折扣将会乘以工业工厂本身的倍率，完全支持-1.0到1.0，0.0使倍率无效。默认1.0"
+  },
+  "VeteranFlashTimer": {
+    "type": "string",
+    "desc_zh": "升级到老兵时闪光多长时间。默认0"
+  },
+  "Promote.VeteranSound": {
+    "type": "string",
+    "desc_zh": "单位升级到老兵时播放音效。默认[AudioVisual] > UpgradeVeteranSound"
+  },
+  "Promote.EliteSound": {
+    "type": "string",
+    "desc_zh": "单位升级到精英时播放音效。默认[AudioVisual] > UpgradeEliteSound"
+  },
+  "Promote.VeteranFlash": {
+    "type": "string",
+    "desc_zh": "升级到老兵闪光多长时间。默认[AudioVisual] > VeteranFlashTimer"
+  },
+  "Promote.EliteFlash": {
+    "type": "string",
+    "desc_zh": "精英。默认[AudioVisual] > EliteFlashTimer"
+  },
+  "EVA.VeteranPromoted": {
+    "type": "string",
+    "desc_zh": "当单位升级到老兵是播放EVA。默认EVA_UnitPromoted"
+  },
+  "EVA.ElitePromoted": {
+    "type": "string",
+    "desc_zh": "精英。默认EVA_UnitPromoted"
+  },
+  "Promote.VeteranType": {
+    "type": "string",
+    "desc_zh": "如果设置了，则当单位升级至老兵级时转换为该单位。默认none。"
+  },
+  "Promote.EliteType": {
+    "type": "string",
+    "desc_zh": "如果设置了，则当单位升级至精英级时转换为该单位。 默认none。"
+  },
+  "Promote.VeteranExperience": {
+    "type": "string",
+    "desc_zh": "该代码用来给予被老兵转换后的单位初始得到的经验倍率。可以将一个单位转换为另一个无等级的单位。（用-1.0来降低一级，这样一个老兵级单位变形后会成为另一个新兵级单位。）默认0.0。"
+  },
+  "Promote.EliteExperience": {
+    "type": "string",
+    "desc_zh": "同上，不过用于精英级转换时。默认0.0。"
+  },
+  "RandomCrateMoney": {
+    "type": "string",
+    "desc_zh": "一个随机数从0到该语句设置的值将加到钱箱给定的基本数值，设置0将不会产生随机数，永远是钱箱给定的数值。默认900"
+  },
+  "StartInMultiplayer.Types": {
+    "type": "string",
+    "desc_zh": "当遭遇战开始时，会有哪些单位被随机分配给这个国家的玩家。如果不设定，游戏会选取可用的AllowedToStartInMultiplayer单位。只支持InfantryTypes和VehicleTypes。使用<none>"
+  },
+  "StartInMultiplayerUnitCost": {
+    "type": "string",
+    "desc_zh": "一个平均单位的固定学额。如果不设置，游戏将使用上述方法。在这种情况下，ARES现在将推断的平均单位成本输出到日志文件中。"
+  },
+  "StartInMultiplayer.WithConst": {
+    "type": "string",
+    "desc_zh": "设置玩家是否将从BuildConst得到一个可用的建筑来代替BaseUnit中的载具。默认否。"
+  },
+  "DigIn": {
+    "type": "string",
+    "desc_zh": "当单位钻入地面时播放的动画。默认[AudioVisual] > Dig."
+  },
+  "DigOut": {
+    "type": "string",
+    "desc_zh": "当单位钻出地面时播放的动画。默认[AudioVisual] > Dig."
+  },
+  "DigInSound": {
+    "type": "string",
+    "desc_zh": "当单位钻入地面时播放的音效。默认[AudioVisual] > DigSound."
+  },
+  "DigOutSound": {
+    "type": "string",
+    "desc_zh": "当单位钻出地面时播放的音效。默认[AudioVisual] > DigSound."
+  },
+  "FallRate.Parachute": {
+    "type": "string",
+    "desc_zh": "一个有降落伞的单位的空降加速度。默认1."
+  },
+  "FallRate.NoParachute": {
+    "type": "string",
+    "desc_zh": "一个无降落伞的单位的空降加速度。默认1."
+  },
+  "FallRate.ParachuteMax": {
+    "type": "string",
+    "desc_zh": "有降落伞的单位的最大下落速度，值必须为负。默认[General] ? ParachuteMaxFallRate."
+  },
+  "FallRate.NoParachuteMax": {
+    "type": "string",
+    "desc_zh": "无降落伞的单位的最大下落速度，值必须为负。默认[General] ? NoParachuteMaxFallRate."
+  },
+  "AIBuildCounts": {
+    "type": "string",
+    "desc_zh": "AI将在不同难度下建造几个这种建筑，依次为困难，中等，简单。设定数值必须大于等于1。默认1,1,1"
+  },
+  "AIExtraCounts": {
+    "type": "string",
+    "desc_zh": "AI将在不同难度下额外建造几个这种建筑，依次为困难，中等，简单。AI将会在随机建造完之后，额外建造建筑物。设定数值必须大于等于0，默认0,0,0"
+  },
+  "AIInnerBase": {
+    "type": "string",
+    "desc_zh": "决定AI是否会把这个建筑放到基地内部。 默认同CloakGenerator的设定。"
+  },
+  "RepairStopOnInsufficientFunds": {
+    "type": "string",
+    "desc_zh": "设置当资金匮乏时，维修是否会被停止。如果否，维修模式将不会被关闭，扳手将仍然可视，尽管建筑已经不是被修理的状态了。当资金恢复时，维修会一同恢复。这个逻辑只对玩家生效。默认是。"
+  },
+  "MaxSize": {
+    "type": "string",
+    "desc_zh": "能进入隧道的单位的最大尺寸，大于这个值的单位进不来。"
+  },
+  "Tunnel": {
+    "type": "string",
+    "desc_zh": "设置该建筑的隧道类型"
+  },
+  "WeaponTurretIndexX": {
+    "type": "weapon",
+    "desc_zh": "turret index) 在 WeaponX 和 EliteWeaponX 启用时将使用这个炮塔，通过乘客的 IFVMode 来定义。"
+  },
+  "WeaponUINameX": {
+    "type": "weapon",
+    "desc_zh": "IFV维修语音"
+  },
+  "VoiceIFVRepair": {
+    "type": "string",
+    "desc_zh": "微观定义"
+  },
+  "Description": {
+    "type": "string",
+    "desc_zh": "在影片列表中显示的名字。必须设置。"
+  },
+  "Unlockable": {
+    "type": "string",
+    "desc_zh": "这个影片是否不会一直显示在影片列表中，如果设置为no，那么就会一直显示，就像开场影片那样。默认yes"
+  },
+  "EngineerRepairable": {
+    "type": "string",
+    "desc_zh": "决定工程师是否能进入修理建筑，如果no，则建筑仍然可以被扳手维修，但不能被工程师维修。默认同Repairable。"
+  },
+  "Weapon": {
+    "type": "weapon",
+    "desc_zh": "决定动画伴随的武器，动画每帧发射一次武器。如果设置了，就会在这个动画所在的位置发射一个该武器的抛射体，并瞬间引爆它。伤害取决于动画设置的Damage，而不是武器的。这个武器必须是游戏已知的，即必须被单位使用过。如果没有任何单位使用这个武器，就必须注册在[WeaponTypes]里。"
+  },
+  "ImmuneToBerserk": {
+    "type": "string",
+    "desc_zh": "决定一个单位是否免疫狂暴，即神经突击车的攻击效果。可以覆盖ImmuneToPsionics和psionicsimmune升级能力的效果。如果yes，即使ImmuneToPsionics=no也能免疫狂暴；如果no，单位一定能被混乱气体影响。默认 ImmuneToPsionics或psionicsimmune升级能力"
+  },
+  "AIFriendlyDistance": {
+    "type": "string",
+    "desc_zh": "这个数值用于给AI在友军基地附近聚集单位。默认[General] > AISafeDistance"
+  },
+  "DeployDir": {
+    "type": "string",
+    "desc_zh": "当一个DeployToLand单位着陆时的朝向。有效值为0到7。 默认[General]DeployDir"
+  },
+  "Convert.Deploy": {
+    "type": "string",
+    "desc_zh": "设置IsSimpleDeployer= yes单位部署变换成什么单位。变换发生在单位部署完成后，也就是DeployingAnim播放完之后。默认none。"
+  },
+  "DeployToLand": {
+    "type": "string",
+    "desc_zh": "与升级转换有同样的限制，除了："
+  },
+  "Convert.Script": {
+    "type": "string",
+    "desc_zh": "当单位执行脚本时变换成什么单位。默认none。 增强WaterImage"
+  },
+  "Convert.Land": {
+    "type": "string",
+    "desc_zh": "当单位移动到既不是海滩也不是水的格子上变换成什么单位。默认none。"
+  },
+  "Splits": {
+    "type": "string",
+    "desc_zh": "该抛射体是否使用分裂逻辑。由AirburstWeapon定义分裂出的子武器，Cluster定义子武器数量。"
+  },
+  "RetargetAccuracy": {
+    "type": "string",
+    "desc_zh": "分裂出来的子武器攻击原定目标的概率。有效值为0到1之间。值越高，越倾向攻击原定目标。默认0，一定会重新选择目标（如果该区域只有这一个单位那么还是会攻击这个单位）。"
+  },
+  "RetargetSelf": {
+    "type": "string",
+    "desc_zh": "分裂出的子武器是否会向发射者本身攻击。默认yes。"
+  },
+  "DockUnloadCell": {
+    "type": "string",
+    "desc_zh": "矿厂的哪一格用来卸矿，这一格必须可通行，默认3,1"
+  },
+  "DockUnloadFacing": {
+    "type": "string",
+    "desc_zh": "卸矿时矿车朝向哪一面，默认8（东方）"
+  },
+  "Harvester.LongScan": {
+    "type": "string",
+    "desc_zh": "对Harvester="
+  },
+  "Harvester.ShortScan": {
+    "type": "string",
+    "desc_zh": "对Harvester=yes单位默认为[General]TiberiumShortScan，对于奴隶矿场默认为[General]SlaveMinerShortScan，对于奴隶默认为[General]SlaveMinerSlaveScan."
+  },
+  "Harvester.ScanCorrection": {
+    "type": "string",
+    "desc_zh": "cells, defaults to [General]SlaveMinerScanCorrection) 给奴隶矿场用的。"
+  },
+  "Harvester.TooFarDistance": {
+    "type": "string",
+    "desc_zh": "给Harvester=yes单位用的。有Teleporter=yes的单位默认为[General]ChronoHarvTooFarDistance，其他单位默认为[General]HarvesterTooFarDistance."
+  },
+  "Harvester.KickDelay": {
+    "type": "string",
+    "desc_zh": "给奴隶矿场用的。默认[General]SlaveMinerKickFrameDelay，用-1来禁用此功能。"
+  },
+  "IsDetachedRailgun": {
+    "type": "string",
+    "desc_zh": "决定这个武器是否为轨道炮（且无限制），默认为否。"
+  },
+  "Battery.Power": {
+    "type": "string",
+    "desc_zh": "当启动时，会给所属方提供多少电力，默认0"
+  },
+  "Battery.Overpower": {
+    "type": "string",
+    "desc_zh": "当启动时，将所属方的这些建筑过载，过载后的建筑将会使用副武器代替主武器，不要求一定要有Overpowerable=yes"
+  },
+  "Battery.KeepOnline": {
+    "type": "string",
+    "desc_zh": "当启动时，保持所属方的这些建筑不进入断电状态。如果设置雷达建筑，断电之后雷达不会消失。不能阻止建造速度降低。"
+  },
+  "UnitSell": {
+    "type": "string",
+    "desc_zh": "决定这个建筑能否变卖其内部的载具。人类玩家可以点击变卖按钮，将鼠标悬至处于建筑内的载具，鼠标会自动变为SellUnit。默认UnitRepair"
+  },
+  "UnitsUnsellable": {
+    "type": "string",
+    "desc_zh": "上一条全局规定。默认no"
+  },
+  "Culling.EliteBelowHealth": {
+    "type": "string",
+    "desc_zh": "血量低于这个百分比的单位会被斩杀。1到100用来代表百分比数值，0代表红血，-1代表黄血，-2代表绿血。需要Culling=yes。"
+  },
+  "Culling.EliteChance": {
+    "type": "float",
+    "desc_zh": "percentage) 当单位可以被斩杀时，概率是多少。需要Culling=yes。"
+  },
+  "RadialIndicatorRadius": {
+    "type": "string",
+    "desc_zh": "对于HasRadialIndicator=yes的单位，覆写其视觉指示器的范围。默认遵循原版规则。"
+  },
+  "Color": {
+    "type": "int",
+    "desc_zh": "颜色值（R,G,B）。"
+  },
+  "Duration": {
+    "type": "int",
+    "desc_zh": "持续时间（逻辑帧；负值表示永久）。"
+  },
+  "AllowParallelAIQueues": {
+    "type": "string",
+    "desc_zh": "允许并行 AI 生产队列；通常需要设为 yes。"
+  },
+  "TurretTravel": {
+    "type": "int",
+    "desc_zh": "炮塔行程/后坐距离（像素）。"
+  },
+  "Wood": {
+    "type": "string",
+    "desc_zh": "木质/可被火焰点燃的装甲或地形属性。"
+  },
+  "CanOccupyFire": {
+    "type": "bool",
+    "desc_zh": "进驻建筑后是否允许向外开火。"
+  },
+  "SpecialThreatValue": {
+    "type": "int",
+    "desc_zh": "特殊威胁值，供 AI 评估目标优先级。"
+  },
+  "Explodes": {
+    "type": "bool",
+    "desc_zh": "死亡时是否产生爆炸。"
+  },
+  "MaxNumberOccupants": {
+    "type": "int",
+    "desc_zh": "建筑最多可进驻的步兵数量。"
+  },
+  "YSortAdjust": {
+    "type": "int",
+    "desc_zh": "Y 排序微调值，影响绘制前后关系。"
+  },
+  "ZFudgeColumn": {
+    "type": "int",
+    "desc_zh": "柱状 Z 排序修正值。"
+  },
+  "ZFudgeTunnel": {
+    "type": "int",
+    "desc_zh": "隧道/桥下 Z 排序修正值。"
+  },
+  "IFVMode": {
+    "type": "int",
+    "desc_zh": "多功能步兵车/IFV 的武器模式编号。"
+  },
+  "AA": {
+    "type": "bool",
+    "desc_zh": "武器/弹头能否攻击空中目标。"
+  },
+  "AG": {
+    "type": "bool",
+    "desc_zh": "武器/弹头能否攻击地面目标。"
+  },
+  "Accelerates": {
+    "type": "bool",
+    "desc_zh": "是否启用加速/惯性移动。"
+  },
+  "End": {
+    "type": "int",
+    "desc_zh": "动画/序列结束帧。"
+  },
+  "BehavesLike": {
+    "type": "string",
+    "desc_zh": "粒子的行为类型（如 Smoke）。"
+  },
+  "Sequence": {
+    "type": "string",
+    "desc_zh": "步兵/动画序列名称或序列定义。"
+  },
+  "Crawls": {
+    "type": "bool",
+    "desc_zh": "步兵是否使用匍匐移动序列。"
+  },
+  "LegalTarget": {
+    "type": "bool",
+    "desc_zh": "是否可被武器选为合法目标。"
+  },
+  "LaserDuration": {
+    "type": "int",
+    "desc_zh": "激光持续帧数。"
+  },
+  "DemandLoadBuildup": {
+    "type": "bool",
+    "desc_zh": "是否按需加载建筑 Buildup 动画。"
+  },
+  "FreeBuildup": {
+    "type": "bool",
+    "desc_zh": "是否释放 Buildup 动画缓存。"
+  },
+  "PhysicalSize": {
+    "type": "float",
+    "desc_zh": "物理体积/碰撞半径。"
+  },
+  "Tiberium": {
+    "type": "bool",
+    "desc_zh": "是否受泰伯利亚/矿石伤害或影响。"
+  },
+  "LaserInnerColor": {
+    "type": "string",
+    "desc_zh": "激光内层颜色。"
+  },
+  "LaserOuterColor": {
+    "type": "string",
+    "desc_zh": "激光外层颜色。"
+  },
+  "Land": {
+    "type": "string",
+    "desc_zh": "地形/陆地类型。"
+  },
+  "IsTilter": {
+    "type": "bool",
+    "desc_zh": "是否随地形坡度倾斜。"
+  },
+  "TrailerSeperation": {
+    "type": "int",
+    "desc_zh": "拖尾/尾迹生成间距。"
+  },
+  "DamageRadius": {
+    "type": "float",
+    "desc_zh": "伤害/爆炸半径。"
+  },
+  "CombatLightSize": {
+    "type": "float",
+    "desc_zh": "战斗光照范围。"
+  },
+  "Inviso": {
+    "type": "bool",
+    "desc_zh": "是否不可见/仅对特定探测可见。"
+  },
+  "AreaFire": {
+    "type": "bool",
+    "desc_zh": "是否使用区域射击。"
+  },
+  "RevealOnFire": {
+    "type": "bool",
+    "desc_zh": "开火时是否暴露自身。"
+  },
+  "Arm": {
+    "type": "int",
+    "desc_zh": "武器挂点/手臂编号（Art）。"
+  },
+  "VoiceFeedback": {
+    "type": "string",
+    "desc_zh": "语音反馈/确认音效。"
+  },
+  "DecloakToFire": {
+    "type": "bool",
+    "desc_zh": "开火时是否强制解除隐形。"
+  },
+  "AttachedParticleSystem": {
+    "type": "string",
+    "desc_zh": "附加粒子系统。"
+  },
+  "VoiceSpecialAttack": {
+    "type": "string",
+    "desc_zh": "特殊攻击语音。"
+  },
+  "Spyable": {
+    "type": "bool",
+    "desc_zh": "是否可被间谍渗透。"
+  },
+  "Cluster": {
+    "type": "bool",
+    "desc_zh": "是否启用集束/子母弹逻辑。"
+  },
+  "IsPowered": {
+    "type": "bool",
+    "desc_zh": "是否需要电力。"
+  },
+  "RechargeTime": {
+    "type": "int",
+    "desc_zh": "充能/重新装填时间。"
+  },
+  "BuildTimeMultiplier": {
+    "type": "float",
+    "desc_zh": "建造时间倍率。"
+  },
+  "RadarVisible": {
+    "type": "bool",
+    "desc_zh": "是否在雷达上显示。"
+  },
+  "ShowTimer": {
+    "type": "bool",
+    "desc_zh": "是否显示计时器。"
+  },
+  "DisableableFromShell": {
+    "type": "bool",
+    "desc_zh": "是否可在设置界面禁用。"
+  },
+  "DoubleThick": {
+    "type": "bool",
+    "desc_zh": "是否使用双层厚度/绘制。"
+  },
+  "Prone": {
+    "type": "string",
+    "desc_zh": "匍匐序列/匍匐状态设置。"
+  },
+  "LineTrailColor": {
+    "type": "string",
+    "desc_zh": "线状拖尾颜色。"
+  },
+  "LineTrailColorDecrement": {
+    "type": "int",
+    "desc_zh": "线状拖尾颜色衰减。"
+  },
+  "NoUseTileLandType": {
+    "type": "bool",
+    "desc_zh": "是否忽略地块地形类型。"
+  },
+  "FireOnce": {
+    "type": "bool",
+    "desc_zh": "是否只能开火一次。"
+  },
+  "Drainable": {
+    "type": "bool",
+    "desc_zh": "是否可被吸取/偷取资源。"
+  },
+  "FlashSidebarTabFrames": {
+    "type": "int",
+    "desc_zh": "侧边栏标签闪烁帧数。"
+  },
+  "UseLineTrail": {
+    "type": "bool",
+    "desc_zh": "是否使用线状拖尾。"
+  },
+  "Bunkerable": {
+    "type": "bool",
+    "desc_zh": "是否可进入掩体/战斗要塞。"
+  },
+  "Paradrop": {
+    "type": "bool",
+    "desc_zh": "是否通过空降出现。"
+  },
+  "Up": {
+    "type": "string",
+    "desc_zh": "起身/上升序列。"
+  },
+  "Down": {
+    "type": "string",
+    "desc_zh": "卧倒/下降序列。"
+  },
+  "Trailer": {
+    "type": "string",
+    "desc_zh": "拖尾/尾迹设置。"
+  },
+  "TemperateOccupationBits": {
+    "type": "string",
+    "desc_zh": "温带地图建筑占用位图。"
+  },
+  "SnowOccupationBits": {
+    "type": "string",
+    "desc_zh": "雪地地图建筑占用位图。"
+  },
+  "DebrisTypes": {
+    "type": "list",
+    "desc_zh": "碎片类型列表。"
+  },
+  "EligibileForAllyBuilding": {
+    "type": "bool",
+    "desc_zh": "是否可作为盟友建造前提（旧拼写）。"
+  },
+  "LaserOuterSpread": {
+    "type": "float",
+    "desc_zh": "激光外层扩散。"
+  },
+  "IsFlammable": {
+    "type": "bool",
+    "desc_zh": "是否可被火焰点燃。"
+  },
+  "MoveToShroud": {
+    "type": "bool",
+    "desc_zh": "移动时是否向战争迷雾内探索。"
+  },
+  "TurretOffset": {
+    "type": "string",
+    "desc_zh": "炮塔绘制偏移。"
+  },
+  "Ready": {
+    "type": "string",
+    "desc_zh": "待机序列。"
+  },
+  "Guard": {
+    "type": "string",
+    "desc_zh": "警戒序列。"
+  },
+  "Walk": {
+    "type": "string",
+    "desc_zh": "行走序列。"
+  },
+  "Die1": {
+    "type": "string",
+    "desc_zh": "死亡序列 1。"
+  },
+  "Die2": {
+    "type": "string",
+    "desc_zh": "死亡序列 2。"
+  },
+  "Die3": {
+    "type": "string",
+    "desc_zh": "死亡序列 3。"
+  },
+  "Die4": {
+    "type": "string",
+    "desc_zh": "死亡序列 4。"
+  },
+  "Die5": {
+    "type": "string",
+    "desc_zh": "死亡序列 5。"
+  },
+  "Cheer": {
+    "type": "string",
+    "desc_zh": "欢呼序列。"
+  },
+  "Idle1": {
+    "type": "string",
+    "desc_zh": "待机动画 1。"
+  },
+  "Idle2": {
+    "type": "string",
+    "desc_zh": "待机动画 2。"
+  },
+  "Crawl": {
+    "type": "string",
+    "desc_zh": "匍匐爬行序列。"
+  },
+  "Panic": {
+    "type": "string",
+    "desc_zh": "恐慌序列。"
+  },
+  "Fly": {
+    "type": "string",
+    "desc_zh": "飞行序列。"
+  },
+  "Hover": {
+    "type": "string",
+    "desc_zh": "悬浮序列。"
+  },
+  "Tread": {
+    "type": "string",
+    "desc_zh": "履带移动序列。"
+  },
+  "Swim": {
+    "type": "string",
+    "desc_zh": "游泳序列。"
+  },
+  "WetAttack": {
+    "type": "string",
+    "desc_zh": "水中攻击序列。"
+  },
+  "WetIdle1": {
+    "type": "string",
+    "desc_zh": "水中待机 1。"
+  },
+  "WetIdle2": {
+    "type": "string",
+    "desc_zh": "水中待机 2。"
+  },
+  "WetDie1": {
+    "type": "string",
+    "desc_zh": "水中死亡 1。"
+  },
+  "WetDie2": {
+    "type": "string",
+    "desc_zh": "水中死亡 2。"
+  },
+  "Deploy": {
+    "type": "string",
+    "desc_zh": "部署序列。"
+  },
+  "Deployed": {
+    "type": "string",
+    "desc_zh": "已部署序列。"
+  },
+  "DeployedFire": {
+    "type": "string",
+    "desc_zh": "部署后开火序列。"
+  },
+  "DeployedIdle": {
+    "type": "string",
+    "desc_zh": "部署后待机序列。"
+  },
+  "Undeploy": {
+    "type": "string",
+    "desc_zh": "取消部署序列。"
+  },
+  "FireProne": {
+    "type": "string",
+    "desc_zh": "匍匐开火序列。"
+  },
+  "SecondaryFire": {
+    "type": "string",
+    "desc_zh": "副武器开火序列。"
+  },
+  "SecondaryProne": {
+    "type": "string",
+    "desc_zh": "匍匐副武器开火序列。"
+  },
+  "AttachEffect.AttachTypes": {
+    "type": "list",
+    "desc_zh": "要附加的 AttachEffect 类型列表。"
+  },
+  "AttachEffect.DurationOverrides": {
+    "type": "list",
+    "desc_zh": "按顺序覆盖对应 AE 的持续时间。"
+  },
+  "AttachEffect.Delays": {
+    "type": "list",
+    "desc_zh": "AE 到期后重新创建的延迟列表；负值表示不再创建。"
+  },
+  "AttachEffect.InitialDelays": {
+    "type": "list",
+    "desc_zh": "AE 首次创建前的延迟列表。"
+  },
+  "AttachEffect.RecreationDelays": {
+    "type": "list",
+    "desc_zh": "AE 被完全移除后重新创建的延迟列表。"
+  },
+  "AttachEffect.RemoveTypes": {
+    "type": "list",
+    "desc_zh": "要移除的 AttachEffect 类型列表。"
+  },
+  "AttachEffect.RemoveGroups": {
+    "type": "list",
+    "desc_zh": "要移除的 AttachEffect 分组列表。"
+  },
+  "AttachEffect.RequiredTypes": {
+    "type": "list",
+    "desc_zh": "开火所需的 AE 类型列表。"
+  },
+  "AttachEffect.DisallowedTypes": {
+    "type": "list",
+    "desc_zh": "存在这些 AE 时禁止开火。"
+  },
+  "AttachEffect.RequiredGroups": {
+    "type": "list",
+    "desc_zh": "开火所需的 AE 分组列表。"
+  },
+  "AttachEffect.DisallowedGroups": {
+    "type": "list",
+    "desc_zh": "存在这些 AE 分组时禁止开火。"
+  },
+  "AttachEffect.Cumulative.MaxCount": {
+    "type": "int",
+    "desc_zh": "AE 最大叠加层数；负值表示无上限。"
+  },
+  "AttachEffect.Powered": {
+    "type": "bool",
+    "desc_zh": "AE 是否受电力/EMP 影响。"
+  },
+  "AttachEffect.DiscardOn": {
+    "type": "string",
+    "desc_zh": "AE 的丢弃条件列表（entry/move/stationary/firing/health 等）。"
+  },
+  "AttachEffect.Animation.ResetOnReapply": {
+    "type": "bool",
+    "desc_zh": "重复施加时是否重置 AE 动画。"
+  },
+  "AttachEffect.Animation.OfflineAction": {
+    "type": "string",
+    "desc_zh": "AE 失效/断电时动画的处理方式（None/Hides/Temporal/Paused）。"
+  },
+  "AttachEffect.Animation.TemporalAction": {
+    "type": "string",
+    "desc_zh": "AE 被超时空影响时动画的处理方式。"
+  },
+  "AttachEffect.Animation.UseInvokerAsOwner": {
+    "type": "bool",
+    "desc_zh": "AE 动画是否使用施加者作为所属方。"
+  },
+  "AttachEffect.Tint.Color": {
+    "type": "string",
+    "desc_zh": "AE 染色颜色（R,G,B）。"
+  },
+  "AttachEffect.Tint.Intensity": {
+    "type": "float",
+    "desc_zh": "AE 染色强度。"
+  },
+  "AttachEffect.WeaponRange.Multiplier": {
+    "type": "float",
+    "desc_zh": "AE 对武器射程的倍率。"
+  },
+  "AttachEffect.WeaponRange.ExtraRange": {
+    "type": "float",
+    "desc_zh": "AE 对武器射程的额外增减（格）。"
+  },
+  "AttachEffect.Crit.Multiplier": {
+    "type": "float",
+    "desc_zh": "AE 对暴击概率的倍率。"
+  },
+  "AttachEffect.Crit.ExtraChance": {
+    "type": "float",
+    "desc_zh": "AE 对暴击概率的固定加成。"
+  },
+  "AttachEffect.RevengeWeapon": {
+    "type": "weapon",
+    "desc_zh": "AE 赋予的复仇武器。"
+  },
+  "AttachEffect.ReflectDamage": {
+    "type": "bool",
+    "desc_zh": "AE 是否反弹受到的伤害。"
+  },
+  "AttachEffect.DisableWeapons": {
+    "type": "bool",
+    "desc_zh": "AE 是否禁用武器。"
+  },
+  "AttachEffect.Unkillable": {
+    "type": "bool",
+    "desc_zh": "AE 是否使目标无法被伤害击杀（最低 1 血）。"
+  },
+  "AttachEffect.Groups": {
+    "type": "list",
+    "desc_zh": "AE 分组列表，可用于按组移除/过滤。"
+  },
+  "AttachEffect.CumulativeRefreshAll": {
+    "type": "bool",
+    "desc_zh": "满层时是否刷新所有同类型 AE 的持续时间。"
+  },
+  "AttachEffect.ReplaceLongerDuration": {
+    "type": "bool",
+    "desc_zh": "已有更长持续时间时是否覆盖。"
+  },
+  "PowersUp.Owner": {
+    "type": "string",
+    "desc_zh": "建筑升级可放置的所属方（self/allies/enemies 等）。"
+  },
+  "PowersUp.Buildings": {
+    "type": "list",
+    "desc_zh": "该升级可作用的建筑类型列表。"
+  },
+  "Adjacent.Allowed": {
+    "type": "list",
+    "desc_zh": "允许紧邻建造的建筑类型列表。"
+  },
+  "Adjacent.Disallowed": {
+    "type": "list",
+    "desc_zh": "禁止紧邻建造的建筑类型列表。"
+  },
+  "Adjacent.Disallowed.Prohibit": {
+    "type": "bool",
+    "desc_zh": "邻近禁止建筑时是否严格禁止放置。"
+  },
+  "Adjacent.Disallowed.ProhibitDistance": {
+    "type": "int",
+    "desc_zh": "邻近禁止建筑的判定距离。"
+  },
+  "NoBuildAreaOnBuildup": {
+    "type": "bool",
+    "desc_zh": "Buildup 动画期间是否禁止在其周围建造。"
+  },
+  "ExtendedBuildingPlacing": {
+    "type": "bool",
+    "desc_zh": "是否允许在步兵/载具占用的格子上放置建筑并驱散它们。"
+  },
+  "AutoUpgrade": {
+    "type": "bool",
+    "desc_zh": "建筑升级是否自动放到最早建成的有效建筑上。"
+  },
+  "IsDestroyableObstacle": {
+    "type": "bool",
+    "desc_zh": "建筑是否作为可摧毁的寻路障碍。"
+  },
+  "EngineerRepairAmount": {
+    "type": "int",
+    "desc_zh": "工程师一次修复量；0 为修满，负数为百分比。"
+  },
+  "PowerPlantEnhancer.AffectTypes": {
+    "type": "list",
+    "desc_zh": "受该建筑电力增强影响的类型列表。"
+  },
+  "PowerPlantEnhancer.Range": {
+    "type": "float",
+    "desc_zh": "电力增强范围（格）。"
+  },
+  "PowerPlantEnhancer.Amount": {
+    "type": "int",
+    "desc_zh": "电力增强量。"
+  },
+  "PowerPlantEnhancer.Factor": {
+    "type": "float",
+    "desc_zh": "电力增强倍率。"
+  },
+  "PowerPlantEnhancer.MaxCount": {
+    "type": "int",
+    "desc_zh": "参与增强的建筑数量上限；负值无限制。"
+  },
+  "SpyEffect.VictimSuperWeapon": {
+    "type": "string",
+    "desc_zh": "渗透后对被渗透方触发的超武。"
+  },
+  "SpyEffect.InfiltratorSuperWeapon": {
+    "type": "string",
+    "desc_zh": "渗透后对渗透方触发的超武。"
+  },
+  "Convert.Undeploy": {
+    "type": "string",
+    "desc_zh": "取消部署时转换成的类型。"
+  },
+  "OnlyUseLandSequences": {
+    "type": "bool",
+    "desc_zh": "步兵在水中是否仍使用陆地序列。"
+  },
+  "Parachuted": {
+    "type": "bool",
+    "desc_zh": "抛射体是否使用降落伞下落。"
+  },
+  "Parachuted.FallRate": {
+    "type": "int",
+    "desc_zh": "降落伞下落速度。"
+  },
+  "Parachuted.MaxFallRate": {
+    "type": "int",
+    "desc_zh": "降落伞最大下落速度。"
+  },
+  "Interceptable": {
+    "type": "bool",
+    "desc_zh": "抛射体是否可被拦截。"
+  },
+  "Interceptor.Weapon": {
+    "type": "int",
+    "desc_zh": "拦截时使用的武器索引（0 主武 / 1 副武）。"
+  },
+  "Interceptor.TargetingDelay": {
+    "type": "int",
+    "desc_zh": "拦截扫描间隔帧数。"
+  },
+  "Interceptor.GuardRange": {
+    "type": "int",
+    "desc_zh": "拦截最大范围。"
+  },
+  "Interceptor.MinimumGuardRange": {
+    "type": "int",
+    "desc_zh": "拦截最小范围。"
+  },
+  "Interceptor.CanTargetHouses": {
+    "type": "string",
+    "desc_zh": "可拦截哪些所属方的抛射体。"
+  },
+  "Interceptor.ApplyFirepowerMult": {
+    "type": "bool",
+    "desc_zh": "拦截伤害是否受火力倍率影响。"
+  },
+  "Interceptable.DeleteOnIntercept": {
+    "type": "bool",
+    "desc_zh": "拦截后是否直接删除抛射体。"
+  },
+  "Trajectory": {
+    "type": "string",
+    "desc_zh": "抛射体轨迹类型（Straight/Bombard/Parabola 等）。"
+  },
+  "Trajectory.Straight": {
+    "type": "string",
+    "desc_zh": "直线轨迹参数。"
+  },
+  "Trajectory.Bombard": {
+    "type": "string",
+    "desc_zh": "炮击轨迹参数。"
+  },
+  "Trajectory.Parabola": {
+    "type": "string",
+    "desc_zh": "抛物线轨迹参数。"
+  },
+  "AreaFire.Target": {
+    "type": "string",
+    "desc_zh": "区域射击的目标选择方式。"
+  },
+  "BurstDelay": {
+    "type": "int",
+    "desc_zh": "连发之间的延迟帧数。"
+  },
+  "BurstDelay.Min": {
+    "type": "int",
+    "desc_zh": "随机连发延迟最小值。"
+  },
+  "BurstDelay.Max": {
+    "type": "int",
+    "desc_zh": "随机连发延迟最大值。"
+  },
+  "ExtraRange": {
+    "type": "float",
+    "desc_zh": "武器额外射程（格）。"
+  },
+  "ExtraWarhead": {
+    "type": "warhead",
+    "desc_zh": "额外附加的弹头。"
+  },
+  "FeedbackWeapon": {
+    "type": "weapon",
+    "desc_zh": "反馈武器：命中后对攻击者开火。"
   }
 }

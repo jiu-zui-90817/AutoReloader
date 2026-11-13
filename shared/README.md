@@ -10,7 +10,9 @@
 | `project_scan` | 按 profile 扫描注册表/单位 |
 | `codex_builder` | 工坊用显示名/武器列表/阵营分类词典 |
 | `profiles.json` | Mental Omega / YR 路径约定 |
-| `schemas/common_flags.json` | **属性说明唯一源**（构建时复制到各前端） |
+| `schemas/common_flags.json` | **属性说明唯一源**（约 1000+ 键；构建时复制到各前端） |
+
+属性词典覆盖范围、索引键回退和维护约定见 [docs/attribute-dictionary.md](../docs/attribute-dictionary.md)。
 
 ## 使用
 

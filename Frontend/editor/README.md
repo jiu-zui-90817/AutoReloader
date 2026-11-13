@@ -19,7 +19,7 @@ python Frontend/editor/main.py
 - 打开**游戏/工程目录**或**单文件**；记住上次目录（`config.json` → `settings`）
 - 合并视图：Rules + Art + **AI**（配置中的 `ai_files`）
 - 对象树分类；同名 section 按 Rules/Art/AI 与分组消歧
-- 属性说明（`common_flags.json`）；右键可在对象树 / 编辑器中定位
+- 属性说明（`common_flags.json`，1000+ 键；覆盖原版 Art、Ares 3.0、Phobos 常用键）；右键可在对象树 / 编辑器中定位
 - 代码区自动换行（编辑菜单）；查找替换
 - 保存当前 / 保存全部；删除 section（带备份）
 - 保存保护：拒绝同名 section 重复、拒绝空内容覆盖 Art 节、拒绝把 rules 字段写进 Art（或反向），避免致命保存事故
