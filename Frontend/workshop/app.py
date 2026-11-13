@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -21,7 +22,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QLineEdit, QLabel, QPushButton,
     QComboBox, QScrollArea, QFrame, QMessageBox, QFileDialog, QToolBar,
-    QStatusBar, QSizePolicy, QCheckBox, QInputDialog,
+    QStatusBar, QSizePolicy, QCheckBox, QInputDialog, QDialog, QDialogButtonBox,
 )
 
 from fields import (
@@ -252,6 +253,102 @@ def extract_real_id(text: str) -> str:
     return text
 
 
+class ConvertTargetDialog(QDialog):
+    """单位转换向导：中文名、搜索、往返、冲突提示。"""
+
+    def __init__(self, parent, source_id: str, source_label: str,
+                 targets: list[tuple[str, str]], existing: list[str]):
+        super().__init__(parent)
+        self.setWindowTitle("单位转换")
+        self.setMinimumWidth(620)
+        self._targets = targets
+        self.source_id = source_id
+
+        layout = QVBoxLayout(self)
+        src = QLabel(f"源类型：{source_label}")
+        src.setStyleSheet("font-weight:600; color:#c4b5fd;")
+        src.setWordWrap(True)
+        layout.addWidget(src)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索目标 ID 或中文名…")
+        self.search.textChanged.connect(self._refresh)
+        layout.addWidget(self.search)
+
+        self.combo = QComboBox()
+        self.combo.setMinimumWidth(520)
+        layout.addWidget(self.combo)
+
+        self.round_cb = QCheckBox("同时写入反向转换（让已有单位重新读取配置，保留编组/指令）")
+        self.round_cb.setChecked(True)
+        layout.addWidget(self.round_cb)
+
+        self.preview = QLabel("")
+        self.preview.setStyleSheet("color:#93c5fd; font-family:Consolas;")
+        self.preview.setWordWrap(True)
+        layout.addWidget(self.preview)
+        self.combo.currentIndexChanged.connect(self._update_preview)
+        self.round_cb.toggled.connect(self._update_preview)
+
+        incoming, outgoing = [], []
+        for line in existing:
+            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line.strip())
+            if not m:
+                continue
+            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
+            if len(parts) != 2:
+                continue
+            src_id, dst_id = parts[0].strip(), parts[1].strip()
+            if src_id.lower() == source_id.lower():
+                outgoing.append(line.strip())
+            if dst_id.lower() == source_id.lower() and src_id.lower() != source_id.lower():
+                incoming.append(line.strip())
+        notes = []
+        if outgoing:
+            notes.append("将替换源类型现有转换：\n" + "\n".join(outgoing[:4]))
+        if incoming:
+            notes.append("存在指向该源类型的映射，可能形成链式转换：\n" + "\n".join(incoming[:4]))
+        if notes:
+            tip = QLabel("\n\n".join(notes))
+            tip.setStyleSheet("color:#fbbf24; font-size:12px;")
+            tip.setWordWrap(True)
+            layout.addWidget(tip)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self._refresh()
+
+    def _refresh(self):
+        text = self.search.text().strip().lower()
+        current = self.combo.currentData()
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        for tid, label in self._targets:
+            if not text or text in tid.lower() or text in label.lower():
+                self.combo.addItem(label, tid)
+        if current:
+            idx = self.combo.findData(current)
+            if idx >= 0:
+                self.combo.setCurrentIndex(idx)
+        self.combo.blockSignals(False)
+        self._update_preview()
+
+    def _update_preview(self, *_):
+        target = self.combo.currentData()
+        if not target:
+            self.preview.setText("没有匹配的目标类型")
+            return
+        lines = [f"Convert={self.source_id}>{target}"]
+        if self.round_cb.isChecked():
+            lines.append(f"Convert={target}>{self.source_id}")
+        self.preview.setText("\n".join(lines))
+
+    def result_data(self):
+        return self.combo.currentData(), bool(self.round_cb.isChecked())
+
+
 class NoWheelFilter(QObject):
     """禁止在下拉框外的控件上滚轮改值。"""
 
@@ -318,30 +415,31 @@ class WorkshopWindow(QMainWindow):
 
     # ---------- settings ----------
     def _settings_path(self) -> Path:
-        """可写 console_config。禁止写临时目录。"""
-        candidates = []
+        """用户设置放在 LocalAppData，避免覆盖更新时丢失路径选择。"""
+        user = local_appdata() / "AutoReloader" / "TacticalWorkshop" / "console_config.json"
+        try:
+            user.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return Path.home() / ".autoreloader" / "TacticalWorkshop" / "console_config.json"
+
+        if user.is_file():
+            return user
+
+        # 迁移旧版放在程序目录/旧 LocalAppData 名称下的设置。
         ad = get_app_dir()
-        if not _is_ephemeral(ad):
-            candidates.append(ad / "console_config.json")
-        candidates.append(local_appdata() / "TacticalWorkshop" / "console_config.json")
-        candidates.append(Path.home() / ".tactical_workshop" / "console_config.json")
-        for path in candidates:
+        legacy = [
+            ad / "console_config.json",
+            local_appdata() / "TacticalWorkshop" / "console_config.json",
+            Path.home() / ".tactical_workshop" / "console_config.json",
+        ]
+        for path in legacy:
             try:
-                path.parent.mkdir(parents=True, exist_ok=True)
                 if path.is_file():
-                    return path
-                probe = path.parent / ".w"
-                probe.write_text("1", encoding="utf-8")
-                probe.unlink(missing_ok=True)
-                return path
+                    shutil.copy2(path, user)
+                    return user
             except Exception:
                 continue
-        fallback = local_appdata() / "TacticalWorkshop" / "console_config.json"
-        try:
-            fallback.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-        return fallback
+        return user
 
 
     def _load_settings(self) -> dict:
@@ -1233,8 +1331,8 @@ class WorkshopWindow(QMainWindow):
             QMessageBox.information(self, "单位转换", "请先绑定工程文件（hotfix.ini）")
             return
 
-        targets = self._convert_target_ids(self.current_id)
-        if not targets:
+        target_ids = self._convert_target_ids(self.current_id)
+        if not target_ids:
             QMessageBox.information(
                 self, "单位转换",
                 f"[{self.current_id}] 没有可用的同类别、同水域/陆地目标类型。\n"
@@ -1242,44 +1340,22 @@ class WorkshopWindow(QMainWindow):
             )
             return
 
-        target, ok = QInputDialog.getItem(
-            self, "单位转换",
-            f"源类型：[{self.current_id}]\n只显示同类别且同水域/陆地的目标：",
-            targets, 0, False,
+        def _label(tid: str) -> str:
+            try:
+                return self.game.display_name(tid) if self.game else tid
+            except Exception:
+                return tid
+
+        targets = [(tid, _label(tid)) for tid in target_ids]
+        dlg = ConvertTargetDialog(
+            self, self.current_id, _label(self.current_id), targets,
+            read_autoreloader_commands(self.hotfix_path),
         )
-        if not ok or not target:
+        if dlg.exec() != QDialog.Accepted:
             return
-
-        import re
-        incoming = []
-        for line in read_autoreloader_commands(self.hotfix_path):
-            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line)
-            if not m:
-                continue
-            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
-            if len(parts) == 2 and parts[1].strip().lower() == self.current_id.lower() \
-                    and parts[0].strip().lower() != self.current_id.lower():
-                incoming.append(line)
-        if incoming:
-            choice = QMessageBox.question(
-                self, "单位转换",
-                "检测到指向该源类型的其它转换：\n\n" + "\n".join(incoming) +
-                "\n\n它们可能与新转换形成链式转换。是否继续？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if choice != QMessageBox.StandardButton.Yes:
-                return
-
-        round_trip = QMessageBox.question(
-            self, "单位转换",
-            f"是否同时写入反向转换？\n\n"
-            f"Convert={self.current_id}>{target}\n"
-            f"Convert={target}>{self.current_id}\n\n"
-            "反向转换可让已有单位重新读取配置，并保留编组/指令。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        ) == QMessageBox.StandardButton.Yes
+        target, round_trip = dlg.result_data()
+        if not target:
+            return
 
         result = apply_convert_commands(
             self.hotfix_path, self.current_id, target, round_trip,

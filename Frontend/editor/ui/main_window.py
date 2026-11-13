@@ -848,6 +848,108 @@ class CloneUnitDialog(QDialog):
         }
 
 
+class ConvertTargetDialog(QDialog):
+    """单位转换向导：搜索目标、中文名、往返选项、冲突提示。"""
+
+    def __init__(self, parent, source_id: str, source_label: str,
+                 targets: list[tuple[str, str]], existing: list[str]):
+        super().__init__(parent)
+        self.setWindowTitle("单位转换")
+        self.setMinimumWidth(620)
+        self._targets = targets
+
+        layout = QVBoxLayout(self)
+        src = QLabel(f"源类型：{source_label}")
+        src.setStyleSheet("font-weight:600; color:#c4b5fd;")
+        src.setWordWrap(True)
+        layout.addWidget(src)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("搜索目标 ID 或中文名…")
+        self.search.textChanged.connect(self._refresh)
+        layout.addWidget(self.search)
+
+        self.combo = QComboBox()
+        self.combo.setMinimumWidth(520)
+        layout.addWidget(self.combo)
+
+        self.round_cb = QCheckBox("同时写入反向转换（让已有单位重新读取配置，保留编组/指令）")
+        self.round_cb.setChecked(True)
+        layout.addWidget(self.round_cb)
+
+        self.preview = QLabel("")
+        self.preview.setStyleSheet("color:#93c5fd; font-family:Consolas;")
+        self.preview.setWordWrap(True)
+        layout.addWidget(self.preview)
+        self.combo.currentIndexChanged.connect(self._update_preview)
+        self.round_cb.toggled.connect(self._update_preview)
+
+        self.source_id = source_id
+        incoming = []
+        outgoing = []
+        for line in existing:
+            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line.strip())
+            if not m:
+                continue
+            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
+            if len(parts) != 2:
+                continue
+            src_id, dst_id = parts[0].strip(), parts[1].strip()
+            if src_id.lower() == source_id.lower():
+                outgoing.append(line.strip())
+            if dst_id.lower() == source_id.lower() and src_id.lower() != source_id.lower():
+                incoming.append(line.strip())
+        notes = []
+        if outgoing:
+            notes.append("将替换源类型现有转换：\n" + "\n".join(outgoing[:4]))
+        if incoming:
+            notes.append("存在指向该源类型的映射，可能形成链式转换：\n" + "\n".join(incoming[:4]))
+        if notes:
+            tip = QLabel("\n\n".join(notes))
+            tip.setStyleSheet("color:#fbbf24; font-size:12px;")
+            tip.setWordWrap(True)
+            layout.addWidget(tip)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self._refresh()
+
+    def _visible_targets(self):
+        text = self.search.text().strip().lower()
+        for tid, label in self._targets:
+            if not text or text in tid.lower() or text in label.lower():
+                yield tid, label
+
+    def _refresh(self):
+        current = self.combo.currentData()
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        for tid, label in self._visible_targets():
+            self.combo.addItem(label, tid)
+        if current:
+            idx = self.combo.findData(current)
+            if idx >= 0:
+                self.combo.setCurrentIndex(idx)
+        self.combo.blockSignals(False)
+        self._update_preview()
+
+    def _update_preview(self, *_):
+        target = self.combo.currentData()
+        if not target:
+            self.preview.setText("没有匹配的目标类型")
+            return
+        lines = [f"Convert={self.source_id}>{target}"]
+        if self.round_cb.isChecked():
+            lines.append(f"Convert={target}>{self.source_id}")
+        self.preview.setText("\n".join(lines))
+
+    def result_data(self):
+        return self.combo.currentData(), bool(self.round_cb.isChecked())
+
+
 class _DepNodeItem(QGraphicsRectItem):
     """依赖图节点：双击打开对应节。"""
 
@@ -2392,8 +2494,8 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "单位转换", "请先设置 hotfix 路径")
             return
 
-        targets = self._convert_target_ids(sid)
-        if not targets:
+        target_ids = self._convert_target_ids(sid)
+        if not target_ids:
             QMessageBox.information(
                 self, "单位转换",
                 f"[{sid}] 没有可用的同类别、同水域/陆地目标类型。\n"
@@ -2401,44 +2503,15 @@ class MainWindow(QMainWindow):
             )
             return
 
-        target, ok = QInputDialog.getItem(
-            self, "单位转换",
-            f"源类型：[{sid}]\n只显示同类别且同水域/陆地的目标：",
-            targets, 0, False,
+        targets = [(tid, self._disp(tid)) for tid in target_ids]
+        dlg = ConvertTargetDialog(
+            self, sid, self._disp(sid), targets, self._read_auto_commands(path)
         )
-        if not ok or not target:
+        if dlg.exec() != QDialog.Accepted:
             return
-
-        import re
-        incoming = []
-        for line in self._read_auto_commands(path):
-            m = re.match(r"(?i)^convert\s*=\s*(.+)$", line)
-            if not m:
-                continue
-            parts = re.split(r"\s*(?:->|>)\s*", m.group(1), maxsplit=1)
-            if len(parts) == 2 and parts[1].strip().lower() == sid.lower() \
-                    and parts[0].strip().lower() != sid.lower():
-                incoming.append(line)
-        if incoming:
-            choice = QMessageBox.question(
-                self, "单位转换",
-                "检测到指向该源类型的其它转换：\n\n" + "\n".join(incoming) +
-                "\n\n它们可能与新转换形成链式转换。是否继续？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if choice != QMessageBox.StandardButton.Yes:
-                return
-
-        round_trip = QMessageBox.question(
-            self, "单位转换",
-            f"是否同时写入反向转换？\n\n"
-            f"Convert={sid}>{target}\n"
-            f"Convert={target}>{sid}\n\n"
-            "反向转换可让已有单位重新读取配置，并保留编组/指令。",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        ) == QMessageBox.StandardButton.Yes
+        target, round_trip = dlg.result_data()
+        if not target:
+            return
 
         result = self._apply_convert_commands(path, sid, target, round_trip)
         if result.get("ok"):

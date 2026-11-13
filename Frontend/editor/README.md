@@ -23,6 +23,8 @@ python Frontend/editor/main.py
 - 代码区自动换行（编辑菜单）；查找替换
 - 保存当前 / 保存全部；删除 section（带备份）
 - 保存保护：拒绝同名 section 重复、拒绝空内容覆盖 Art 节、拒绝把 rules 字段写进 Art（或反向），避免致命保存事故
+- 路径/偏好自动备份到 `%LOCALAPPDATA%\AutoReloader\INIEditor\config.user.json`，覆盖更新 `Tools/config.json` 后仍会恢复
+- 单位转换向导：目标显示中文名、可搜索、支持往返转换，并提示旧映射/链式冲突
 - 调试窗口 → 部署 `hotfix.ini` 配合 AutoReloader
 - 工具 →「生成单位转换指令（Convert）…」：
   - 目标只列出同类别、同水域/陆地的类型（海军→海军、陆军→陆军）；

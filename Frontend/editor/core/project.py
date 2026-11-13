@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Any, Tuple
 
@@ -243,18 +245,57 @@ class Project:
 
         self.load_config()
 
+    @staticmethod
+    def _deep_merge(base: dict, overlay: dict) -> dict:
+        for key, value in (overlay or {}).items():
+            if isinstance(value, dict) and isinstance(base.get(key), dict):
+                Project._deep_merge(base[key], value)
+            else:
+                base[key] = value
+        return base
+
+    def user_config_backup_path(self) -> Path:
+        """用户配置备份：程序目录被覆盖更新时，用它恢复路径/偏好。"""
+        la = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
+        if la:
+            return Path(la) / "AutoReloader" / "INIEditor" / "config.user.json"
+        return Path.home() / ".autoreloader" / "INIEditor" / "config.user.json"
+
     def load_config(self):
+        base: dict = {}
         if self.config_path.exists():
-            with open(self.config_path, "r", encoding="utf-8") as f:
-                self.config = json.load(f)
-        else:
-            self.config = {"active_profile": "MentalOmega", "profiles": {}}
+            try:
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    base = json.load(f)
+            except Exception:
+                base = {}
+        if not base:
+            base = {"active_profile": "MentalOmega", "profiles": {}}
+
+        backup_path = self.user_config_backup_path()
+        user: dict = {}
+        if backup_path.is_file():
+            try:
+                user = json.loads(backup_path.read_text(encoding="utf-8"))
+            except Exception:
+                user = {}
+        # 用户配置覆盖默认配置：更新包覆盖 Tools/config.json 后，仍能恢复路径选择。
+        self.config = self._deep_merge(copy.deepcopy(base), user)
+        if not backup_path.is_file() and self.config_path.is_file():
+            # 首次升级：把当前配置转存为用户备份，避免下一次更新再丢。
+            try:
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
+                backup_path.write_text(
+                    json.dumps(self.config, ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
         self.profile_name = self.config.get("active_profile", "")
         self.profile = self.config.get("profiles", {}).get(self.profile_name, {})
 
     def save_config(self):
-        """写入 config；失败则尝试 %LocalAppData%\\MO_INI_Editor\\config.json。"""
-        import os
+        """写入 config；同时保留用户备份，保证覆盖更新后路径不丢。"""
         payload = json.dumps(self.config, ensure_ascii=False, indent=2)
         targets = [Path(self.config_path)]
         la = os.environ.get("LOCALAPPDATA") or os.environ.get("LocalAppData")
@@ -262,17 +303,26 @@ class Project:
             targets.append(Path(la) / "MO_INI_Editor" / "config.json")
         targets.append(Path.home() / ".mo_ini_editor" / "config.json")
         last_err = None
+        written = False
         for path in targets:
             try:
                 path = Path(path)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(payload, encoding="utf-8")
                 self.config_path = path
-                return
+                written = True
+                break
             except Exception as e:
                 last_err = e
                 continue
-        if last_err:
+        # 用户备份：不受安装目录覆盖影响
+        try:
+            backup = self.user_config_backup_path()
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            backup.write_text(payload, encoding="utf-8")
+        except Exception:
+            pass
+        if not written and last_err:
             raise last_err
 
     def set_active_profile(self, name: str):

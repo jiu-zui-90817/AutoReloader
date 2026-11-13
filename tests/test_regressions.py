@@ -73,6 +73,41 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(plain, "[E1]\nStrength=1\n")
         self.assertEqual(normalize_section_body("E1", plain), plain)
 
+    def test_editor_config_survives_update_overwrite(self):
+        import json
+        import os
+        import tempfile as _tempfile
+
+        old_la = os.environ.get("LOCALAPPDATA")
+        try:
+            with _tempfile.TemporaryDirectory() as la:
+                os.environ["LOCALAPPDATA"] = la
+                cfg = self.tmp / "config.json"
+                cfg.write_text(
+                    json.dumps({
+                        "active_profile": "X",
+                        "profiles": {"X": {"display_name": "X", "rules_files": ["rules.ini"]}},
+                        "settings": {"last_game_dir": "BASE"},
+                    }), encoding="utf-8"
+                )
+                p = Project(cfg)
+                p.config["settings"]["last_game_dir"] = "USER"
+                p.save_config()
+
+                # 模拟覆盖更新：安装目录 config 被默认值替换
+                cfg.write_text(json.dumps({
+                    "active_profile": "X",
+                    "profiles": {"X": {"display_name": "X", "rules_files": ["rules.ini"]}},
+                    "settings": {"last_game_dir": "NEW_DEFAULT"},
+                }), encoding="utf-8")
+                p2 = Project(cfg)
+                self.assertEqual(p2.config["settings"]["last_game_dir"], "USER")
+        finally:
+            if old_la is None:
+                os.environ.pop("LOCALAPPDATA", None)
+            else:
+                os.environ["LOCALAPPDATA"] = old_la
+
     def test_common_flag_dictionary_has_ares_art_and_indexed_keys(self):
         import json
         schema = json.loads(
