@@ -36,7 +36,6 @@ from PySide6.QtWidgets import (
 )
 
 from core.project import Project
-from core.mix_reader import MixArchive, MixError, guess_entry_kind
 from paths import app_dir, bundle_dir, user_config_path, user_cache_dir, is_frozen
 
 APP_TITLE = "INI 工程编辑器"
@@ -2154,188 +2153,6 @@ class LintDialog(QDialog):
 
 
 
-class MixBrowserDialog(QDialog):
-    """RA2/YR MIX 只读浏览器：列表、预览、提取；不写回 MIX。"""
-
-    def __init__(self, parent, archive, title: str = ""):
-        super().__init__(parent)
-        self.archive = archive
-        self.selected_path: Optional[Path] = None
-        self.setWindowTitle(title or f"MIX 浏览（只读） - {archive.path.name}")
-        self.resize(960, 640)
-
-        layout = QVBoxLayout(self)
-        tip = QLabel(
-            f"只读浏览：{archive.path.name}，共 {len(archive.entries)} 个条目。"
-            "不会写回 MIX；需要编辑请先提取到临时文件。"
-        )
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color:#93c5fd;")
-        layout.addWidget(tip)
-
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("搜索文件名 / ID…")
-        self.search.textChanged.connect(self._refresh)
-        layout.addWidget(self.search)
-
-        split = QSplitter(Qt.Horizontal)
-        self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["文件", "ID", "大小", "预览"])
-        self.tree.setRootIsDecorated(False)
-        self.tree.setAlternatingRowColors(True)
-        self.tree.itemSelectionChanged.connect(self._on_select)
-        self.tree.itemDoubleClicked.connect(lambda *_: self._extract_and_open())
-        split.addWidget(self.tree)
-
-        self.preview = QPlainTextEdit()
-        self.preview.setReadOnly(True)
-        self.preview.setPlaceholderText("选择左侧条目查看文本预览；二进制显示前 4KB 十六进制…")
-        split.addWidget(self.preview)
-        split.setSizes([560, 380])
-        layout.addWidget(split, 1)
-
-        buttons = QHBoxLayout()
-        self.open_btn = QPushButton("提取并打开")
-        self.open_btn.clicked.connect(self._extract_and_open)
-        self.save_btn = QPushButton("提取到…")
-        self.save_btn.clicked.connect(self._extract_to)
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(self.reject)
-        buttons.addWidget(self.open_btn)
-        buttons.addWidget(self.save_btn)
-        buttons.addStretch(1)
-        buttons.addWidget(close_btn)
-        layout.addLayout(buttons)
-
-        self._rows = []
-        self._refresh()
-
-    def _refresh(self):
-        text = self.search.text().strip().lower()
-        self.tree.clear()
-        self._rows = []
-        for index, entry in enumerate(self.archive.entries):
-            name = entry.display_name
-            if text and text not in name.lower() and text not in f"{entry.id:08x}":
-                continue
-            try:
-                head = self.archive.read_head(entry, 4096)
-                kind = guess_entry_kind(head)
-            except Exception:
-                kind = "bin"
-            item = QTreeWidgetItem([name, f"{entry.id:08X}", f"{entry.size:,}", kind])
-            item.setData(0, Qt.UserRole, index)
-            item.setToolTip(0, name)
-            self.tree.addTopLevelItem(item)
-            self._rows.append(entry)
-        if self.tree.topLevelItemCount():
-            self.tree.setCurrentItem(self.tree.topLevelItem(0))
-        else:
-            self.preview.clear()
-
-    def _on_select(self):
-        item = self.tree.currentItem()
-        if not item:
-            return
-        index = item.data(0, Qt.UserRole)
-        if index is None or index >= len(self._rows):
-            return
-        entry = self._rows[index]
-        try:
-            data = self.archive.read_head(entry, 300000)
-        except Exception as exc:
-            self.preview.setPlainText(f"读取失败：{exc}")
-            return
-        kind = guess_entry_kind(data)
-        if kind == "csf":
-            self.preview.setPlainText(
-                f"CSF 文件\n大小：{len(data):,} 字节\n前 32 字节：{data[:32].hex()}"
-            )
-        elif kind == "ini":
-            for enc in ("utf-8-sig", "utf-8", "gbk", "cp936"):
-                try:
-                    text = data.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                text = data.decode("latin-1", errors="replace")
-            self.preview.setPlainText(text[:300000])
-        else:
-            head = data[:4096]
-            self.preview.setPlainText(
-                f"二进制文件（{len(data):,} 字节）\n\n" +
-                "\n".join(
-                    f"{i:08X}  " + " ".join(f"{b:02X}" for b in head[i:i + 16])
-                    for i in range(0, len(head), 16)
-                )
-            )
-
-    def _target_path(self, entry) -> Path:
-        from paths import user_cache_dir
-
-        base = user_cache_dir() / "mix_extract" / self.archive.path.stem
-        base.mkdir(parents=True, exist_ok=True)
-        name = entry.name or f"ID_{entry.id:08X}.bin"
-        name = Path(name).name.replace(":", "_")
-        path = base / name
-        if path.exists():
-            stem, suffix = path.stem, path.suffix
-            n = 1
-            while path.exists():
-                path = base / f"{stem}_{n}{suffix}"
-                n += 1
-        return path
-
-    def _write_entry(self, entry) -> Optional[Path]:
-        try:
-            data = self.archive.extract(entry)
-        except Exception as exc:
-            QMessageBox.warning(self, "提取失败", str(exc))
-            return None
-        path = self._target_path(entry)
-        try:
-            path.write_bytes(data)
-        except Exception as exc:
-            QMessageBox.warning(self, "提取失败", str(exc))
-            return None
-        return path
-
-    def _extract_and_open(self):
-        item = self.tree.currentItem()
-        if not item:
-            return
-        index = item.data(0, Qt.UserRole)
-        if index is None or index >= len(self._rows):
-            return
-        entry = self._rows[index]
-        path = self._write_entry(entry)
-        if path is None:
-            return
-        self.selected_path = path
-        self.accept()
-
-    def _extract_to(self):
-        item = self.tree.currentItem()
-        if not item:
-            return
-        index = item.data(0, Qt.UserRole)
-        if index is None or index >= len(self._rows):
-            return
-        entry = self._rows[index]
-        data = self.archive.extract(entry)
-        default = str(self._target_path(entry))
-        path, _ = QFileDialog.getSaveFileName(self, "提取 MIX 条目", default)
-        if not path:
-            return
-        try:
-            Path(path).write_bytes(data)
-        except Exception as exc:
-            QMessageBox.warning(self, "提取失败", str(exc))
-            return
-        QMessageBox.information(self, "已提取", f"已写入:\n{path}\n\nMIX 本身未被修改。")
-
-
 class MainWindow(QMainWindow):
     def __init__(self, project: Project):
         super().__init__()
@@ -2781,10 +2598,6 @@ class MainWindow(QMainWindow):
         act_open_file.setShortcut(QKeySequence("Ctrl+Shift+O"))
         act_open_file.triggered.connect(self.open_loose_file)
         m_file.addAction(act_open_file)
-
-        act_open_mix = QAction("打开 MIX 文件（只读）…", self)
-        act_open_mix.triggered.connect(self.open_mix_file)
-        m_file.addAction(act_open_mix)
 
         m_file.addSeparator()
         act_save_cur = QAction("保存当前单位", self)
@@ -3863,55 +3676,6 @@ class MainWindow(QMainWindow):
         st_warm = self.project.config.get("settings") or {}
         if st_warm.get("warm_display_names_on_open", False):
             QTimer.singleShot(50, self._warm_display_cache)
-
-    def open_mix_file(self):
-        """只读浏览 RA2/YR MIX；提取到临时文件后可打开，不写回 MIX。"""
-        if not self._confirm_discard_if_dirty():
-            return
-        path_str, _ = QFileDialog.getOpenFileName(
-            self, "打开 MIX 文件（只读）",
-            str(self.project.project_dir or Path.home()),
-            "MIX 文件 (*.mix *.MIX);;所有文件 (*.*)",
-        )
-        if not path_str:
-            return
-        path = Path(path_str)
-        try:
-            archive = MixArchive.load(path, self.project.project_dir)
-        except MixError as exc:
-            QMessageBox.warning(self, "MIX", str(exc))
-            return
-        except Exception as exc:
-            QMessageBox.warning(self, "MIX", f"无法读取 MIX：\n{exc}")
-            return
-        dlg = MixBrowserDialog(self, archive)
-        try:
-            accepted = dlg.exec() == QDialog.Accepted
-            extracted = dlg.selected_path
-        finally:
-            archive.close()
-        if not accepted or extracted is None:
-            return
-        if not extracted.is_file():
-            QMessageBox.warning(self, "MIX", "提取失败：临时文件不存在")
-            return
-        if not self.project.open_single_file(extracted):
-            QMessageBox.information(
-                self, "MIX 已提取",
-                f"已提取到:\n{extracted}\n\n该文件不是可解析的 INI，未自动打开。",
-            )
-            return
-        self.project._add_allowed(extracted)
-        self._reset_editor_session_state()
-        self._refresh_file_combo()
-        self.act_single.setChecked(True)
-        self.file_row.show()
-        self._display_cache.clear()
-        self.tabs.clear()
-        self._dirty = False
-        self._update_chrome()
-        self.refresh_tree()
-        self.statusBar().showMessage(f"已从 MIX 提取并打开（只读）: {extracted}")
 
     def open_loose_file(self):
         """不依赖工程：直接打开一个 ini 进入单文件模式"""
