@@ -31,6 +31,7 @@ python Frontend/editor/main.py
   - 目标只列出同类别、同水域/陆地的类型（海军→海军、陆军→陆军）；
   - 可同时写反向转换，让已有单位重新读取配置并保留编组/指令；
   - 自动替换源类型的旧 `Convert` 映射，并对指向源类型的旧映射提示链式转换风险
+- 文件 →「打开 MIX 文件（只读）…」：浏览未加密 RA2/YR MIX，搜索、预览、提取；不写回 MIX。加密 MIX 目前提示用 XCC Mixer 解包。详见 [docs/mix-reader.md](../docs/mix-reader.md)
 
 ## 配置与词典
 

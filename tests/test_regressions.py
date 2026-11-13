@@ -114,6 +114,22 @@ class RegressionTests(unittest.TestCase):
             else:
                 os.environ["LOCALAPPDATA"] = old_la
 
+    def test_mix_reader_unencrypted_archive(self):
+        import struct
+        sys.path.insert(0, str(ROOT / "Frontend" / "editor"))
+        from core.mix_reader import MixArchive, ra2_crc
+
+        payload = b"[E1]\nStrength=100\n"
+        entry_id = ra2_crc("rules.ini")
+        head = struct.pack("<HI", 1, len(payload))
+        entry = struct.pack("<III", entry_id, 0, len(payload))
+        path = self.tmp / "test.mix"
+        path.write_bytes(head + entry + payload)
+        m = MixArchive.load(path)
+        self.assertEqual(len(m.entries), 1)
+        self.assertEqual(m.extract(m.entries[0]), payload)
+        m.close()
+
     def test_common_flag_dictionary_has_ares_art_and_indexed_keys(self):
         import json
         schema = json.loads(
