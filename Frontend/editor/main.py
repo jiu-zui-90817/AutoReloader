@@ -250,7 +250,11 @@ def main() -> None:
         _boot_log(f"config={config_path}")
         _boot_log(f"app_dir try: config exists={config_path.is_file()}")
         if not config_path.is_file():
-            for seed in (root / "config.json", root.parent / "config.json"):
+            for seed in (
+                root / "config.default.json",
+                root / "config.json",
+                root.parent / "config.json",
+            ):
                 try:
                     if seed.is_file() and seed.resolve() != config_path.resolve():
                         config_path.parent.mkdir(parents=True, exist_ok=True)

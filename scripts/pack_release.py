@@ -284,6 +284,12 @@ def pack(
 
     _nest_nuitka_like_pyinstaller(tools)
 
+    # 用户配置不随包覆盖：发行包只带 config.default.json，首次运行时由编辑器复制成 config.json。
+    cfg = tools / "config.json"
+    default_cfg = tools / "config.default.json"
+    if cfg.is_file():
+        shutil.copy2(cfg, default_cfg)
+        cfg.unlink()
     for compat_script in ("Enable-SyringeExCompat.cmd", "Disable-SyringeExCompat.cmd"):
         compat_src = Path("scripts") / compat_script
         if compat_src.is_file():
@@ -304,9 +310,9 @@ def pack(
         must(tools / "战术工坊.exe")
     else:
         must(tools / "战术工坊.exe")
-    must(tools / "config.json")
+    must(tools / "config.default.json")
 
-    set_profile(tools / "config.json", editor_profile)
+    set_profile(tools / "config.default.json", editor_profile)
     if (tools / "profiles.json").is_file():
         set_profile(tools / "profiles.json", workshop_profile)
 
@@ -316,7 +322,7 @@ def pack(
         f"AutoReloader 完整包 — {label}\n\n"
         f"Tools\\INI工程编辑器.exe / 战术工坊.exe = 壳\n"
         f"Tools\\_internal\\ = 真程序 + 运行库\n"
-        f"Tools\\config.json = 主配置（与壳同层）\n"
+        f"Tools\\config.default.json = 默认配置（首次运行复制为 config.json，不覆盖用户配置）\n"
     )
     (root / "README.txt").write_text(readme, encoding="utf-8")
     _log("packed", root_name, f"Tools={tools_mb}MB")

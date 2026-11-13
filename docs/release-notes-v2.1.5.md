@@ -26,7 +26,7 @@
 
 ### 修复
 
-- **更新不丢路径配置**：编辑器的路径/偏好保存到 `%LOCALAPPDATA%\AutoReloader\INIEditor\config.user.json` 并在启动时合并；工坊设置迁移到 `%LOCALAPPDATA%\AutoReloader\TacticalWorkshop\console_config.json`。覆盖安装 `Tools/config.json` 不再清空游戏目录选择。
+- **更新不丢路径配置**：发行包改为只带 `Tools/config.default.json`，首次运行才复制成 `Tools/config.json`，覆盖更新不再改写用户配置；编辑器另将路径/偏好备份到 `%LOCALAPPDATA%\AutoReloader\INIEditor\config.user.json` 并在启动时合并。工坊设置迁移到 `%LOCALAPPDATA%\AutoReloader\TacticalWorkshop\console_config.json`，覆盖安装不再清空游戏目录选择。
 - **单位转换向导**：目标显示中文名、支持搜索、往返转换和冲突提示，减少多步弹窗。
 - **编辑器保存保护**：写入前拒绝同名 section 重复、拒绝空内容覆盖 Art 节、拒绝把 rules 字段写进 Art（或反向），避免 Art/规则数据被误清空或错写文件。
 - 带 BOM、行尾注释（`[E1] ; comment`）或节名内外空格的 section 头被静默跳过。
